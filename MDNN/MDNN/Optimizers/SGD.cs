@@ -1,6 +1,6 @@
 ﻿
 
-namespace mdnn.Optimizers
+namespace My_DNN.Optimizers
 {
     public class SGD : Optimizer
     {

@@ -1,7 +1,7 @@
-﻿using mdnn.Layers.classes;
-using mdnn.Loss_functions;
-
-namespace mdnn
+﻿
+using My_DNN.Layers.classes;
+using My_DNN.Loss_functions;
+namespace My_DNN
 {
     public class Train
     {
@@ -487,7 +487,12 @@ namespace mdnn
                 GeneralNeuralNetworkSettings.modelInputSizeAndShape = inputs_values.GetTensorValue(new int[] { 0 }).Shape;
             }
 
-            model.Layers.SetInputSizeForFirstLayer();
+            
+
+            if (model.Layers.Layers[0].Input_size_and_shape[0] == 0)
+            {
+                model.Layers.SetInputSizeForFirstLayer();
+            }
 
             CheckLayersAreNotEmpty();
 
@@ -754,7 +759,6 @@ namespace mdnn
             if (GeneralNeuralNetworkSettings.AutoSaveInTrainLoop && (validLoss < lowestLoss))
             {
                 lowestLoss = validLoss;
-                model.Note = $"AutoSave with validLoss = {validLoss}";
                 model.SaveAsJson(GeneralNeuralNetworkSettings.AutoSaveInTrainLoopFileName);
             }
         }

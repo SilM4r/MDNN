@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
-namespace mdnn.Save_neural_network
+namespace My_DNN.Save_neural_network
 {
     public class ExportNeuron
     {

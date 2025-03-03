@@ -1,7 +1,7 @@
-﻿using mdnn.Loss_functions;
+﻿using My_DNN.Loss_functions;
 
 
-namespace mdnn
+namespace My_DNN
 {
     public class MSE: Loss
     {

@@ -1,9 +1,12 @@
-﻿using mdnn.Layers;
-using mdnn.Layers.classes;
+﻿using My_DNN.Layers;
+using My_DNN.Layers.classes;
+using My_DNN.Loss_functions;
+using ScottPlot.Finance;
+using static System.Formats.Asn1.AsnWriter;
+using static SkiaSharp.HarfBuzz.SKShaper;
 
 
-
-namespace mdnn
+namespace My_DNN
 {
     public static class ConsoleControler
     {
@@ -74,10 +77,10 @@ namespace mdnn
                         }
                         else
                         {
-                            shapeString = ((Dense)layer).Input_size_and_shape[0].ToString();
+                            shapeString = ((RNN)layer).Input_size_and_shape[0].ToString();
                         }
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
-                        Console.WriteLine($"| {number_of_layer}. Name: {layer.Name} | Number of neurons: {((Dense)layer).Neurons.Count} | Number of inputs: {((Dense)layer).Input_size_and_shape[0]} + 1 | Activation func: {((Dense)layer).Activation_Func.Name} |");
+                        Console.WriteLine($"| {number_of_layer}. Name: {layer.Name} | Number of neurons: {((RNN)layer).Neurons.Count} | Number of inputs: {((RNN)layer).Input_size_and_shape[0]} (+ {((RNN)layer).Input_size_and_shape[0]} Recurrents inputs) | Activation func: {((RNN)layer).Activation_Func.Name} |");
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
                         break;
                     case Conv:

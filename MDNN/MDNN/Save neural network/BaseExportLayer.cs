@@ -1,5 +1,5 @@
-﻿using mdnn.Layers;
-using mdnn.Layers.classes;
+﻿using My_DNN.Layers;
+using My_DNN.Layers.classes;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -7,7 +7,7 @@ using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
-namespace mdnn.Save_neural_network
+namespace My_DNN.Save_neural_network
 {
     public class BaseExportLayer
     {
