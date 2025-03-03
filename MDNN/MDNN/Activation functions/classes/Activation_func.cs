@@ -1,11 +1,11 @@
-﻿using mdnn.Activation_functions;
+﻿using My_DNN.Activation_functions;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace mdnn.Activation_functions.classes
+namespace My_DNN
 {
     public abstract class Activation_func
     {
@@ -24,7 +24,7 @@ namespace mdnn.Activation_functions.classes
                     return new Tanh();
                 case "relu":
                     return new ReLu();
-                case "leak_reLu":
+                case "leak_relu":
                     return new Leak_ReLu();
                 case "softmax":
                     return new Softmax();

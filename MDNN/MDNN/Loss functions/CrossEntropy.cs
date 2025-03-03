@@ -1,6 +1,6 @@
 ﻿
 
-namespace mdnn.Loss_functions
+namespace My_DNN.Loss_functions
 {
     public class CrossEntropy: Loss
     {

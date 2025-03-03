@@ -1,12 +1,13 @@
-﻿using mdnn.Layers;
-using mdnn.Layers.classes;
+﻿using My_DNN.Layers;
+using My_DNN.Layers.classes;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-namespace mdnn.Save_neural_network
+namespace My_DNN.Save_neural_network
 {
     public class NetworkSaveLoadManager
     {
         public string Note { get; set; }
+        public double Valid_Loss { get; set; }
         public string Schema { get; set; }
         public uint Current_epoch { get; set; }
         public uint Target_epoch { get; set; }
@@ -27,6 +28,7 @@ namespace mdnn.Save_neural_network
             Target_epoch = model.Train.Total_epoch;
             Mini_batch = model.Train.Mini_batch;
             Loss_functions = model.Loss.Name;
+            Valid_Loss = model.Loss.GetAverageLossPerIteration();
             Note = model.Note;
             Optimizer = new ExportOptimizer(model.Optimizer);
             Layers = new List<BaseExportLayer>();

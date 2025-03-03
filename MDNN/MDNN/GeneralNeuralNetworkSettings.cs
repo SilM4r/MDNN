@@ -1,10 +1,9 @@
-﻿using mdnn.Activation_functions;
-using mdnn.Activation_functions.classes;
-using mdnn.Loss_functions;
-using mdnn.Optimizers;
+﻿using My_DNN.Activation_functions;
+using My_DNN.Loss_functions;
+using My_DNN.Optimizers;
 
 
-namespace mdnn
+namespace My_DNN
 {
     public static class GeneralNeuralNetworkSettings
     {

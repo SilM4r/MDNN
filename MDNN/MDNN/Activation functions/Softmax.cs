@@ -1,10 +1,10 @@
 ﻿
-using mdnn.Activation_functions.classes;
-
-namespace mdnn.Activation_functions
+namespace My_DNN.Activation_functions
 {
     public class Softmax : LayerActivationFunc
     {
+        private double expSum = 0;
+        private List<double> expValues = new List<double>();
 
         private double[,] jacobian;
         private int a = -1;

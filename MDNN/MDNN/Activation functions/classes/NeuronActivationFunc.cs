@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace mdnn.Activation_functions.classes
+namespace My_DNN.Activation_functions
 {
     public abstract class NeuronActivationFunc: Activation_func
     {
