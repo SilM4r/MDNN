@@ -1,6 +1,11 @@
 ﻿using ScottPlot;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
 
-namespace mdnn
+namespace My_DNN
 {
     public static class GraphPlotter
     {

@@ -1,9 +1,8 @@
-﻿using mdnn.Activation_functions;
-using mdnn.Save_neural_network;
-using mdnn.Optimizers;
-using mdnn.Activation_functions.classes;
+﻿using My_DNN.Activation_functions;
+using My_DNN.Save_neural_network;
+using My_DNN.Optimizers;
 
-namespace mdnn
+namespace My_DNN
 {
 
     public class Neuron

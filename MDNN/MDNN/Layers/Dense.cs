@@ -1,8 +1,8 @@
-﻿using mdnn.Activation_functions.classes;
-using mdnn.Layers.classes;
-using mdnn.Save_neural_network;
+﻿using My_DNN.Activation_functions;
+using My_DNN.Layers.classes;
+using My_DNN.Save_neural_network;
 
-namespace mdnn.Layers
+namespace My_DNN.Layers
 {
 
     public class Dense : LayerBasedOnNeurons
@@ -42,7 +42,7 @@ namespace mdnn.Layers
 
             if (activation_func == null)
             {
-                if (LayerManager.number_of_penultimate_output_in_Layer[0] == 0)
+                if (LayerManager.number_of_penultimate_output_in_Layer[0] == -1)
                 {
                     activation_func = GeneralNeuralNetworkSettings.output_activation_func;
                 }
@@ -54,7 +54,14 @@ namespace mdnn.Layers
             }
             this.activation_func = activation_func;
 
-            input_size = LayerManager.number_of_penultimate_output_in_Layer;
+            if (LayerManager.number_of_penultimate_output_in_Layer[0] == -1)
+            {
+                input_size = new int[] { 0 };
+            }
+            else
+            {
+                input_size = LayerManager.number_of_penultimate_output_in_Layer;
+            }
 
             if (input_size.Length > 1)
             {
@@ -217,11 +224,6 @@ namespace mdnn.Layers
 
         public override Tensor CalculateLayerGradients(Tensor nextLayerE, Layer nextLayer)
         {
-
-            if (nextLayerE.Shape.Length > 1)
-            {
-                throw new NotImplementedException();
-            }
 
             double[] next_layer_e = nextLayerE.Data;
 

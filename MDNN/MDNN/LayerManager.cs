@@ -1,11 +1,16 @@
-﻿using mdnn.Activation_functions.classes;
-using mdnn.Layers;
-using mdnn.Layers.classes;
-using mdnn.Loss_functions;
-using mdnn.Save_neural_network;
+﻿using My_DNN.Layers;
+using My_DNN.Layers.classes;
+using My_DNN.Loss_functions;
+using My_DNN.Save_neural_network;
+using ScottPlot;
+using ScottPlot.Palettes;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
 
-
-namespace mdnn
+namespace My_DNN
 {
     public class LayerManager
     {
@@ -24,7 +29,7 @@ namespace mdnn
                         {
                             return GeneralNeuralNetworkSettings.modelInputSizeAndShape;
                         }
-                        return new int[] { 0 };
+                        return new int[] { -1 };
                     default: 
                         return layersList[layersList.Count() - 2].Output_size_and_shape; ;
                 }
@@ -60,6 +65,10 @@ namespace mdnn
                 else if (layer.LayerType == "Conv")
                 {
                     layersList.Add(new Conv((ExportCNNLayer)layer));
+                }
+                else if (layer.LayerType == "MaxPool")
+                {
+                    layersList.Add(new MaxPool((ExportMaxPoolLayer)layer));
                 }
                 else
                 {
@@ -101,10 +110,6 @@ namespace mdnn
                     {
                         inputShape = layersList[i - 1].Output_size_and_shape;
                         layersList[i].LayerAdjustment(null, inputShape);
-                    }
-                    else
-                    {
-                        break;
                     }
                 }
             }

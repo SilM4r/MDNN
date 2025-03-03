@@ -1,16 +1,16 @@
 ﻿
-using mdnn.Save_neural_network;
+using My_DNN.Save_neural_network;
 using System.Collections.Generic;
-using mdnn.Activation_functions;
-using mdnn.Loss_functions;
-using mdnn.Optimizers;
-using mdnn.Layers.classes;
+using My_DNN.Activation_functions;
+using My_DNN.Loss_functions;
+using My_DNN.Optimizers;
+using My_DNN.Layers.classes;
 using System.Reflection;
-using mdnn.Layers;
+using My_DNN.Layers;
 
-namespace mdnn
+namespace My_DNN
 {
-
+    
     public class MDNN
     {
 
@@ -30,8 +30,8 @@ namespace mdnn
 
         private Train train;
         private LayerManager layerManager;
-    
-   
+        
+       
         private string? schema = null;
 
         public string Note { get; set; }
@@ -150,7 +150,7 @@ namespace mdnn
         public void SaveAsJson(string fileName)
         {
             CreateSchema();
-        
+            
             NetworkSaveLoadManager NSLM = new NetworkSaveLoadManager(this);
             NSLM.Save(fileName);
         }

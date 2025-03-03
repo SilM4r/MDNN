@@ -1,7 +1,7 @@
-﻿using mdnn.Save_neural_network;
+﻿using My_DNN.Save_neural_network;
 
 
-namespace mdnn.Optimizers
+namespace My_DNN.Optimizers
 {
     public abstract class Optimizer
     {

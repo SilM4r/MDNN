@@ -1,9 +1,8 @@
-﻿using mdnn.Activation_functions.classes;
-using mdnn.Layers.classes;
-using mdnn.Optimizers;
-using mdnn.Save_neural_network;
+﻿using My_DNN.Layers.classes;
+using My_DNN.Optimizers;
+using My_DNN.Save_neural_network;
 
-namespace mdnn.Layers
+namespace My_DNN.Layers
 {
     public class Conv : Layer
     {
@@ -146,7 +145,7 @@ namespace mdnn.Layers
             CheckIsActivationFuncIsNotApplyToLayer();
             int inputChannels;
 
-            if (LayerManager.number_of_penultimate_output_in_Layer[0] == 0)
+            if (LayerManager.number_of_penultimate_output_in_Layer[0] == -1)
             {
                 inputChannels = 0;
             }
