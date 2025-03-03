@@ -1,8 +1,8 @@
-﻿using mdnn.Layers.classes;
+﻿using My_DNN.Layers.classes;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace mdnn.Save_neural_network
+namespace My_DNN.Save_neural_network
 {
     public class LayerConverter : JsonConverter<BaseExportLayer>
     {

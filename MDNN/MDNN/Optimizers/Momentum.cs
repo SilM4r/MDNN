@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace mdnn.Optimizers
+namespace My_DNN.Optimizers
 {
     public class Momentum : Optimizer
     {

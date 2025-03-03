@@ -1,8 +1,6 @@
 ﻿
 
-using mdnn.Activation_functions.classes;
-
-namespace mdnn.Activation_functions
+namespace My_DNN.Activation_functions
 {
     public class Linear : NeuronActivationFunc
     {

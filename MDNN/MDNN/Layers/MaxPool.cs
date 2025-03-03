@@ -6,12 +6,12 @@ using System.Text;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using System.Xml;
-using mdnn.Layers.classes;
-using mdnn.Save_neural_network;
+using My_DNN.Layers.classes;
+using My_DNN.Save_neural_network;
 using ScottPlot.Colormaps;
 using ScottPlot.Plottables;
 
-namespace mdnn.Layers
+namespace My_DNN.Layers
 {
     public class MaxPool : LayerWithUntrainedParameters
     {
@@ -69,7 +69,7 @@ namespace mdnn.Layers
         {
             this.poolSize = poolSize;
 
-            if (LayerManager.number_of_penultimate_output_in_Layer[0] == 0)
+            if (LayerManager.number_of_penultimate_output_in_Layer[0] == -1)
             {
                 inputsShape = new int[] { 0 };
                 outputShape = new int[] { 0 };
@@ -78,6 +78,11 @@ namespace mdnn.Layers
             else
             {
                 inputsShape = LayerManager.number_of_penultimate_output_in_Layer;
+
+                if (inputsShape.Length == 1)
+                {
+                    inputsShape = new int[] {0,0,0 };
+                }
 
                 int outHeight = (inputsShape[0] - poolSize) / poolSize + 1;
                 int outWidth = (inputsShape[1] - poolSize) / poolSize + 1;
@@ -90,8 +95,8 @@ namespace mdnn.Layers
         }
         public MaxPool(ExportMaxPoolLayer layer)
         {
-            layer.InputsShape = inputsShape;
-            layer.PoolSize = poolSize;
+            inputsShape = layer.InputsShape ;
+            poolSize = (int)layer.PoolSize;
 
             int outHeight = (inputsShape[0] - poolSize) / poolSize + 1;
             int outWidth = (inputsShape[1] - poolSize) / poolSize + 1;
