@@ -32,32 +32,5 @@ namespace My_DNN
             }
         }
 
-        public static Activation_func ReLu()
-        {
-            return new ReLu();
-        }
-        public static Activation_func Sigmoid()
-        {
-            return new Sigmoid();
-        }
-        public static Activation_func Tanh()
-        {
-            return new Tanh();
-        }
-
-        public static Activation_func Leak_ReLu()
-        {
-            return new Leak_ReLu();
-        }
-        public static Activation_func Softmax()
-        {
-            return new Softmax();
-        }
-
-        public static Activation_func Linear()
-        {
-            return new Linear();
-        }
-
     }
 }

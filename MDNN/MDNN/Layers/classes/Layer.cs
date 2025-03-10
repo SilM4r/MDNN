@@ -39,10 +39,5 @@ namespace My_DNN.Layers.classes
         {
             UpdateParams();
         }
-
-        public static Layer Dense(int number_of_neuron, Activation_func? activation_func = null)
-        {
-            return new Dense(number_of_neuron, activation_func);
-        }
     }
 }

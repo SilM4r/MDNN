@@ -44,11 +44,11 @@ namespace My_DNN.Layers
             {
                 if (LayerManager.number_of_penultimate_output_in_Layer[0] == -1)
                 {
-                    activation_func = GeneralNeuralNetworkSettings.output_activation_func;
+                    activation_func = GeneralNeuralNetworkSettings.default_output_activation_func;
                 }
                 else
                 {
-                    activation_func = GeneralNeuralNetworkSettings.hidden_layers_activation_func;
+                    activation_func = GeneralNeuralNetworkSettings.default_hidden_layers_activation_func;
                 }
 
             }
@@ -79,13 +79,11 @@ namespace My_DNN.Layers
 
             neurons = new List<Neuron>();
 
-
             for (int i = 0; i < number_of_neuron; i++)
             {
                 neurons.Add(new Neuron(input_size[0], activation_func));
             }
         }
-
         public Dense(ExportDenseLayer layer)
         {
             activation_func = Activation_func.inicialization_activation_func(layer.Name_of_activation_function);
@@ -102,7 +100,6 @@ namespace My_DNN.Layers
             input_size = new int[] { neurons[0].Weights.Length };
 
         }
-
         public override void LayerAdjustment(int? number_of_elements = null, int[]? number_of_input = null)
         {
 
@@ -136,7 +133,6 @@ namespace My_DNN.Layers
                 neurons.Add(new Neuron(input_size[0], activation_func));
             }
         }
-
         public override Tensor FeedForward(Tensor input_values)
         {
 
@@ -172,7 +168,6 @@ namespace My_DNN.Layers
 
             return new Tensor(output);
         }
-
         public override async Task<Tensor> FeedForwardAsync(Tensor input_values)
         {
             double[] values = input_values.Data;
@@ -219,9 +214,6 @@ namespace My_DNN.Layers
 
             return new Tensor(output);
         }
-
-
-
         public override Tensor CalculateLayerGradients(Tensor nextLayerE, Layer nextLayer)
         {
 
@@ -258,7 +250,6 @@ namespace My_DNN.Layers
             }
             return new Tensor(e);
         }
-
         public override async Task<Tensor> CalculateLayerGradientsAsync(Tensor nextLayerE, Layer nextLayer)
         {
 
@@ -308,7 +299,6 @@ namespace My_DNN.Layers
 
             return new Tensor(e);
         }
-
         public override void BackPropagation(Tensor TensorE)
         {
             double[] e = TensorE.Data;
@@ -318,7 +308,6 @@ namespace My_DNN.Layers
                 neurons[i].Calculate_gradients_of_W_B(e[i]);
             }
         }
-
         public override async Task BackPropagationAsync(Tensor TensorE)
         {
             double[] e = TensorE.Data;
@@ -334,7 +323,6 @@ namespace My_DNN.Layers
             }
             await Task.WhenAll(tasks);
         }
-
         public override void UpdateParams()
         {
             foreach (Neuron neuron in neurons)
@@ -342,7 +330,6 @@ namespace My_DNN.Layers
                 neuron.Update_weights_bias();
             }
         }
-
         public override async Task UpdateParamsAsync()
         {
             int index = -1;
@@ -357,7 +344,6 @@ namespace My_DNN.Layers
             }
             await Task.WhenAll(tasks);
         }
-
         private Tensor FeedForwardViaGpu(double[] values)
         {
             int quantity = neurons.Count();

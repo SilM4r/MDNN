@@ -7,19 +7,15 @@ namespace My_DNN
 {
     public static class GeneralNeuralNetworkSettings
     {
-        public static Activation_func output_activation_func = new Linear();
+        public static Activation_func default_output_activation_func = new Linear();
 
-        public static Activation_func hidden_layers_activation_func = new ReLu();
+        public static Activation_func default_hidden_layers_activation_func = new ReLu();
 
         public static Loss loss_func = new MSE();
 
-        public static Optimizer optimizer = new SGD(0.000000001);
+        public static Optimizer optimizer = new SGD(0.0001);
 
         public static bool calculationViaGpu = false;
-
-        public static bool AutoSaveInTrainLoop = true;
-
-        public static string AutoSaveInTrainLoopFileName = "AutoSave";
 
         public static bool SequenceTrain = false;
 

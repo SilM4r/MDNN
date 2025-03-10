@@ -1,7 +1,7 @@
 ﻿
 namespace My_DNN.Activation_functions
 {
-    public class Sigmoid : NeuronActivationFunc
+    public class Sigmoid : ClassicActivationFunc
     {
 
         public override string Name
