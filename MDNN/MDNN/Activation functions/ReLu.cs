@@ -2,7 +2,7 @@
 
 namespace My_DNN.Activation_functions
 {
-    public class ReLu : NeuronActivationFunc
+    public class ReLu : ClassicActivationFunc
     {
         public override string Name
         {

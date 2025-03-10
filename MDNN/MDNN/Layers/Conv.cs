@@ -130,11 +130,11 @@ namespace My_DNN.Layers
             {
                 if (LayerManager.number_of_penultimate_output_in_Layer[0] == 0)
                 {
-                    activation_func = GeneralNeuralNetworkSettings.output_activation_func;
+                    activation_func = GeneralNeuralNetworkSettings.default_output_activation_func;
                 }
                 else
                 {
-                    activation_func = GeneralNeuralNetworkSettings.hidden_layers_activation_func;
+                    activation_func = GeneralNeuralNetworkSettings.default_hidden_layers_activation_func;
                 }
             }
 
