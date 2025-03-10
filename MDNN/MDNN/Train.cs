@@ -1,4 +1,5 @@
 ﻿
+using System.Data;
 using My_DNN.Layers.classes;
 using My_DNN.Loss_functions;
 namespace My_DNN
@@ -19,6 +20,13 @@ namespace My_DNN
 
         public uint Number_of_skip_frist_Epoch_in_plotter = 0;
         public uint Number_Of_Show_Epoch_In_Console = 100;
+
+        public bool ShowLossChartInTrainLoop = true;
+        public bool TestNeuralNetworkAfterTraining = true;
+        public bool ShowModelInfoIntrainLoop = true;
+        public bool AutoSaveInTrainLoop = true;
+
+        public string AutoSaveInTrainLoopFileName = "AutoSave";
 
         private Tensor trainData_inputs;
         private Tensor testData_inputs;
@@ -83,59 +91,79 @@ namespace My_DNN
 
         public Tensor Fit(Tensor inputs_values, Tensor target_values)
         {
+            if (model.Layers.Layers[0].Input_size_and_shape[0] <= 0)
+            {
+                GeneralNeuralNetworkSettings.modelInputSizeAndShape = inputs_values.Shape;
+                model.Layers.SetInputSizeForFirstLayer();
+            }
+
             CheckLayersAreNotEmpty();
 
-            double[] output_target_values = target_values.Data;
+            Tensor output = model.GetResults(inputs_values);
 
-            Tensor output = model.FeedForward(inputs_values);
-
-            List<Tensor> de = Gradient.GetGradients(output_target_values, model);
-
-            for (int i = 0; i < model.Layers.Layers.Count(); i++)
-            {
-                model.Layers.Layers[i].BackPropagation(de[i]);
-            }
+            BackPropagation(target_values);
 
             return output;
         }
 
         public async Task<Tensor> FitAsync(Tensor inputs_values, Tensor target_values)
         {
+            if (model.Layers.Layers[0].Input_size_and_shape[0] <= 0)
+            {
+                GeneralNeuralNetworkSettings.modelInputSizeAndShape = inputs_values.Shape;
+                model.Layers.SetInputSizeForFirstLayer();
+            }
             CheckLayersAreNotEmpty();
 
-            double[] output_target_values = target_values.Data;
+            Tensor output = await model.GetResultsAsync(inputs_values);
 
-            Tensor output = await model.FeedForwardAsync(inputs_values);
+            Tensor[] de = await Gradient.GetGradientsAsync(target_values, model);
 
-            List<Tensor> de = await Gradient.GetGradientsAsync(output_target_values, model);
-
-            Task[] tasks = new Task[model.Layers.Layers.Count()];
-
-            for (int i = 0; i < model.Layers.Layers.Count(); i++)
-            {
-                int index = i;
-                tasks[index] = Task.Run(async() =>
-                {
-                    await model.Layers.Layers[index].BackPropagationAsync(de[index]);
-                });
-            }
-            await Task.WhenAll(tasks);
+            await PropagationAsync(de);
 
             return output;
         }
 
-        public void BackPropagation(double[] target_values)
+        public void BackPropagation(Tensor target_values)
         {
             CheckLayersAreNotEmpty();
 
-            List<Tensor> de = Gradient.GetGradients(target_values, model);
+            Tensor[] de = Gradient.GetGradients(target_values, model);
 
-            for (int i = 0; i < model.Layers.Layers.Count(); i++)
-            {
-                model.Layers.Layers[i].BackPropagation(de[i]);
-            }
+            Propagation(de);
+        }
 
-            UpdateParams();
+        public async Task BackPropagationAsync(Tensor target_values)
+        {
+            CheckLayersAreNotEmpty();
+
+            Tensor[] de = await Gradient.GetGradientsAsync(target_values, model);
+
+            await PropagationAsync(de);
+        }
+
+
+
+        public void BackPropagation(Tensor[] layer_gradients)
+        {
+            CheckLayersAreNotEmpty();
+            Propagation(layer_gradients);
+        }
+
+        public async Task BackPropagationAsync(Tensor[] layer_gradients)
+        {
+            CheckLayersAreNotEmpty();
+            await PropagationAsync(layer_gradients);
+        }
+
+        public Tensor FeedForward(Tensor inputs_value)
+        {
+            return model.GetResults(inputs_value);
+        }
+
+        public async Task<Tensor> FeedForwardAsync(Tensor inputs_value)
+        {
+            return await model.GetResultsAsync(inputs_value);
         }
 
         public void UpdateParams()
@@ -196,7 +224,7 @@ namespace My_DNN
                     model.ResetSequence();
                     for (int j = 0; j < inputs_values.Shape[1]; j++)
                     {
-                        Tensor outputTensor = model.FeedForward(inputs_values.GetTensorValue(new int[] { i, j }));
+                        Tensor outputTensor = model.GetResults(inputs_values.GetTensorValue(new int[] { i, j }));
 
                         double[] output = outputTensor.Data;
 
@@ -245,7 +273,7 @@ namespace My_DNN
             {
                 for (int i = 0; i < inputs_values.Shape[0]; i++)
                 {
-                    Tensor outputTensor = model.FeedForward(inputs_values.GetTensorValue(new int[] { i }));
+                    Tensor outputTensor = model.GetResults(inputs_values.GetTensorValue(new int[] { i }));
 
                     double[] output = outputTensor.Data;
                     double[] current_output = current_output_values.GetTensorValue(new int[] { i }).Data;
@@ -294,8 +322,11 @@ namespace My_DNN
         {
 
             PreparationForTrainLoop(inputs_values, current_output_values, number_of_epoch, size_of_mini_batch, isSequence);
-
-            model.info();
+            if (ShowModelInfoIntrainLoop)
+            {
+                model.info();
+            }
+            
 
             for (uint epoch = this.epoch; epoch < totalEpoch; epoch++)
             {
@@ -332,17 +363,25 @@ namespace My_DNN
                 }
             }
 
-            TestNeuralNetwork(testData_inputs, testData_current_output);
+            if (TestNeuralNetworkAfterTraining)
+            {
+                TestNeuralNetwork(testData_inputs, testData_current_output);
+            }
 
-            GraphPlotter.ShowLossGraph(listOfepoch.ToArray(),listOfTrainLoss.ToArray(), listOfValidLoss.ToArray());
-
+            if (ShowLossChartInTrainLoop)
+            {
+                GraphPlotter.ShowLossGraph(listOfepoch.ToArray(), listOfTrainLoss.ToArray(), listOfValidLoss.ToArray());
+            }
         }
 
         public async Task TrainLoopAsync(Tensor inputs_values, Tensor current_output_values, uint number_of_epoch, uint size_of_mini_batch = 1, bool isSequence = false)
         {
             PreparationForTrainLoop(inputs_values, current_output_values, number_of_epoch, size_of_mini_batch, isSequence);
 
-            model.info();
+            if (ShowModelInfoIntrainLoop)
+            {
+                model.info();
+            }
 
             for (uint epoch = this.epoch; epoch < totalEpoch; epoch++)
             {
@@ -378,16 +417,20 @@ namespace My_DNN
                 }
             }
 
-            TestNeuralNetwork(testData_inputs, testData_current_output);
+            if (TestNeuralNetworkAfterTraining)
+            {
+                TestNeuralNetwork(testData_inputs, testData_current_output);
+            }
 
-            GraphPlotter.ShowLossGraph(listOfepoch.ToArray(), listOfTrainLoss.ToArray(), listOfValidLoss.ToArray());
+            if (ShowLossChartInTrainLoop)
+            {
+                GraphPlotter.ShowLossGraph(listOfepoch.ToArray(), listOfTrainLoss.ToArray(), listOfValidLoss.ToArray());
+            }
 
         }
 
         public void SimpleTrainLoop(double[][] inputs_values, double[][] current_output_values, uint number_of_epoch, uint size_of_mini_batch = 1)
         {
-            
-
             uint epoch = this.epoch;
             double minLoss = 100;
 
@@ -420,9 +463,9 @@ namespace My_DNN
                         {
                             minLoss = loss;
                             model.Note = minLoss.ToString();
-                            if (GeneralNeuralNetworkSettings.AutoSaveInTrainLoop)
+                            if (AutoSaveInTrainLoop)
                             {
-                                model.SaveAsJson(GeneralNeuralNetworkSettings.AutoSaveInTrainLoopFileName);
+                                model.SaveAsJson(AutoSaveInTrainLoopFileName);
                             }
                             
                         }
@@ -432,7 +475,6 @@ namespace My_DNN
                         Console.WriteLine("Error: Nan number");
                         return;
                     }
-
                     ConsoleControler.ShowEpochInfo(model);
                 }
             }
@@ -462,7 +504,7 @@ namespace My_DNN
                     current_output_values.Reshape(new int[] { inputs_values.Shape[0], inputs_values.Shape[1], 1 });
                 }
 
-                else if (inputs_values.Shape.Length >= 5)
+                else if (inputs_values.Shape.Length >= 6)
                 {
                     throw new Exception("for sequential training, the maximum input is a four-dimensional array.");
                 }
@@ -507,7 +549,11 @@ namespace My_DNN
 
             lowestLoss = double.MaxValue;
 
-            if (Number_Of_Show_Epoch_In_Console > totalEpoch)
+            if (Number_Of_Show_Epoch_In_Console <= 0)
+            {
+                Number_Of_Show_Epoch_In_Console = 1;
+            }
+            else if (Number_Of_Show_Epoch_In_Console > totalEpoch)
             {
                 Number_Of_Show_Epoch_In_Console = totalEpoch;
             }
@@ -660,7 +706,7 @@ namespace My_DNN
                     model.ResetSequence();
                     for (int j = 0; j < ValidData_inputs.Shape[1]; j++)
                     {
-                        model.FeedForward(ValidData_inputs.GetTensorValue(new int[] { i, j }));
+                        model.GetResults(ValidData_inputs.GetTensorValue(new int[] { i, j }));
                         lossFunc.CalculateLoss(model.Layers.Layers[model.Layers.Layers.Count() - 1].Layer_output.Data, ValidData_current_output.GetTensorValue(new int[] { i, j }).Data);
                     }
                 }
@@ -670,7 +716,7 @@ namespace My_DNN
             {
                 for (int i = 0; i < ValidData_inputs.Shape[0]; i++)
                 {
-                    model.FeedForward(ValidData_inputs.GetTensorValue(new int[] { i }));
+                    model.GetResults(ValidData_inputs.GetTensorValue(new int[] { i }));
                     lossFunc.CalculateLoss(model.Layers.Layers[model.Layers.Layers.Count() - 1].Layer_output.Data, ValidData_current_output.GetTensorValue(new int[] { i}).Data);
                 }
             }
@@ -692,7 +738,7 @@ namespace My_DNN
                     model.ResetSequence();
                     for (int j = 0; j < ValidData_inputs.Shape[1]; j++)
                     {
-                        Tensor output = await model.FeedForwardAsync(ValidData_inputs.GetTensorValue(new int[] { i, j }));
+                        Tensor output = await model.GetResultsAsync(ValidData_inputs.GetTensorValue(new int[] { i, j }));
                         lossFunc.CalculateLoss(output.Data, ValidData_current_output.GetTensorValue(new int[] { i, j }).Data);
                     }
                 }
@@ -707,7 +753,7 @@ namespace My_DNN
                     int index = i;
                     tasks[index] = Task.Run(async () =>
                     {
-                        Tensor output = await model.FeedForwardAsync(ValidData_inputs.GetTensorValue(new int[] { index }));
+                        Tensor output = await model.GetResultsAsync(ValidData_inputs.GetTensorValue(new int[] { index }));
                         double lossOutput = lossFunc.CalculateAndGetLoss(output.Data, ValidData_current_output.GetTensorValue(new int[] { index }).Data);
 
                         if (lossOutput is not double.NaN)
@@ -756,11 +802,35 @@ namespace My_DNN
 
             double validLoss = lossFunc.GetAverageLossPerIteration();
 
-            if (GeneralNeuralNetworkSettings.AutoSaveInTrainLoop && (validLoss < lowestLoss))
+            if (AutoSaveInTrainLoop && (validLoss < lowestLoss))
             {
                 lowestLoss = validLoss;
-                model.SaveAsJson(GeneralNeuralNetworkSettings.AutoSaveInTrainLoopFileName);
+                model.SaveAsJson(AutoSaveInTrainLoopFileName);
             }
+        }
+
+        private void Propagation(Tensor[] layer_gradients)
+        {
+            for (int i = 0; i < model.Layers.Layers.Count(); i++)
+            {
+                model.Layers.Layers[i].BackPropagation(layer_gradients[i]);
+            }
+        }
+
+        private async Task PropagationAsync(Tensor[] layer_gradients)
+        {
+            Task[] tasks = new Task[model.Layers.Layers.Count()];
+
+            for (int i = 0; i < model.Layers.Layers.Count(); i++)
+            {
+                int index = i;
+                tasks[index] = Task.Run(async () =>
+                {
+                    await model.Layers.Layers[index].BackPropagationAsync(layer_gradients[index]);
+                });
+            }
+
+            await Task.WhenAll(tasks);
         }
 
     }

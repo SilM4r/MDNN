@@ -15,7 +15,6 @@ namespace My_DNN
     public class LayerManager
     {
         private static List<Layer> layersList = new List<Layer>();
-
         public static int[] number_of_penultimate_output_in_Layer
         {
             get 
@@ -35,18 +34,14 @@ namespace My_DNN
                 }
             }
         }
-
         public List<Layer> Layers
         {
             get { return layersList; }
         }
-
-
         public LayerManager(Layer Output_Layer)
         {
             layersList = new List<Layer> { Output_Layer };
         }
-
         public LayerManager(List<BaseExportLayer> exportLayers)
         {
             layersList = new List<Layer>();
@@ -76,7 +71,6 @@ namespace My_DNN
                 }
             }
         }
-
         public void SetInputSizeForFirstLayer(int[]? input_size = null)
         {
             if (input_size != null)
@@ -114,13 +108,11 @@ namespace My_DNN
                 }
             }
         }
-
         public void Add(Layer Hidden_Layer)
         {
             layersList.Insert(layersList.Count() - 1, Hidden_Layer);
             layersList[layersList.Count() - 1].LayerAdjustment(null, number_of_penultimate_output_in_Layer);
         }
-
         public void Insert(int position, Layer Hidden_Layer)
         {
             if (position <= layersList.Count())
@@ -149,7 +141,6 @@ namespace My_DNN
                 throw new Exception("Varialbe position must be less or equal than the values ​​of Variable Layers (position <= Layers.Count())");
             }
         }
-
         public void RemoveAt(int position)
         {
             if (position < layersList.Count())
@@ -177,12 +168,10 @@ namespace My_DNN
                 throw new Exception("Varialbe position must be less than the values ​​of Variable Layers (position < Layers.Count())");
             }
         }
-
         public void OutputLayerActivationFunc(Activation_func activation_func)
         {
             layersList[layersList.Count() - 1].Activation_Func = activation_func;
         }
-
         public void ClearAllLayersAndSetNewOutputLayer(Layer Output_Layer)
         {
             layersList = new List<Layer> { Output_Layer };

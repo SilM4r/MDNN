@@ -1,7 +1,7 @@
 ﻿
 namespace My_DNN.Activation_functions
 {
-    public class Tanh : NeuronActivationFunc
+    public class Tanh : ClassicActivationFunc
     {
         public override string Name
         {

@@ -2,7 +2,7 @@
 
 namespace My_DNN.Activation_functions
 {
-    public class Linear : NeuronActivationFunc
+    public class Linear : ClassicActivationFunc
     {
         // public override string Name => "Linear";
         public override string Name
