@@ -3,56 +3,72 @@
   "WorkspaceRootPath": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\",
   "Documents": [
     {
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\loss functions\\loss.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\loss functions\\loss.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\layers\\classes\\poolingindex.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\layers\\classes\\poolingindex.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
       "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\train.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\train.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\activation functions\\classes\\activation_func.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\activation functions\\classes\\activation_func.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\optimizers\\sgd.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\optimizers\\sgd.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\optimizers\\momentum.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\optimizers\\momentum.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\optimizers\\adam.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\optimizers\\adam.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\optimizers\\optimizer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\optimizers\\optimizer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\loss functions\\mse.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\loss functions\\mse.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\loss functions\\crossentropy.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\loss functions\\crossentropy.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\layers\\maxpool.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\layers\\maxpool.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\activation functions\\softmax.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\activation functions\\softmax.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\layers\\dense.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\layers\\dense.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\layers\\conv.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\layers\\conv.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\generalneuralnetworksettings.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\generalneuralnetworksettings.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\layers\\classes\\layerwithuntrainedparameters.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\layers\\classes\\layerwithuntrainedparameters.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\save neural network\\layerconverter.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\save neural network\\layerconverter.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\layers\\classes\\layerbasedonneurons.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\layers\\classes\\layerbasedonneurons.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\save neural network\\exportoptimizer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\save neural network\\exportoptimizer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\save neural network\\exportneuron.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\save neural network\\exportneuron.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\save neural network\\baseexportlayer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\save neural network\\baseexportlayer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\save neural network\\networksaveloadmanager.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\save neural network\\networksaveloadmanager.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\layers\\classes\\layer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\layers\\classes\\layer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\activation functions\\softmax.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\activation functions\\softmax.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\loss functions\\crossentropy.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\loss functions\\crossentropy.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\activation functions\\relu.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
@@ -67,24 +83,12 @@
       "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\activation functions\\classes\\layeractivationfunc.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\activation functions\\classes\\clasicactivationfunc.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\activation functions\\classes\\clasicactivationfunc.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\activation functions\\classes\\activation_func.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\activation functions\\classes\\activation_func.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\activation functions\\classes\\classicactivationfunc.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\activation functions\\classes\\classicactivationfunc.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\tensor.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\tensor.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\mdnn.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\mdnn.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\layermanager.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\layermanager.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\graphplotter.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
@@ -99,12 +103,44 @@
       "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\gpumanager.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\generalneuralnetworksettings.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\generalneuralnetworksettings.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\consolecontroler.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\consolecontroler.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\layers\\conv.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\layers\\conv.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\neuron.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\neuron.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\layers\\classes\\layerwithuntrainedparameters.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\layers\\classes\\layerwithuntrainedparameters.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\layers\\classes\\layerbasedonneurons.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\layers\\classes\\layerbasedonneurons.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\optimizers\\momentum.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\optimizers\\momentum.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\optimizers\\adam.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\optimizers\\adam.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\layers\\maxpool.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\layers\\maxpool.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\mdnn.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\mdnn.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|c:\\users\\martin\\source\\repos\\mdnn\\mdnn\\mdnn\\layermanager.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{9C5C4379-5E80-41F6-91A7-5676FDFF30E3}|MDNN\\MDNN.csproj|solutionrelative:mdnn\\layermanager.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     }
   ],
   "DocumentGroupContainers": [
@@ -114,7 +150,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 17,
+          "SelectedChildIndex": 1,
           "Children": [
             {
               "$type": "Bookmark",
@@ -122,33 +158,95 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 16,
-              "Title": "ClasicActivationFunc.cs",
-              "DocumentMoniker": "C:\\Users\\Martin\\Source\\Repos\\MDNN\\MDNN\\MDNN\\Activation functions\\classes\\ClasicActivationFunc.cs",
-              "RelativeDocumentMoniker": "MDNN\\Activation functions\\classes\\ClasicActivationFunc.cs",
-              "ToolTip": "C:\\Users\\Martin\\Source\\Repos\\MDNN\\MDNN\\MDNN\\Activation functions\\classes\\ClasicActivationFunc.cs",
-              "RelativeToolTip": "MDNN\\Activation functions\\classes\\ClasicActivationFunc.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA4AAAAAAAAAAAAAAA==",
+              "DocumentIndex": 0,
+              "Title": "Loss.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Loss functions\\Loss.cs",
+              "RelativeDocumentMoniker": "MDNN\\Loss functions\\Loss.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Loss functions\\Loss.cs",
+              "RelativeToolTip": "MDNN\\Loss functions\\Loss.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAEgAAAAJAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-10T18:33:51.581Z",
+              "WhenOpened": "2025-03-10T20:45:08.275Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 15,
+              "DocumentIndex": 9,
+              "Title": "GeneralNeuralNetworkSettings.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\GeneralNeuralNetworkSettings.cs",
+              "RelativeDocumentMoniker": "MDNN\\GeneralNeuralNetworkSettings.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\GeneralNeuralNetworkSettings.cs",
+              "RelativeToolTip": "MDNN\\GeneralNeuralNetworkSettings.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABIAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-03-06T18:28:47.121Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "Optimizer.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Optimizers\\Optimizer.cs",
+              "RelativeDocumentMoniker": "MDNN\\Optimizers\\Optimizer.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Optimizers\\Optimizer.cs",
+              "RelativeToolTip": "MDNN\\Optimizers\\Optimizer.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABAAAAAnAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-03-10T20:23:40.723Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 20,
+              "Title": "ClassicActivationFunc.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Activation functions\\classes\\ClassicActivationFunc.cs",
+              "RelativeDocumentMoniker": "MDNN\\Activation functions\\classes\\ClassicActivationFunc.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Activation functions\\classes\\ClassicActivationFunc.cs",
+              "RelativeToolTip": "MDNN\\Activation functions\\classes\\ClassicActivationFunc.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAgAAAAvAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-03-10T18:33:51.581Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 22,
+              "Title": "GraphPlotter.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\GraphPlotter.cs",
+              "RelativeDocumentMoniker": "MDNN\\GraphPlotter.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\GraphPlotter.cs",
+              "RelativeToolTip": "MDNN\\GraphPlotter.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAkAAAAkAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-03-09T19:21:31.596Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "Activation_func.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Activation functions\\classes\\Activation_func.cs",
+              "RelativeDocumentMoniker": "MDNN\\Activation functions\\classes\\Activation_func.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Activation functions\\classes\\Activation_func.cs",
+              "RelativeToolTip": "MDNN\\Activation functions\\classes\\Activation_func.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABwAAAAfAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-03-10T18:32:18.63Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 19,
               "Title": "LayerActivationFunc.cs",
               "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Activation functions\\classes\\LayerActivationFunc.cs",
               "RelativeDocumentMoniker": "MDNN\\Activation functions\\classes\\LayerActivationFunc.cs",
               "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Activation functions\\classes\\LayerActivationFunc.cs",
               "RelativeToolTip": "MDNN\\Activation functions\\classes\\LayerActivationFunc.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAgAAAAtAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-10T18:33:55.099Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-03-10T18:33:55.099Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 14,
+              "DocumentIndex": 18,
               "Title": "Leak_ReLu.cs",
               "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Activation functions\\Leak_ReLu.cs",
               "RelativeDocumentMoniker": "MDNN\\Activation functions\\Leak_ReLu.cs",
@@ -156,294 +254,181 @@
               "RelativeToolTip": "MDNN\\Activation functions\\Leak_ReLu.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAABsAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-10T18:33:48.04Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-03-10T18:33:48.04Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 13,
-              "Title": "ReLu.cs",
-              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Activation functions\\ReLu.cs",
-              "RelativeDocumentMoniker": "MDNN\\Activation functions\\ReLu.cs",
-              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Activation functions\\ReLu.cs",
-              "RelativeToolTip": "MDNN\\Activation functions\\ReLu.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAABkAAAAAAAAAAAAAAA==",
+              "DocumentIndex": 24,
+              "Title": "GPUManager.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\GPUManager.cs",
+              "RelativeDocumentMoniker": "MDNN\\GPUManager.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\GPUManager.cs",
+              "RelativeToolTip": "MDNN\\GPUManager.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAsAAAAiAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-10T19:03:46.293Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-03-09T19:54:06.514Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 12,
-              "Title": "Softmax.cs",
-              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Activation functions\\Softmax.cs",
-              "RelativeDocumentMoniker": "MDNN\\Activation functions\\Softmax.cs",
-              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Activation functions\\Softmax.cs",
-              "RelativeToolTip": "MDNN\\Activation functions\\Softmax.cs",
-              "ViewState": "AgIAACkAAAAAAAAAAAAIwE8AAAABAAAAAAAAAA==",
+              "DocumentIndex": 16,
+              "Title": "CrossEntropy.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Loss functions\\CrossEntropy.cs",
+              "RelativeDocumentMoniker": "MDNN\\Loss functions\\CrossEntropy.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Loss functions\\CrossEntropy.cs",
+              "RelativeToolTip": "MDNN\\Loss functions\\CrossEntropy.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAQAAAAdAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-10T19:05:32.535Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 11,
-              "Title": "Layer.cs",
-              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\classes\\Layer.cs",
-              "RelativeDocumentMoniker": "MDNN\\Layers\\classes\\Layer.cs",
-              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\classes\\Layer.cs",
-              "RelativeToolTip": "MDNN\\Layers\\classes\\Layer.cs",
-              "ViewState": "AgIAAAgAAAAAAAAAAAAAwCsAAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-10T15:26:47.478Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 10,
-              "Title": "LayerBasedOnNeurons.cs",
-              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\classes\\LayerBasedOnNeurons.cs",
-              "RelativeDocumentMoniker": "MDNN\\Layers\\classes\\LayerBasedOnNeurons.cs",
-              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\classes\\LayerBasedOnNeurons.cs",
-              "RelativeToolTip": "MDNN\\Layers\\classes\\LayerBasedOnNeurons.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA0AAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-10T17:28:27.717Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 9,
-              "Title": "LayerWithUntrainedParameters.cs",
-              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\classes\\LayerWithUntrainedParameters.cs",
-              "RelativeDocumentMoniker": "MDNN\\Layers\\classes\\LayerWithUntrainedParameters.cs",
-              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\classes\\LayerWithUntrainedParameters.cs",
-              "RelativeToolTip": "MDNN\\Layers\\classes\\LayerWithUntrainedParameters.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAABQAAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-10T17:28:28.565Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-03-06T17:09:52.997Z"
             },
             {
               "$type": "Document",
               "DocumentIndex": 8,
-              "Title": "Conv.cs",
-              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\Conv.cs",
-              "RelativeDocumentMoniker": "MDNN\\Layers\\Conv.cs",
-              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\Conv.cs",
-              "RelativeToolTip": "MDNN\\Layers\\Conv.cs",
-              "ViewState": "AgIAAJMCAAAAAAAAAAAIwLoCAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-06T17:44:32.729Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 7,
               "Title": "Dense.cs",
               "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\Dense.cs",
               "RelativeDocumentMoniker": "MDNN\\Layers\\Dense.cs",
               "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\Dense.cs",
               "RelativeToolTip": "MDNN\\Layers\\Dense.cs",
-              "ViewState": "AgIAAJMAAAAAAAAAAAAswI0BAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAAEYAAAAAAAAAAAAAwI0BAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2025-03-10T17:41:55.874Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "Softmax.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Activation functions\\Softmax.cs",
+              "RelativeDocumentMoniker": "MDNN\\Activation functions\\Softmax.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Activation functions\\Softmax.cs",
+              "RelativeToolTip": "MDNN\\Activation functions\\Softmax.cs",
+              "ViewState": "AgIAAAsAAAAAAAAAAAAQwC8AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-03-10T19:05:32.535Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
               "DocumentIndex": 6,
-              "Title": "MaxPool.cs",
-              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\MaxPool.cs",
-              "RelativeDocumentMoniker": "MDNN\\Layers\\MaxPool.cs",
-              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\MaxPool.cs",
-              "RelativeToolTip": "MDNN\\Layers\\MaxPool.cs",
-              "ViewState": "AgIAAFIBAAAAAAAAAAAIwIcBAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-06T17:54:25.269Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 5,
-              "Title": "CrossEntropy.cs",
-              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Loss functions\\CrossEntropy.cs",
-              "RelativeDocumentMoniker": "MDNN\\Loss functions\\CrossEntropy.cs",
-              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Loss functions\\CrossEntropy.cs",
-              "RelativeToolTip": "MDNN\\Loss functions\\CrossEntropy.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAACIAAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-06T17:09:52.997Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 4,
               "Title": "MSE.cs",
               "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Loss functions\\MSE.cs",
               "RelativeDocumentMoniker": "MDNN\\Loss functions\\MSE.cs",
-              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Loss functions\\MSE.cs",
-              "RelativeToolTip": "MDNN\\Loss functions\\MSE.cs",
-              "ViewState": "AgIAAAYAAADQgMhwrwIwwBUAAAAAAAAAAAAAAA==",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Loss functions\\MSE.cs*",
+              "RelativeToolTip": "MDNN\\Loss functions\\MSE.cs*",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2025-03-06T17:09:51.303Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 3,
-              "Title": "Adam.cs",
-              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Optimizers\\Adam.cs",
-              "RelativeDocumentMoniker": "MDNN\\Optimizers\\Adam.cs",
-              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Optimizers\\Adam.cs",
-              "RelativeToolTip": "MDNN\\Optimizers\\Adam.cs",
-              "ViewState": "AgIAAAYAAAAAAAAAAAAQwCUAAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-06T16:46:28.816Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 2,
-              "Title": "Momentum.cs",
-              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Optimizers\\Momentum.cs",
-              "RelativeDocumentMoniker": "MDNN\\Optimizers\\Momentum.cs",
-              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Optimizers\\Momentum.cs",
-              "RelativeToolTip": "MDNN\\Optimizers\\Momentum.cs",
-              "ViewState": "AgIAAA4AAACgKGBInbElwCgAAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-06T16:46:49.426Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 4,
               "Title": "SGD.cs",
               "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Optimizers\\SGD.cs",
               "RelativeDocumentMoniker": "MDNN\\Optimizers\\SGD.cs",
               "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Optimizers\\SGD.cs",
               "RelativeToolTip": "MDNN\\Optimizers\\SGD.cs",
-              "ViewState": "AgIAAAoAAADgxyK4sMUpwBsAAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABsAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2025-03-06T17:00:24.587Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 2,
               "Title": "Train.cs",
               "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Train.cs",
               "RelativeDocumentMoniker": "MDNN\\Train.cs",
               "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Train.cs",
               "RelativeToolTip": "MDNN\\Train.cs",
-              "ViewState": "AgIAACsDAAAAuKQcEBkQwDYDAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAEMDAAAFAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2025-03-06T19:00:57.241Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 17,
-              "Title": "Activation_func.cs",
-              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Activation functions\\classes\\Activation_func.cs",
-              "RelativeDocumentMoniker": "MDNN\\Activation functions\\classes\\Activation_func.cs",
-              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Activation functions\\classes\\Activation_func.cs",
-              "RelativeToolTip": "MDNN\\Activation functions\\classes\\Activation_func.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAACMAAAABAAAAAAAAAA==",
+              "DocumentIndex": 1,
+              "Title": "PoolingIndex.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\classes\\PoolingIndex.cs",
+              "RelativeDocumentMoniker": "MDNN\\Layers\\classes\\PoolingIndex.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\classes\\PoolingIndex.cs",
+              "RelativeToolTip": "MDNN\\Layers\\classes\\PoolingIndex.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABQAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-10T18:32:18.63Z",
+              "WhenOpened": "2025-03-10T21:24:43.981Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 18,
-              "Title": "Tensor.cs",
-              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Tensor.cs",
-              "RelativeDocumentMoniker": "MDNN\\Tensor.cs",
-              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Tensor.cs",
-              "RelativeToolTip": "MDNN\\Tensor.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "DocumentIndex": 13,
+              "Title": "BaseExportLayer.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Save neural network\\BaseExportLayer.cs",
+              "RelativeDocumentMoniker": "MDNN\\Save neural network\\BaseExportLayer.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Save neural network\\BaseExportLayer.cs",
+              "RelativeToolTip": "MDNN\\Save neural network\\BaseExportLayer.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAsAAAAgAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-07T15:12:28.329Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-03-10T21:13:23.645Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 19,
-              "Title": "MDNN.cs",
-              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\MDNN.cs",
-              "RelativeDocumentMoniker": "MDNN\\MDNN.cs",
-              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\MDNN.cs",
-              "RelativeToolTip": "MDNN\\MDNN.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAACIAAAAJAAAAAAAAAA==",
+              "DocumentIndex": 12,
+              "Title": "ExportNeuron.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Save neural network\\ExportNeuron.cs",
+              "RelativeDocumentMoniker": "MDNN\\Save neural network\\ExportNeuron.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Save neural network\\ExportNeuron.cs",
+              "RelativeToolTip": "MDNN\\Save neural network\\ExportNeuron.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAkAAAAdAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-06T20:18:35.573Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-03-10T21:14:35.172Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 20,
-              "Title": "LayerManager.cs",
-              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\LayerManager.cs",
-              "RelativeDocumentMoniker": "MDNN\\LayerManager.cs",
-              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\LayerManager.cs",
-              "RelativeToolTip": "MDNN\\LayerManager.cs",
-              "ViewState": "AgIAAB8AAAAAAAAAAAAgwJMAAAAmAAAAAAAAAA==",
+              "DocumentIndex": 11,
+              "Title": "ExportOptimizer.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Save neural network\\ExportOptimizer.cs",
+              "RelativeDocumentMoniker": "MDNN\\Save neural network\\ExportOptimizer.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Save neural network\\ExportOptimizer.cs",
+              "RelativeToolTip": "MDNN\\Save neural network\\ExportOptimizer.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAoAAAAgAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-07T20:46:48.817Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-03-10T21:14:49.52Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 21,
-              "Title": "GraphPlotter.cs",
-              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\GraphPlotter.cs",
-              "RelativeDocumentMoniker": "MDNN\\GraphPlotter.cs",
-              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\GraphPlotter.cs",
-              "RelativeToolTip": "MDNN\\GraphPlotter.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "DocumentIndex": 10,
+              "Title": "LayerConverter.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Save neural network\\LayerConverter.cs",
+              "RelativeDocumentMoniker": "MDNN\\Save neural network\\LayerConverter.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Save neural network\\LayerConverter.cs",
+              "RelativeToolTip": "MDNN\\Save neural network\\LayerConverter.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAYAAAAfAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-09T19:21:31.596Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-03-10T21:16:42.344Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 22,
-              "Title": "Gradient.cs",
-              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Gradient.cs",
-              "RelativeDocumentMoniker": "MDNN\\Gradient.cs",
-              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Gradient.cs",
-              "RelativeToolTip": "MDNN\\Gradient.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAA==",
+              "DocumentIndex": 15,
+              "Title": "Layer.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\classes\\Layer.cs",
+              "RelativeDocumentMoniker": "MDNN\\Layers\\classes\\Layer.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\classes\\Layer.cs",
+              "RelativeToolTip": "MDNN\\Layers\\classes\\Layer.cs",
+              "ViewState": "AgIAAAgAAAAAAAAAAAAAwAwAAAAQAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-08T17:03:19.128Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-03-10T15:26:47.478Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 23,
-              "Title": "GPUManager.cs",
-              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\GPUManager.cs",
-              "RelativeDocumentMoniker": "MDNN\\GPUManager.cs",
-              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\GPUManager.cs",
-              "RelativeToolTip": "MDNN\\GPUManager.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "DocumentIndex": 14,
+              "Title": "NetworkSaveLoadManager.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Save neural network\\NetworkSaveLoadManager.cs",
+              "RelativeDocumentMoniker": "MDNN\\Save neural network\\NetworkSaveLoadManager.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Save neural network\\NetworkSaveLoadManager.cs",
+              "RelativeToolTip": "MDNN\\Save neural network\\NetworkSaveLoadManager.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAgAAAAoAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-09T19:54:06.514Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 24,
-              "Title": "GeneralNeuralNetworkSettings.cs",
-              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\GeneralNeuralNetworkSettings.cs",
-              "RelativeDocumentMoniker": "MDNN\\GeneralNeuralNetworkSettings.cs",
-              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\GeneralNeuralNetworkSettings.cs",
-              "RelativeToolTip": "MDNN\\GeneralNeuralNetworkSettings.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAABsAAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-06T18:28:47.121Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-03-10T20:15:18.484Z"
             },
             {
               "$type": "Document",
@@ -453,10 +438,153 @@
               "RelativeDocumentMoniker": "MDNN\\ConsoleControler.cs",
               "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\ConsoleControler.cs",
               "RelativeToolTip": "MDNN\\ConsoleControler.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAM4AAAAnAAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAoAAAAoAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-03-09T20:18:57.52Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-03-09T20:18:57.52Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 26,
+              "Title": "Conv.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\Conv.cs",
+              "RelativeDocumentMoniker": "MDNN\\Layers\\Conv.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\Conv.cs",
+              "RelativeToolTip": "MDNN\\Layers\\Conv.cs",
+              "ViewState": "AgIAACQAAAAAAAAAAAAowLoCAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-03-06T17:44:32.729Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 27,
+              "Title": "Neuron.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Neuron.cs",
+              "RelativeDocumentMoniker": "MDNN\\Neuron.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Neuron.cs",
+              "RelativeToolTip": "MDNN\\Neuron.cs",
+              "ViewState": "AgIAAAoAAAAAAAAAAAAgwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-03-10T20:11:11.051Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 28,
+              "Title": "LayerWithUntrainedParameters.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\classes\\LayerWithUntrainedParameters.cs",
+              "RelativeDocumentMoniker": "MDNN\\Layers\\classes\\LayerWithUntrainedParameters.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\classes\\LayerWithUntrainedParameters.cs",
+              "RelativeToolTip": "MDNN\\Layers\\classes\\LayerWithUntrainedParameters.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAkAAAA2AAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-03-10T17:28:28.565Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 17,
+              "Title": "ReLu.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Activation functions\\ReLu.cs",
+              "RelativeDocumentMoniker": "MDNN\\Activation functions\\ReLu.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Activation functions\\ReLu.cs",
+              "RelativeToolTip": "MDNN\\Activation functions\\ReLu.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABkAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-03-10T19:03:46.293Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 29,
+              "Title": "LayerBasedOnNeurons.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\classes\\LayerBasedOnNeurons.cs",
+              "RelativeDocumentMoniker": "MDNN\\Layers\\classes\\LayerBasedOnNeurons.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\classes\\LayerBasedOnNeurons.cs",
+              "RelativeToolTip": "MDNN\\Layers\\classes\\LayerBasedOnNeurons.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAgAAAAtAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-03-10T17:28:27.717Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 31,
+              "Title": "Adam.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Optimizers\\Adam.cs",
+              "RelativeDocumentMoniker": "MDNN\\Optimizers\\Adam.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Optimizers\\Adam.cs",
+              "RelativeToolTip": "MDNN\\Optimizers\\Adam.cs",
+              "ViewState": "AgIAAAYAAAAAAAAAAAAQwCUAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-03-06T16:46:28.816Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 21,
+              "Title": "Tensor.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Tensor.cs",
+              "RelativeDocumentMoniker": "MDNN\\Tensor.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Tensor.cs",
+              "RelativeToolTip": "MDNN\\Tensor.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAgAAAAXAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-03-07T15:12:28.329Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 32,
+              "Title": "MaxPool.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\MaxPool.cs",
+              "RelativeDocumentMoniker": "MDNN\\Layers\\MaxPool.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Layers\\MaxPool.cs",
+              "RelativeToolTip": "MDNN\\Layers\\MaxPool.cs",
+              "ViewState": "AgIAAFIBAAAAAAAAAAAIwIcBAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-03-06T17:54:25.269Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 23,
+              "Title": "Gradient.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Gradient.cs",
+              "RelativeDocumentMoniker": "MDNN\\Gradient.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Gradient.cs",
+              "RelativeToolTip": "MDNN\\Gradient.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAgAAAAgAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-03-08T17:03:19.128Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 30,
+              "Title": "Momentum.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Optimizers\\Momentum.cs",
+              "RelativeDocumentMoniker": "MDNN\\Optimizers\\Momentum.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\Optimizers\\Momentum.cs",
+              "RelativeToolTip": "MDNN\\Optimizers\\Momentum.cs",
+              "ViewState": "AgIAAA4AAACgKGBInbElwCgAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-03-06T16:46:49.426Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 33,
+              "Title": "MDNN.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\MDNN.cs",
+              "RelativeDocumentMoniker": "MDNN\\MDNN.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\MDNN.cs",
+              "RelativeToolTip": "MDNN\\MDNN.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAACIAAAAJAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-03-06T20:18:35.573Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 34,
+              "Title": "LayerManager.cs",
+              "DocumentMoniker": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\LayerManager.cs",
+              "RelativeDocumentMoniker": "MDNN\\LayerManager.cs",
+              "ToolTip": "C:\\Users\\Martin\\source\\repos\\MDNN\\MDNN\\MDNN\\LayerManager.cs",
+              "RelativeToolTip": "MDNN\\LayerManager.cs",
+              "ViewState": "AgIAAB8AAAAAAAAAAAAgwJMAAAAmAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-03-07T20:46:48.817Z"
             }
           ]
         }
