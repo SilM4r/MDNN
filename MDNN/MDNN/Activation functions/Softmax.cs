@@ -31,17 +31,17 @@ namespace My_DNN.Activation_functions
             double[] result = new double[length];
             double expSum = 0.0;
 
-            // Numerická stabilita - posunutí hodnot
+
             double max = values.Max();
 
             for (int i = 0; i < length; i++)
             {
-                result[i] = Math.Exp(values[i] - max); // Posun hodnot
+                result[i] = Math.Exp(values[i] - max); 
                 expSum += result[i];
             }
             for (int i = 0; i < length; i++)
             {
-                result[i] /= expSum; // Normalizace
+                result[i] /= expSum; 
             }
             return result;
         }
