@@ -9,7 +9,6 @@ namespace My_DNN
     public class Tensor
     {
         public int[] Shape { get; private set; }
-
         public double[] Data 
         {
             get 
@@ -165,24 +164,15 @@ namespace My_DNN
             foreach (var item in array)
             {
                 if (item is Array subArray)
-                    flatList.AddRange(FlattenArray(subArray)); // Rekurzivně rozbalíme
+                    flatList.AddRange(FlattenArray(subArray)); 
                 else
-                    flatList.Add(Convert.ToDouble(item)); // Převod na double
+                    flatList.Add(Convert.ToDouble(item)); 
             }
             return flatList.ToArray();
         }
-
-        /// <summary>
-        /// Vrátí podtensor (slice) z původního multidimenzionálního pole, kde jsou fixovány první fixedIndices.Length dimenze.
-        /// Pokud jsou fixovány všechny dimenze (tj. fixedIndices.Length == source.Rank),
-        /// vrátí se jednoprvkové pole obsahující skalární hodnotu.
-        /// </summary>
-        /// <param name="source">Původní multidimenzionální pole (např. double[,,]).</param>
-        /// <param name="fixedIndices">Pole fixních indexů pro počáteční dimenze (např. {0,1} nebo {0,0,0}).</param>
-        /// <returns>Nové multidimenzionální pole se zbývajícími dimenzemi, nebo jednoprvkové pole při fixaci všech dimenzí.</returns>
         public static Array GetSubTensor(Array source, int[] fixedIndices)
         {
-            // Pokud jsou fixovány všechny dimenze, vrátíme skalární hodnotu zabalenou do jednoprvkového pole.
+
             if (fixedIndices.Length == source.Rank)
             {
                 object value = source.GetValue(fixedIndices);
@@ -206,20 +196,11 @@ namespace My_DNN
                 return result;
             }
         }
-
-        /// <summary>
-        /// Rekurzivně naplní cílové pole hodnotami ze zdrojového pole podle kombinace fixních indexů a indexů cílového pole.
-        /// </summary>
-        /// <param name="source">Původní pole.</param>
-        /// <param name="fixedIndices">Fixní indexy.</param>
-        /// <param name="target">Cílové pole, do kterého se budou zapisovat hodnoty.</param>
-        /// <param name="targetIndices">Pracovní pole indexů pro cílové pole.</param>
-        /// <param name="dim">Aktuální dimenze, kterou procházíme.</param>
         private static void FillSubTensor(Array source, int[] fixedIndices, Array target, int[] targetIndices, int dim)
         {
             if (dim == targetIndices.Length)
             {
-                // Sestavíme celkový index pro zdrojové pole
+
                 int totalLength = fixedIndices.Length + targetIndices.Length;
                 int[] fullIndices = new int[totalLength];
                 for (int i = 0; i < fixedIndices.Length; i++)
@@ -238,16 +219,12 @@ namespace My_DNN
                 }
             }
         }
-        /// <summary>
-        /// Z flat pole 'data' a daného tvaru 'shape' vyrobí reálné vícerozměrné pole typu double[...,].
-        /// </summary>
+
         public static Array BuildMultiDimArray(double[] data, int[] shape, int offset = 0)
         {
-            // 1) Pokud je shape prázdné, nemá smysl
             if (shape.Length == 0)
                 throw new ArgumentException("Shape nesmí být prázdné.");
 
-            // 2) Pokud je to 1D
             if (shape.Length == 1)
             {
                 double[] arr1D = new double[shape[0]];
@@ -255,30 +232,26 @@ namespace My_DNN
                 return arr1D;
             }
 
-            // 3) Jinak vytvoříme reálné nD pole
             Array arr = Array.CreateInstance(typeof(double), shape);
 
-            // subArraySize = součin zbývajících dimenzí
             int subArraySize = 1;
             for (int i = 1; i < shape.Length; i++)
                 subArraySize *= shape[i];
 
-            // Pro každý index v 1. dimenzi (shape[0]) vyplníme data
+
             for (int i = 0; i < shape[0]; i++)
             {
-                // Tady naplníme subpole (dimenzí shape[1..end]) element-po-elementu
+
                 for (int j = 0; j < subArraySize; j++)
                 {
-                    // Převedeme lineární index j na vícerozměrný index subIndices
+
                     int[] subIndices = GetMultiDimIndices(j, shape.Skip(1).ToArray());
 
-                    // Složíme full index pro arr
                     int[] fullIndices = new int[shape.Length];
                     fullIndices[0] = i;
                     for (int k = 0; k < subIndices.Length; k++)
                         fullIndices[k + 1] = subIndices[k];
 
-                    // Přečteme jednu hodnotu z flat data
                     double value = data[offset + i * subArraySize + j];
                     arr.SetValue(value, fullIndices);
                 }
@@ -286,11 +259,6 @@ namespace My_DNN
 
             return arr;
         }
-
-        /// <summary>
-        /// Pomocná metoda: lineární index → vícerozměrné indexy pro zadaný shape.
-        /// Např. shape = [3,4], linearIndex=5 → (1,1).
-        /// </summary>
         private static int[] GetMultiDimIndices(int linearIndex, int[] shape)
         {
             int rank = shape.Length;
