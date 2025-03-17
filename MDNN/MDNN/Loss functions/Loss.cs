@@ -8,12 +8,9 @@ namespace My_DNN.Loss_functions
         {
             get { return losses; }
         }
-
         private int iteration = 0;
         private double totalLossSum = 0;
-
         private double[]? losses;
-
         public abstract string Name { get; }
 
         public abstract double LossFunction(double value, double target_value);
@@ -51,7 +48,6 @@ namespace My_DNN.Loss_functions
             return lossSum;
         }
 
-
         public double GetResetAverageLossPerIteration()
         {
             if (iteration == 0)
@@ -82,7 +78,6 @@ namespace My_DNN.Loss_functions
             totalLossSum = 0;
         }
 
-
         public static Loss inicialization_Loss_func(string name_of_loss_function)
         {
             switch (name_of_loss_function)
@@ -95,13 +90,5 @@ namespace My_DNN.Loss_functions
             }
         }
 
-        public static Loss MSE()
-        {
-            return new MSE();
-        }
-        public static Loss CrossEntropy()
-        {
-            return new CrossEntropy();
-        }
     }
 }
