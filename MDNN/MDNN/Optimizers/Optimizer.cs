@@ -29,16 +29,6 @@ namespace My_DNN.Optimizers
             return GetOptimizer(Optimizer.Name, Optimizer.Hyperparameters);
         }
 
-        public static Optimizer SGD(double learning_rate)
-        {
-            return new SGD(learning_rate);
-        }
-
-        public static Optimizer Adam(double learning_rate, double beta1 = 0.9, double beta2 = 0.999)
-        {
-            return new Adam(learning_rate,beta1, beta2);
-        }
-
         private static Optimizer GetOptimizer(string name, double[] hyperparameters)
         {
             switch (name)
