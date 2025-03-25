@@ -15,7 +15,12 @@ Knihovna se aplikuje do projektu pomocí souboru MDNN.dll. Tento soubor najdete 
 ## 🚀 Použití
 
 ```csharp
-using My_DNN;;
+using My_DNN.Layers;
+using My_DNN.Layers.classes;
+using My_DNN.Optimizers;
+using My_DNN;
+using My_DNN.Activation_functions;
+using My_DNN.Loss_functions;
 
 namespace MDNN_example
 {
