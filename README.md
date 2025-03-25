@@ -47,7 +47,7 @@ namespace MDNN_example
             // model train 
             model.Train.TrainLoop(tensorInputDataset, tensorOutputDataset, epoch,1);
             //save model
-            model.SaveAsJson("");
+            model.SaveAsJson("save");
         }
     }
 }
