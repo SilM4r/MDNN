@@ -1,5 +1,5 @@
 # MDNN
-je knihovna pro tvorbu a trénování neuronových sítí v jazyce C#. Tato knihovna umožňuje snadné vytvoření vlastních modelů neuronových sítí a jejich trénování.
+MDNN (my deep neural network) je knihovna pro tvorbu a trénování neuronových sítí v jazyce C#. Tato knihovna umožňuje snadné vytvoření vlastních modelů neuronových sítí a jejich trénování.
 
 ## 📌 Funkce
 - Podpora různých typů vrstev, jako jsou například Dense,MaxPooling, CNN (konvoluční neuronové sítě) a RNN (rekurentní neuronové sítě)
