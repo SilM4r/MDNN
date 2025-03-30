@@ -12,7 +12,8 @@ MDNN (my deep neural network) je knihovna pro tvorbu a trénování neuronových
 ## 🛠 Instalace
 Knihovna se aplikuje do projektu pomocí souboru MDNN.dll. Tento soubor najdete ve složce projektu, nebo si můžete stáhnout celý repozitář a spustit jej – automaticky se vygeneruje nový soubor MDNN.dll.
 
-## 🚀 Použití
+## 🚀 Rychlé použití
+Tohle je velmi jednoduchá ukázka toho jak je jednoduché vytvořit a natrénovat neuronovou sít. 
 
 ```csharp
 using My_DNN.Layers;
@@ -39,7 +40,8 @@ namespace MDNN_example
 
             // setting the model structure
             MDNN model = new MDNN(outputLayer, optimizer, loss);
-            model.Layers.Add(new Dense(1, new ReLu()));
+
+            model.Layers.Add(new Dense(1, new ReLu()));  // adding a hidden layer
 
             Tensor tensorInputDataset = new Tensor(inputsDataset);
             Tensor tensorOutputDataset = new Tensor(ouputDataset);
@@ -51,6 +53,40 @@ namespace MDNN_example
         }
     }
 }
-
-
 ```
+
+## ⏱️ Nejjednoduší začátek 
+zde je ukázka minimálních věcích které je potřeba nastavit pro trénování, zbylé nastaveí se nastaví na defaultní hodonty které jsou co možná nejvíc univerzální aby šli použít na jakákoliv úkoly.
+```csharp
+using My_DNN.Layers;
+using My_DNN.Layers.classes;
+using My_DNN.Optimizers;
+using My_DNN;
+using My_DNN.Activation_functions;
+using My_DNN.Loss_functions;
+
+namespace MDNN_example
+{
+    internal class Program
+    {
+        static void Main(string[] args)
+        {
+            //  input data and current output data
+            double[][] inputsDataset = new double[][] {...};
+            double[][] ouputDataset = new double[][] {...}; 
+
+            // outputLayer setting
+            Layer outputLayer = new Dense(1, new Linear()); 
+
+            // setting the model structure
+            MDNN model = new MDNN(outputLayer);
+
+            // model train 
+            uint epoch = 1000;
+            model.Train.SimpleTrainLoop(inputsDataset, ouputDataset, epoch);
+        }
+    }
+}
+```
+
+
