@@ -1,4 +1,4 @@
-**# MDNN (My Deep Neural Network)
+**# MDNN (My Deep Neural Network)**
 
 MDNN (My Deep Neural Network) je knihovna pro návrh a trénování neuronových sítí v jazyce C#. Umožňuje snadnou tvorbu a konfiguraci modelů neuronových sítí, jejich trénování a následnou inferenci.
 
