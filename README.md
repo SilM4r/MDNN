@@ -25,7 +25,8 @@ MDNN je distribuována jako dynamická knihovna **MDNN.dll**. Pro její použit�
 
 1. Přidat soubor **MDNN.dll** do projektu.
 2. Zahrnout příslušné jmenné prostory ve zdrojovém kódu.
-3. Alternativně lze stáhnout celý repozitář a spustit sestavení, které automaticky vygeneruje nový soubor **MDNN.dll**.
+
+Alternativně lze stáhnout celý repozitář a spustit sestavení, které automaticky vygeneruje nový soubor **MDNN.dll**.
 
 ## 🚀 Rychlý start
 
