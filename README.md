@@ -98,6 +98,20 @@ model.Layers.Add(new Dense(32, new Sigmoid()));  // Další vrstva s 32 neurony 
 
 Kromě funkce **`Add()`** obsahuje třída **`Layers`** také metody pro odebírání nebo přidávání vrstev na konkrétní pozici a řadu dalších funkcí pro manipulaci s vrstvami.
 
+Knihovna **MDNN** podporuje následující vrstvy:
+- `Dense()`
+- `RNN()`
+- `Conv()`
+- `MaxPool()`
+- WIP: transformer vrstva respektive attention Layer
+
+V případě potřeby lze vytvořit i vlastní specializovanou vrstvu. Stačí zdědit jednu z následujících abstraktních tříd:
+- `Layer`
+- `LayerBasedOnNeurons`
+- `LayerWithUntrainedParameters`
+
+Poté je nutné implementovat všechny jejich abstraktní metody. Jakmile je nová vrstva definována, lze ji přidat do modelu a použít při trénování.
+
 ## 🎯 Trénování modelu
 modle se trénuje pomocí třídy Train, která obsahuje veškeré potřebné metody pro řízení trénování. Uživatel má možnost volit mezi čtyřmi metodami trénování podle požadované míry kontroly nad učením modelu. 
 -	**`TrainLoop()`**
