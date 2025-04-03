@@ -116,9 +116,39 @@ Poté je nutné implementovat všechny jejich abstraktní metody. Jakmile je nov
 modle se trénuje pomocí třídy Train, která obsahuje veškeré potřebné metody pro řízení trénování. Uživatel má možnost volit mezi čtyřmi metodami trénování podle požadované míry kontroly nad učením modelu. 
 -	**`TrainLoop()`**
 -	**`SimpleTrainLoop()`** 
--	**`Fit()`** 
+-	**`Fit() a UpdateParams()`** 
 -	**`BackPropagation() a FeedForward()`** 
 
+## ⏳ Optimalizace
+
+Knihovna **MDNN** podporuje efektivní optimalizaci výpočtů neuronové sítě. Mezi hlavní optimalizační techniky patří:
+- **Využití GPU** – Výpočty neuronové sítě lze provádět na grafických procesorech, což výrazně urychluje trénování modelů, zejména při práci s velkým množstvím dat. Pro tento účel byla vyvinuta vlastní knihovna `gpu.dll`, která je napsaná v **C++** s využitím **CUDA** a umožňuje efektivní paralelní výpočty.
+- **Asynchronní výpočty** – Knihovna umožňuje plně asynchronní zpracování výpočtů neuronové sítě, což vede k efektivnějšímu využití výpočetních zdrojů a snížení latence během trénování.
+
+Díky těmto optimalizacím lze s MDNN efektivně trénovat hluboké neuronové sítě i na rozsáhlých datových sadách.
+
+### Požadavky na výpočty přes GPU
+
+Pro umožnění výpočtů neuronové sítě na GPU je nutné stáhnout následující komponenty:
+- Knihovnu **`gpu.dll`**
+- **CUDA Toolkit**
+
+Aktuálně knihovna podporuje výpočty pouze na **NVIDIA GPU**. Podpora pro **AMD** a **Intel** grafické karty je ve vývoji.
+
+### Aktivace výpočtů přes GPU
+
+Pro zapnutí výpočtu neuronové sítě přes GPU lze použít následující kód:
+```csharp
+GeneralNeuralNetworkSettings.calculationViaGpu = true;
+```
+
+### Použití asynchronních funkcí
+
+Knihovna podporuje asynchronní zpracování trénování neuronové sítě. Ukázka použití:
+```csharp
+await model.Train.TrainLoopAsync(tensorInputDataset, tensorOutputDataset, 1000);
+```
+Každá synchronní funkce má svou ekvivalentní asynchronní verzi, což umožňuje efektivní paralelní výpočty.
 
 
 
