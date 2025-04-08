@@ -131,6 +131,22 @@ Tato funkce představuje hlavní a zároveň nejpokročilejší trénovací proc
 - Detekce chyb, jako je výskyt hodnot typu NaN.
 - Automatické vykreslení grafu průběhu ztrátové funkce (loss) napříč epochami.
 
+Parametry:
+- **`Tensor inputs_values`** – *povinný parametr*  
+  Vstupní dataset ve formátu tenzoru. Každý řádek odpovídá jednomu trénovacímu vzorku.
+
+- **`Tensor current_output_values`** – *povinný parametr*  
+  Odpovídající výstupy (labely) pro vstupní data, rovněž ve formátu tenzoru.
+
+- **`uint number_of_epoch`** – *povinný parametr*  
+  Určuje počet trénovacích epoch.
+
+- **`uint size_of_mini_batch`** – *nepovinný parametr*  
+  Velikost minibatche používané během trénování. Pokud není specifikováno, použije se výchozí hodnota `1`.
+
+- **`bool isSequence`** – *nepovinný parametr*  
+  Pokud je nastaveno na `true`, model bude očekávat sekvenční vstupní data (např. časové řady, video nebo jiná sekvenční data). Výchozí hodnota je `false`.
+
 ## ⏳ Optimalizace
 
 Knihovna **MDNN** podporuje efektivní optimalizaci výpočtů neuronové sítě. Mezi hlavní optimalizační techniky patří:
