@@ -122,7 +122,7 @@ modle se trénuje pomocí třídy Train, která obsahuje veškeré potřebné me
 -	**`BackPropagation() a FeedForward()`**
 
 
-# **`TrainLoop()`**
+### **`TrainLoop()`**
 Tato funkce představuje hlavní a zároveň nejpokročilejší trénovací proceduru v knihovně. Zahrnuje kompletní trénovací smyčku (train loop) a poskytuje následující pokročilé funkce:
 
 - Automatické ukládání modelu s nejlepší validací (tzv. early stopping checkpoint).
