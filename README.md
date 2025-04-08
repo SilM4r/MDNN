@@ -119,7 +119,17 @@ modle se trénuje pomocí třídy Train, která obsahuje veškeré potřebné me
 -	**`TrainLoop()`**
 -	**`SimpleTrainLoop()`** 
 -	**`Fit() a UpdateParams()`** 
--	**`BackPropagation() a FeedForward()`** 
+-	**`BackPropagation() a FeedForward()`**
+
+
+## **`TrainLoop()`**
+Tato funkce představuje hlavní a zároveň nejpokročilejší trénovací proceduru v knihovně. Zahrnuje kompletní trénovací smyčku (train loop) a poskytuje následující pokročilé funkce:
+
+- Automatické ukládání modelu s nejlepší validací (tzv. early stopping checkpoint).
+- Automatické míchání a rozdělení datasetu na trénovací, validační a testovací části.
+- Průběžný výpis informací o průběhu trénování (např. aktuální epochy, metriky) do konzole.
+- Detekce chyb, jako je výskyt hodnot typu NaN.
+- Automatické vykreslení grafu průběhu ztrátové funkce (loss) napříč epochami.
 
 ## ⏳ Optimalizace
 
