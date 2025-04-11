@@ -90,7 +90,7 @@ Model je inicializován pomocí třídy **MDNN**, která slouží jako centráln
 ```csharp
 MDNN model = new MDNN(outputLayer, optimizer, loss);
 ```
-## Parametry konstruktoru
+### Parametry konstruktoru
 
 - **`outputLayer`** *(povinný parametr)* – objekt typu **Layer**, představující výstupní vrstvu sítě.
 - **`optimizer`** *(volitelný parametr)* – objekt typu **Optimizer**, který specifikuje optimalizační algoritmus. Pokud není zadán, výchozí hodnota je **SGD(0.0001)**.
