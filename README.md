@@ -34,7 +34,7 @@ MDNN (My Deep Neural Network) je knihovna pro návrh a trénování neuronových
 
 MDNN je distribuována jako dynamická knihovna **MDNN.dll**. Pro její použití je nutné:
 
-1. Přidat soubor **MDNN.dll** do projektu.
+1. Přidat soubor **MDNN.dll** do projektu. (přidat novou závyslot do projektu)
 2. Zahrnout příslušné jmenné prostory ve zdrojovém kódu.
 
 Alternativně lze stáhnout celý repozitář a spustit sestavení, které automaticky vygeneruje nový soubor **MDNN.dll**.
@@ -110,6 +110,11 @@ model.Layers.Add(new Dense(32, new Sigmoid()));  // Další vrstva s 32 neurony 
 ```
 
 Kromě funkce **`Add()`** obsahuje třída **`Layers`** také metody pro odebírání nebo přidávání vrstev na konkrétní pozici a řadu dalších funkcí pro manipulaci s vrstvami.
+- **`Insert()`**
+- **`RemoveAt()`**
+- **`OutputLayerActivationFunc()`** - nastavý novou výstupní aktivační funkci
+- **`ClearAllLayersAndSetNewOutputLayer`** - vymaže všechny vrstvy a nastavý novou výstupní vrstvu
+
 
 Knihovna **MDNN** podporuje následující vrstvy:
 - `Dense()`
@@ -198,7 +203,7 @@ například:
 
 Po dokončení procesu trénování a uložení modelu ve formátu JSON (např. pomocí metody `model.SaveAsJson("save")`) následuje fáze **produkčního nasazení**. V této fázi je model integrován do cílové aplikace nebo systému, kde slouží k inference – tedy k provádění predikcí na základě nových vstupních dat.
 
-### 🧠 Využití natrénovaného modelu
+### Využití natrénovaného modelu
 
 Pro použití modelu v produkčním prostředí není třeba opětovné trénování. Stačí ho načíst a následně na něj aplikovat vstupy:
 
