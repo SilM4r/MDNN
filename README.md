@@ -187,7 +187,11 @@ Knihovna podporuje asynchronní zpracování trénování neuronové sítě. Uk�
 await model.Train.TrainLoopAsync(tensorInputDataset, tensorOutputDataset, 1000);
 ```
 Každá synchronní funkce má svou ekvivalentní asynchronní verzi, což umožňuje efektivní paralelní výpočty.
+například:
 
+- **`TrainLoop()`**  -> **`TrainLoopAsync()`** 
+- **`Fit()`**  -> `** FitAsync()`** 
+- **`GetResults()`**  -> **`GetResultsAsync()`** 
 
 
 
