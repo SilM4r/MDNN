@@ -3,6 +3,16 @@
 
 MDNN (My Deep Neural Network) je knihovna pro návrh a trénování neuronových sítí v jazyce C#. Umožňuje snadnou tvorbu a konfiguraci modelů neuronových sítí, jejich trénování a následnou inferenci.
 
+> 📚 **Obsah**
+> - [📌 Klíčové vlastnosti](#-klíčové-vlastnosti)  
+> - [🛠 Instalace](#-instalace)  
+> - [🚀 Rychlý start](#-rychlý-start)  
+> - [⚙ Konfigurace modelu](#-konfigurace-modelu)  
+> - [📌 Přidávání vrstev do modelu](#-přidávání-vrstev-do-modelu)  
+> - [🎯 Trénování modelu](#-trénování-modelu)  
+> - [⏳ Optimalizace](#-optimalizace)
+
+
 ## 📌 Klíčové vlastnosti
 
 - Podpora různých typů vrstev, včetně:
@@ -115,7 +125,7 @@ V případě potřeby lze vytvořit i vlastní specializovanou vrstvu. Stačí z
 Poté je nutné implementovat všechny jejich abstraktní metody. Jakmile je nová vrstva definována, lze ji přidat do modelu a použít při trénování.
 
 ## 🎯 Trénování modelu
-modle se trénuje pomocí třídy Train, která obsahuje veškeré potřebné metody pro řízení trénování. Uživatel má možnost volit mezi čtyřmi metodami trénování podle požadované míry kontroly nad učením modelu. 
+model se trénuje pomocí třídy Train, která obsahuje veškeré potřebné metody pro řízení trénování. Uživatel má možnost volit mezi čtyřmi metodami trénování podle požadované míry kontroly nad učením modelu. 
 -	**`TrainLoop()`**
 -	**`SimpleTrainLoop()`** 
 -	**`Fit() a UpdateParams()`** 
