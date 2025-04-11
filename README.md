@@ -191,7 +191,27 @@ například:
 
 - **`TrainLoop()`**  -> **`TrainLoopAsync()`** 
 - **`Fit()`**  -> `** FitAsync()`** 
-- **`GetResults()`**  -> **`GetResultsAsync()`** 
+- **`GetResults()`**  -> **`GetResultsAsync()`**
+
+## 📦 Produkční nasazení
+
+Po dokončení procesu trénování a uložení modelu ve formátu JSON (např. pomocí metody `model.SaveAsJson("save")`) následuje fáze **produkčního nasazení**. V této fázi je model integrován do cílové aplikace nebo systému, kde slouží k inference – tedy k provádění predikcí na základě nových vstupních dat.
+
+### 🧠 Využití natrénovaného modelu
+
+Pro použití modelu v produkčním prostředí není třeba opětovné trénování. Stačí ho načíst a následně na něj aplikovat vstupy:
+
+```csharp
+double[][] inputsDataset = new double[][] {...};  // input data 
+
+MDNN model = MDNN.LoadModel("Completed training.json");
+
+Tensor inputTensor = new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset));
+
+model.GetResults(inputTensor);
+```
+
+
 
 
 
