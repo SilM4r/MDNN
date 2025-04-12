@@ -134,12 +134,12 @@ Poté je nutné implementovat všechny jejich abstraktní metody. Jakmile je nov
 model se trénuje pomocí třídy Train, která obsahuje veškeré potřebné metody pro řízení trénování. Uživatel má možnost volit mezi čtyřmi metodami trénování podle požadované míry kontroly nad učením modelu. 
 -	**`TrainLoop()`**
 -	**`SimpleTrainLoop()`** 
--	**`Fit() a UpdateParams()`** 
--	**`BackPropagation() a FeedForward()`**
+-	**`Fit()`** a **`UpdateParams()`** 
+-	**`BackPropagation()`** a **`FeedForward()`**
 
 
 ### **`TrainLoop()`**
-Tato funkce představuje hlavní a zároveň nejpokročilejší trénovací proceduru v knihovně. Zahrnuje kompletní trénovací smyčku (train loop) a poskytuje následující pokročilé funkce:
+Tato metoda představuje hlavní a zároveň nejpokročilejší trénovací proceduru v knihovně. Zahrnuje kompletní trénovací smyčku (train loop) a poskytuje následující pokročilé funkce:
 
 - Automatické ukládání modelu s nejlepší validací (tzv. early stopping checkpoint).
 - Automatické míchání a rozdělení datasetu na trénovací, validační a testovací části.
@@ -162,6 +162,151 @@ Parametry:
 
 - **`bool isSequence`** – *nepovinný parametr*  
   Pokud je nastaveno na `true`, model bude očekávat sekvenční vstupní data (např. časové řady, video nebo jiná sekvenční data). Výchozí hodnota je `false`.
+
+### **`SimpleTrainLoop()`**
+Jedná se o zjednodušenou verzi metody **`TrainLoop()`** Zahrnuje kompletní trénovací smyčku (train loop) a poskytuje následující funkce:
+
+- Automatické ukládání modelu s nejlepší validací (tzv. early stopping checkpoint).
+- Průběžný výpis informací o průběhu trénování (např. aktuální epochy, metriky) do konzole.
+- Detekce chyb, jako je výskyt hodnot typu NaN.
+
+Parametry:
+- **`double[][] inputs_values`** – *povinný parametr*  
+  Vstupní dataset ve formátu double[][]. Každý řádek odpovídá jednomu trénovacímu vzorku.
+
+- **`double[][] current_output_values`** – *povinný parametr*  
+  Odpovídající výstupy (labely) pro vstupní data, rovněž ve formátu double[][].
+
+- **`uint number_of_epoch`** – *povinný parametr*  
+  Určuje počet trénovacích epoch.
+
+- **`uint size_of_mini_batch`** – *nepovinný parametr*  
+  Velikost minibatche používané během trénování. Pokud není specifikováno, použije se výchozí hodnota `1`.
+
+### **`Fit()`** a **`UpdateParams()`** 
+Jedná se o středně pokročilý přístup k trénování modelů, který umožňuje implementaci vlastní trénovací smyčky (training loop). Tento přístup neposkytuje předpřipravené funkcionality, avšak uživatel má k dispozici sadu podpůrných tříd, které lze využít pro vytvoření doplňkových komponent, jako je například výpis informací o trénování do konzole, vizualizace trénovacích ztrát pomocí grafů, nebo implementace testovacích procedur pro vyhodnocení modelu.
+
+Tato metoda je tvořena dvěma funkcemi: **`Fit()`** a **`UpdateParams()`**.  
+Funkce **`Fit()`** provádí jak výpočet výstupu (tzv. *feedforward*), tak i zpětnou propagaci chyby (*backpropagation*), avšak bez okamžité aktualizace modelových parametrů – místo toho dochází k akumulaci gradientů.
+
+Aktualizace parametrů na základě akumulovaných gradientů je provedena až při volání funkce **`UpdateParams()`**. Tento přístup odpovídá trénování pomocí *minibatch*, které může vést k efektivnějšímu a stabilnějšímu učení.
+
+V případě, že uživatel nechce využívat minibatch režim, postačí volat obě funkce bezprostředně po sobě.
+
+```csharp
+ Random rnd = new Random();
+
+ double[][] inputsDataset = new double[][] {...};  // input data 
+ double[][] currentOutputDataset = new double[][] {...};  // currentOutput data 
+
+ // Inicializace modelu
+ MDNN model = new MDNN(new Dense(3), new Adam(0.001));
+
+ // počet epoch a velikost minibatche
+ int number_of_epoch = 5000;
+ int size_of_miniBatch = 16;
+
+ // počet všech prvků v datasetu 
+ int number_of_element_intDataset = inputsDataset.Length;
+
+ // hlavní trénovací smyčka
+ for (int i = 0; i < number_of_epoch; i++)
+ {
+     // sekundární smyčka minibatch
+     for (int j = 0; j < size_of_miniBatch; j++)
+     {
+         int num = rnd.Next(number_of_element_intDataset);
+
+         double[] inputs = inputsDataset[num];
+         double[] output = currentOutputDataset[num];
+
+         // výpočet na jednom konkrétním prvku který je náhodně zvolen z celého datasetu
+         model.Train.Fit(new Tensor(inputs),new Tensor(output));
+     }
+
+     // aktualizace trénovacích parametrů
+     model.Train.UpdateParams();
+ }
+
+ // podpůrná funkce která otestuje celý dataset na natrénovaném datsetu
+ model.Train.TestNeuralNetwork(new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset)), new Tensor(Tensor.ConvertJaggedToMulti(currentOutputDataset)));
+```
+Parametry:
+**`Fit()`** :
+- **`Tensor inputs_values`** – *povinný parametr*  
+  Vstupní dataset ve formátu tenzoru. Každý řádek odpovídá jednomu trénovacímu vzorku.
+
+- **`Tensor target_values`** – *povinný parametr*  
+  Odpovídající výstupy (labely) pro vstupní data, rovněž ve formátu tenzoru.
+
+**`UpdateParams()`** - nemá žádné paramtery
+
+### **`BackPropagation()`** a **`FeedForward()`**
+Jedná se o nejpokročilejší metodu trénování, která poskytuje maximální míru kontroly nad jednotlivými fázemi učení. Na rozdíl od přístupu využívajícího funkce **`Fit()`** a **`UpdateParams()`** je zde metoda **`Fit()`** rozdělena do dvou samostatných funkcí: **`FeedForward()`** a **`BackPropagation()`**. Funkce **`FeedForward()`** provádí dopředný výpočet neuronové sítě, zatímco **`BackPropagation()`** zajišťuje zpětnou propagaci chyby a výpočet gradientů. Tento přístup umožňuje detailní manipulaci s jednotlivými kroky trénovacího procesu, což je vhodné zejména pro výzkumné účely nebo pokročilé optimalizace.
+
+**Upozornění:** Pro samotnou aktualizaci modelových parametrů je i v tomto případě nutné následně zavolat metodu **`UpdateParams()`**.
+
+```csharp
+ Random rnd = new Random();
+
+ double[][] inputsDataset = new double[][] {...};  // input data 
+ double[][] currentOutputDataset = new double[][] {...};  // currentOutput data 
+
+ // Inicializace modelu
+ MDNN model = new MDNN(new Dense(3), new Adam(0.001));
+
+ // počet epoch a velikost minibatche
+ int number_of_epoch = 5000;
+ int size_of_miniBatch = 16;
+
+ // počet všech prvků v datasetu 
+ int number_of_element_intDataset = inputsDataset.Length;
+
+ // hlavní trénovací smyčka
+ for (int i = 0; i < number_of_epoch; i++)
+ {
+     // sekundární smyčka minibatch
+     for (int j = 0; j < size_of_miniBatch; j++)
+     {
+         int num = rnd.Next(number_of_element_intDataset);
+
+         double[] inputs = inputsDataset[num];
+         double[] output = currentOutputDataset[num];
+
+         // dopředný výpočet 
+         model.Train.FeedForward(new Tensor(Tensor.ConvertJaggedToMulti(inputs)));
+
+         // výpočet gradientů (podpůrná meotda)
+         Tensor[] gradients = Gradient.GetGradients(new Tensor(Tensor.ConvertJaggedToMulti(inputs)), model);
+
+         // zpětná propagace gradientů
+         model.Train.BackPropagation(gradients);
+     }
+
+     // aktualizace trénovacích parametrů
+     model.Train.UpdateParams();
+ }
+
+ // podpůrná funkce která otestuje model na natrénovaném datsetu
+ model.Train.TestNeuralNetwork(new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset)), new Tensor(Tensor.ConvertJaggedToMulti(currentOutputDataset)));
+```
+Parametry metod:
+
+**`FeedForward()`**
+- **`Tensor inputs_values`** – *povinný parametr*  
+  Vstupní data ve formátu tenzor.
+
+**`BackPropagation()`**
+
+Metoda **`BackPropagation()`** má dvě přetížení:
+
+1. **První přetížení:**
+   - **`Tensor[] layer_gradients`** – *povinný parametr*  
+     Pole gradientů jednotlivých vrstev ve formátu tenzoru. Slouží k ručně řízené zpětné propagaci.
+
+2. **Druhé přetížení:**
+   - **`Tensor target_values`** – *povinný parametr*  
+     Cílové výstupní hodnoty odpovídající vstupním datům, rovněž ve formátu tenzoru. V tomto přetížení metoda interně spočítá příslušné hodnoty `layer_gradients`.
 
 ## ⏳ Optimalizace
 
@@ -196,7 +341,7 @@ Každá synchronní funkce má svou ekvivalentní asynchronní verzi, což umož
 například:
 
 - **`TrainLoop()`**  -> **`TrainLoopAsync()`** 
-- **`Fit()`**  -> `** FitAsync()`** 
+- **`Fit()`**  -> **`FitAsync()`** 
 - **`GetResults()`**  -> **`GetResultsAsync()`**
 
 ## 📦 Produkční nasazení
