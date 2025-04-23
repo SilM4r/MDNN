@@ -361,9 +361,78 @@ Tensor inputTensor = new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset));
 
 model.GetResults(inputTensor);
 ```
+## 👏 Podpůrné funkce
 
+Knihovna obsahuje řadu podpůrných metod navržených pro usnadnění práce s neuronovou sítí.  
 
+Například v knihovně **MDNN** naleznete:
+- funkce pro vykreslování grafů trénovacích ztrát v jednotlivých epochách,
+- nástroje pro přehledné zobrazování výstupů a statistik v konzoli,
+- a mnoho dalších užitečných nástrojů, které zefektivňují ladění a analýzu modelu.
 
+Tyto funkce výrazně přispívají k přehlednosti, efektivitě a komfortu při práci s neuronovými sítěmi.
 
+### Tensor
+
+Třída **`Tensor`** slouží jako univerzální datový typ pro práci s vícerozměrnými poli (*arrays*).  
+Umožňuje efektivní manipulaci s daty libovolné dimenze a zajišťuje jejich jednotnou reprezentaci napříč celou knihovnou.
+
+Interně tato třída uchovává:
+- původní vícerozměrné pole `OriginalInput` (např. o veliskoti `[5][5][5][5]`),
+- ekvivalentní jednorozměrné pole `Data` (např. o velikosti `[125]`) pro rychlejší výpočty,
+- a informaci o tvaru původního pole ve formě seznamu rozměrů `Shape` (např. `[5, 5, 5, 5]`).
+
+Jednou z klíčových vlastností třídy je podpora velmi snadného a rychlého přetváření dat do jiného rozměru pomocí operace **Reshape(int[] newShape)**, což výrazně zvyšuje flexibilitu při práci s různými strukturami dat.
+
+Díky této struktuře umožňuje `Tensor` jednoduše přistupovat k prvkům, provádět matematické operace a efektivně pracovat s daty v neuronové síti bez ohledu na jejich původní dimenzi.
+
+### Konzolové výstupy
+
+Knihovna obsahuje statickou třídu ConsoleManager, která zajišťuje veškeré výstupy do konzole: 
+- **`ShowModelInfo()`** – vypisuje podrobné informace o aktuálním modelu.
+-	**`ShowEpochInfo()`** – zobrazí informace o aktuální epoše během trénování.
+-	**`ShowScoreOfModel()`** – vypíše dosaženou přesnost modelu.
+-	**`ErrorHandler()`** - zpracování a výpis chybových hlášek, čímž usnadňuje diagnostiku a ladění modelu.
+
+### `GeneralNeuralNetworkSettings`
+
+Jedná se o statickou podpůrnou třídu, která uchovává výchozí (defaultní) nastavení celé knihovny pro neuronové sítě. Například obsahuje výchozí aktivační funkce, ztrátovou funkci nebo optimalizační algoritmus.
+
+Třída současně slouží jako jednoduchý **dependency injection mechanismus**, což umožňuje správu a předávání společných závislostí mezi jednotlivými komponentami knihovny bez nutnosti jejich pevného svázání.
+
+Atributy:
+- **`default_output_activation_func`** (*Activation_func*)  
+  Výchozí aktivační funkce pro výstupní vrstvu (např. `Linear`).
+
+- **`default_hidden_layers_activation_func`** (*Activation_func*)  
+  Výchozí aktivační funkce pro skryté vrstvy (např. `ReLU`).
+
+- **`loss_func`** (*Loss*)  
+  Výchozí ztrátová funkce používaná při trénování (např. `MSE` – střední kvadratická chyba).
+
+- **`optimizer`** (*Optimizer*)  
+  Výchozí optimalizační algoritmus (např. `SGD` s learning rate `0.0001`).
+
+- **`calculationViaGpu`** (*bool*)  
+  Určuje, zda se výpočty mají provádět na GPU (`true`) nebo CPU (`false`).
+
+- **`SequenceTrain`** (*bool*)  
+  Režim sekvenčního trénování (např. pro rekurentní sítě).
+
+- **`modelInputSizeAndShape`** (*int[]*)  
+  Definuje tvar a velikost vstupního tenzoru modelu.
+
+- **`rnd`** (*Random*)  
+  Statický generátor náhodných čísel pro inicializaci a stochastické procesy v síti.
+
+### Tvorba grafů
+
+Knihovna obsahuje třídu **`GraphPlotter`**, která slouží k vizualizaci průběhu trénování neuronové sítě. Jejím hlavním účelem je poskytnout uživateli nástroj pro sledování vývoje ztrátových funkcí během trénovacího procesu.
+
+Třída disponuje jedinou metodou **`ShowLossGraph()`**, která vygeneruje graf trénovací a validační ztráty (*TrainLoss* a *ValidLoss*) v závislosti na počtu epoch. Výsledný graf je automaticky uložen jako obrázek s názvem `loss.png` do kořenového adresáře aplikace.
+
+Díky tomuto vizuálnímu přehledu může uživatel snadno identifikovat problémy jako např. přeučení modelu (*overfitting*) nebo nedostatečné trénování a podle toho upravit trénovací parametry.
+
+K vykreslení grafu je využita veřejně dostupná knihovna **ScottPlot**, která umožňuje jednoduché a přehledné generování vědeckých grafů.
 
 
