@@ -12,6 +12,7 @@ MDNN (My Deep Neural Network) je knihovna pro návrh a trénování neuronových
 - [🎯 Trénování modelu](#-trénování-modelu)  
 - [⏳ Optimalizace](#-optimalizace)
 - [📦 Produkční nasazení](#-produkční-nasazení)
+- [👏 Podpůrné funkce](#-podpůrné-funkce)
 
 
 ## 📌 Klíčové vlastnosti
