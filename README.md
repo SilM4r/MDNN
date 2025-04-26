@@ -46,12 +46,12 @@ Alternatively, you can download the entire repository and run the build, which w
 Below is a simple example of using MDNN to create and train a neural network.
 
 ```csharp
-using My_DNN. Layers;
-using My_DNN. Layers.classes;
-using My_DNN. Optimizers;
+using My_DNN.Layers;
+using My_DNN.Layers.classes;
+using My_DNN.Optimizers;
 using My_DNN;
-using My_DNN. Activation_functions;
-using My_DNN. Loss_functions;
+using My_DNN.Activation_functions;
+using My_DNN.Loss_functions;
 
 namespace MDNN_example
 {
@@ -79,10 +79,10 @@ namespace MDNN_example
             Tensor tensorOutputDataset = new Tensor(outputDataset);
             
             //Train a model
-            model. Train.TrainLoop(tensorInputDataset, tensorOutputDataset, epoch, 1);
+            model.Train.TrainLoop(tensorInputDataset, tensorOutputDataset, epoch, 1);
             
             //Save the model
-            model. SaveAsJson("save");
+            model.SaveAsJson("save");
         }
     }
 }
