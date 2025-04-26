@@ -126,7 +126,7 @@ The MDNN library supports the following layers:
 - `RNN()`
 - `Conv()`
 - `MaxPool()`
-- WIP: Transformer Layer or Attention Layer
+- WIP: Transformer (Attention Layer)
 
 If necessary, you can also create your own specialized layer. It is enough to inherit one of the following abstract classes:
 - `Layer`
