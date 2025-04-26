@@ -115,7 +115,7 @@ model.Layers.Add(new Dense(64, new ReLu())); // Addition of a hidden layer with 
 model.Layers.Add(new Dense(32, new Sigmoid())); // Additional layer with 32 neurons and sigmoid activation
 ```
 
-In addition to the Add()`** function, the **`Layers` class also contains methods for removing or adding layers at a specific position, and a number of other functions for manipulating layers.
+In addition to the `** Add() **` function, the `**Layers**` class also contains methods for removing or adding layers at a specific position, and a number of other functions for manipulating layers.
 - **`Insert()`**
 - **`RemoveAt()`**
 - **`OutputLayerActivationFunc()`** - set a new output activation function
