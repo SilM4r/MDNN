@@ -36,7 +36,7 @@ Possibility to use a wide range of:
 
 MDNN is distributed as a dynamic library **MDNN.dll**. To use it, you must:
 
-1. Add the **MDNN.dll** file to the project. (add a new slot to the project)
+1. Add the **MDNN.dll** file to the project. (add a new reference to the project)
 2. Include the appropriate namespaces in the source code.
 
 Alternatively, you can download the entire repository and run the build, which will automatically generate a new **MDNN.dll** file.
