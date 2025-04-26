@@ -251,7 +251,7 @@ Corresponding outputs (labels) for input data, also in tensor format.
 
 ### **`BackPropagation()`** and **`FeedForward()`**
 
-It is the most advanced training method that provides maximum control over the individual stages of learning. Unlike the Fit()`** and **`UpdateParams()`** approach, the **`Fit()`** method is divided into two separate functions: **`FeedForward()`** and **`BackPropagation()`**. The **`FeedForward()`` function performs the forward calculation of the neural network, while **`BackPropagation()`** provides backpropagation of the error and calculation of gradients. This approach allows detailed manipulation of the individual steps of the training process, which is especially suitable for research purposes or advanced optimizations.
+It is the most advanced training method that provides maximum control over the individual stages of learning. Unlike the **`Fit()`** and **`UpdateParams()`** approach, the **`Fit()`** method is divided into two separate functions: **`FeedForward()`** and **`BackPropagation()`**. The **`FeedForward()`** function performs the forward calculation of the neural network, while **`BackPropagation()`** provides backpropagation of the loss and calculation of gradients. This approach allows detailed manipulation of the individual steps of the training process, which is especially suitable for research purposes or advanced optimizations.
 
 **Warning:** To update the model parameters itself, it is necessary to call the **`UpdateParams()`` method afterwards.
 
