@@ -1,5 +1,4 @@
 **MDNN (My Deep Neural Network)**
-
 ==============
 
 MDNN (My Deep Neural Network) is a library for designing and training neural networks in C#. It allows easy creation and configuration of neural network models, their training and subsequent integration into projects.
