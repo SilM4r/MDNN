@@ -14,7 +14,7 @@ MDNN (My Deep Neural Network) is a library for designing and training neural net
 - [🎯 Model Training](#-model-training)
 - [⏳ Optimization](#-optimization)
 - [📦 Production Deployment](#-production-deployment)
-- [👏 Supporting functions](#-support-functions)
+- [👏 Support features](#-support-features)
 
 ## 📌 Key features
 
