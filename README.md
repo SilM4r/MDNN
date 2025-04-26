@@ -111,8 +111,8 @@ Alternatively, the library also supports the creation of your own optimizers and
 Additional layers can be added to the model using the **`Layers`** class:
 
 ```csharp
-model. Layers.Add(new Dense(64, new ReLu())); // Addition of a hidden layer with 64 neurons and ReLU activation
-model. Layers.Add(new Dense(32, new Sigmoid())); // Additional layer with 32 neurons and sigmoid activation
+model.Layers.Add(new Dense(64, new ReLu())); // Addition of a hidden layer with 64 neurons and ReLU activation
+model.Layers.Add(new Dense(32, new Sigmoid())); // Additional layer with 32 neurons and sigmoid activation
 ```
 
 In addition to the Add()`** function, the **`Layers` class also contains methods for removing or adding layers at a specific position, and a number of other functions for manipulating layers.
@@ -284,21 +284,21 @@ for (int i = 0, i < number_of_epoch, i++)
         double[] output = currentOutputDataset[num];
         
         // Forward calculation
-        model. Train.FeedForward(new Tensor(Tensor.ConvertJaggedToMulti(inputs)));
+        model.Train.FeedForward(new Tensor(Tensor.ConvertJaggedToMulti(inputs)));
         
         // Calculation of gradients (supporting method)
         Tensor[] gradients = Gradient.GetGradients(new Tensor(Tensor.ConvertJaggedToMulti(inputs)), model);
         
         // Backpropagation of gradients
-        model. Train.BackPropagation(gradients);
+        model.Train.BackPropagation(gradients);
      }
     
     // Updating training parameters
-    model. Train.UpdateParams();
+    model.Train.UpdateParams();
  }
 
 // A supporting function that tests the model on a trained dataset
-model. Train.TestNeuralNetwork(new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset)), new Tensor(Tensor.ConvertJaggedToMulti(currentOutputDataset)));
+model.Train.TestNeuralNetwork(new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset)), new Tensor(Tensor.ConvertJaggedToMulti(currentOutputDataset)));
 ```
 
 Method parameters:
@@ -351,7 +351,7 @@ GeneralNeuralNetworkSettings.calculationViaGpu = true;
 The library supports asynchronous processing of neural network training. Example of use:
 
 ```csharp
-await model. Train.TrainLoopAsync(tensorInputDataset, tensorOutputDataset, 1000);
+await model.Train.TrainLoopAsync(tensorInputDataset, tensorOutputDataset, 1000);
 ```
 
 Each synchronous function has its equivalent asynchronous version, which allows for efficient parallel computations.
