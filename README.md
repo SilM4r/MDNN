@@ -227,15 +227,15 @@ for (int i = 0, i < number_of_epoch, i++)
       double[] output = currentOutputDataset[num];
       
       // calculation on one specific element, which is randomly selected from the whole dataset
-      model. Train.Fit(new Tensor(inputs),new Tensor(output));
+      model.Train.Fit(new Tensor(inputs),new Tensor(output));
   }
   
   //Updating training parameters
-  model. Train.UpdateParams();
+  model.Train.UpdateParams();
  }
 
 // supporting function that tests the entire dataset on the trained dataset
-model. Train.TestNeuralNetwork(new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset)), new Tensor(Tensor.ConvertJaggedToMulti(currentOutputDataset)));
+model.Train.TestNeuralNetwork(new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset)), new Tensor(Tensor.ConvertJaggedToMulti(currentOutputDataset)));
 ```
 
 Parameters:
