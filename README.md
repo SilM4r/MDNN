@@ -76,7 +76,7 @@ namespace MDNN_example
             model. Layers.Add(new Dense(1, new ReLu())); // Add a hidden layer
             
             Tensor tensorInputDataset = new Tensor(inputsDataset);
-            Tensor, tensorOutputDataset = new Tensor(outputDataset);
+            Tensor tensorOutputDataset = new Tensor(outputDataset);
             
             //Train a model
             model. Train.TrainLoop(tensorInputDataset, tensorOutputDataset, epoch, 1);
