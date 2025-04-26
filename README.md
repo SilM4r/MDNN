@@ -27,7 +27,7 @@ Possibility to use a wide range of:
 - Activation functions
 - Optimization algorithms
 - Loss functions
-- Easy integration into C projects
+- Easy integration into C# projects
 - Support for GPU computation acceleration
 - Save and load models in JSON format
 - Predefined training loops to simplify the training process
