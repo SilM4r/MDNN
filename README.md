@@ -98,7 +98,7 @@ MDNN model = new MDNN(outputLayer, optimizer, loss);
 ### Constructor parameters
 
 - **`outputLayer`** *(required parameter)* – object of the **Layer** type, representing the output layer of the mesh.
-- **`optimizer`** *(optional parameter)* – object of the **Optimizer** type, that specifies the optimization algorithm. If not specified, the default value is SGD(0.0001)**.
+- **`optimizer`** *(optional parameter)* – object of the **Optimizer** type, that specifies the optimization algorithm. If not specified, the default value is **SGD(0.0001)**.
 - **`loss`** *(optional parameter)* – object representing the loss function. The default value is **MSE()**.
 
 supported optimizers: SGD,ADAM,Momentum
