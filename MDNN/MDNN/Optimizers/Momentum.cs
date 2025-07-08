@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace My_DNN.Optimizers
+﻿namespace My_DNN.Optimizers
 {
     public class Momentum : Optimizer
     {

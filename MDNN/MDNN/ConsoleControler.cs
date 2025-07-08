@@ -1,9 +1,5 @@
 ﻿using My_DNN.Layers;
 using My_DNN.Layers.classes;
-using My_DNN.Loss_functions;
-using ScottPlot.Finance;
-using static System.Formats.Asn1.AsnWriter;
-using static SkiaSharp.HarfBuzz.SKShaper;
 
 
 namespace My_DNN

@@ -1,6 +1,4 @@
-﻿
-
-namespace My_DNN.Optimizers
+﻿namespace My_DNN.Optimizers
 {
     public class Adam : Optimizer
     {

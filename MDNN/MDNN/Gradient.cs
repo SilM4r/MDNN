@@ -1,7 +1,6 @@
-﻿using System;
-using My_DNN.Activation_functions;
+﻿using My_DNN.Activation_functions;
 using My_DNN.Layers.classes;
-using ScottPlot.Palettes;
+
 
 
 namespace My_DNN
