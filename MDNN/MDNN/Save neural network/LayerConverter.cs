@@ -1,5 +1,4 @@
-﻿using My_DNN.Layers.classes;
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace My_DNN.Save_neural_network
