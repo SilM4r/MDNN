@@ -1,6 +1,5 @@
 ﻿using My_DNN.Loss_functions;
 
-
 namespace My_DNN
 {
     public class MSE: Loss

@@ -1,14 +1,7 @@
 ﻿using My_DNN.Layers;
 using My_DNN.Layers.classes;
-using My_DNN.Loss_functions;
 using My_DNN.Save_neural_network;
-using ScottPlot;
-using ScottPlot.Palettes;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+
 
 namespace My_DNN
 {

@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using My_DNN.Activation_functions;
+﻿using My_DNN.Activation_functions;
 
 namespace My_DNN.Layers.classes
 {
