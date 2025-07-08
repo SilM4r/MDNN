@@ -1,5 +1,4 @@
-﻿using My_DNN.Activation_functions;
-using My_DNN.Save_neural_network;
+﻿using My_DNN.Save_neural_network;
 using My_DNN.Optimizers;
 
 namespace My_DNN

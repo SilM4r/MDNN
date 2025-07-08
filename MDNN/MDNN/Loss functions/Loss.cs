@@ -1,6 +1,4 @@
-﻿
-
-namespace My_DNN.Loss_functions
+﻿namespace My_DNN.Loss_functions
 {
     public abstract class Loss
     {

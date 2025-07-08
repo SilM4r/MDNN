@@ -1,5 +1,4 @@
-﻿
-using System.Data;
+﻿using System.Data;
 using My_DNN.Layers.classes;
 using My_DNN.Loss_functions;
 namespace My_DNN

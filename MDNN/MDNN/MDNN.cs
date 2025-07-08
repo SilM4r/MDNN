@@ -1,11 +1,8 @@
 ﻿
 using My_DNN.Save_neural_network;
-using System.Collections.Generic;
-using My_DNN.Activation_functions;
 using My_DNN.Loss_functions;
 using My_DNN.Optimizers;
 using My_DNN.Layers.classes;
-using System.Reflection;
 using My_DNN.Layers;
 
 namespace My_DNN

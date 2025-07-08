@@ -1,12 +1,6 @@
 ﻿using My_DNN.Activation_functions;
 using My_DNN.Layers.classes;
 using My_DNN.Save_neural_network;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace My_DNN.Layers
 {
