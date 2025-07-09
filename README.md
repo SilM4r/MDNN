@@ -75,11 +75,8 @@ namespace MDNN_example
             MDNN model = new MDNN(outputLayer, optimizer, loss);
             model. Layers.Add(new Dense(1, new ReLu())); // Add a hidden layer
             
-            Tensor tensorInputDataset = new Tensor(inputsDataset);
-            Tensor tensorOutputDataset = new Tensor(outputDataset);
-            
             //Train a model
-            model.Train.TrainLoop(tensorInputDataset, tensorOutputDataset, epoch, 1);
+            model.Train.TrainLoop(inputsDataset, outputDataset, epoch, 1);
             
             //Save the model
             model.SaveAsJson("save");
@@ -153,11 +150,11 @@ This method is the main and most advanced training procedure in the library. It 
 - Automatic plotting of the progress of the loss function across epochs.
 
 Parameters:
-- **`Tensor inputs_values`** – *required parameter*
-Input dataset in tensor format. Each row corresponds to one training sample.
+- **`Array inputs_values`** – *required parameter*
+Input dataset in array format (jagged or multi). the maximum input is a four-dimensional array.
 
-- **`Tensor current_output_values`** – *mandatory parameter*
-Corresponding outputs (labels) for input data, also in tensor format.
+- **`Array current_output_values`** – *mandatory parameter*
+Corresponding outputs (labels) for input data, also in Array format.
 
 - **`uint number_of_epoch`** – *required parameter*
 Specifies the number of training epochs.
