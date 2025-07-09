@@ -317,10 +317,13 @@ namespace My_DNN
             ConsoleControler.ShowScoreOfmodel(score, maxScore);
         }
 
-        public void TrainLoop(Tensor inputs_values, Tensor current_output_values, uint number_of_epoch, uint size_of_mini_batch = 1, bool isSequence = false)
+        public void TrainLoop(Array inputs_values, Array current_output_values, uint number_of_epoch, uint size_of_mini_batch = 1, bool isSequence = false)
         {
 
-            PreparationForTrainLoop(inputs_values, current_output_values, number_of_epoch, size_of_mini_batch, isSequence);
+            Tensor tensorInputs_values = Tensor.ConvertArrayToTensor(inputs_values);
+            Tensor tensorCurrent_output_values = Tensor.ConvertArrayToTensor(current_output_values);
+
+            PreparationForTrainLoop(tensorInputs_values, tensorCurrent_output_values, number_of_epoch, size_of_mini_batch, isSequence);
             if (ShowModelInfoIntrainLoop)
             {
                 model.info();
@@ -373,9 +376,12 @@ namespace My_DNN
             }
         }
 
-        public async Task TrainLoopAsync(Tensor inputs_values, Tensor current_output_values, uint number_of_epoch, uint size_of_mini_batch = 1, bool isSequence = false)
+        public async Task TrainLoopAsync(Array inputs_values, Array current_output_values, uint number_of_epoch, uint size_of_mini_batch = 1, bool isSequence = false)
         {
-            PreparationForTrainLoop(inputs_values, current_output_values, number_of_epoch, size_of_mini_batch, isSequence);
+            Tensor tensorInputs_values = Tensor.ConvertArrayToTensor(inputs_values);
+            Tensor tensorCurrent_output_values = Tensor.ConvertArrayToTensor(current_output_values);
+
+            PreparationForTrainLoop(tensorInputs_values, tensorCurrent_output_values, number_of_epoch, size_of_mini_batch, isSequence);
 
             if (ShowModelInfoIntrainLoop)
             {
@@ -672,14 +678,14 @@ namespace My_DNN
             if (tensorA.Shape[0] != tensorB.Shape[0])
                 throw new ArgumentException("Oba tensory musí mít stejný počet vzorků");
 
-            int batchSize = tensorA.Shape[0]; // První dimenze určuje počet vzorků
+            int batchSize = tensorA.Shape[0];
             int[] indices = Enumerable.Range(0, batchSize).OrderBy(_ => Random.Shared.Next()).ToArray();
 
-            // Vytvoříme nové pole pro zamíchaná data
+
             double[] shuffledDataA = new double[tensorA.Data.Length];
             double[] shuffledDataB = new double[tensorB.Data.Length];
 
-            int sampleSizeA = tensorA.Data.Length / batchSize; // Velikost jednoho vzorku
+            int sampleSizeA = tensorA.Data.Length / batchSize; 
             int sampleSizeB = tensorB.Data.Length / batchSize;
 
             for (int i = 0; i < batchSize; i++)
@@ -690,7 +696,6 @@ namespace My_DNN
                 Array.Copy(tensorB.Data, srcIndex * sampleSizeB, shuffledDataB, i * sampleSizeB, sampleSizeB);
             }
 
-            // Vytvoříme nové tensory se stejným tvarem
             shuffledA = new Tensor(shuffledDataA, tensorA.Shape);
             shuffledB = new Tensor(shuffledDataB, tensorB.Shape);
         }
@@ -746,7 +751,7 @@ namespace My_DNN
             else
             {
                 Task[] tasks = new Task[ValidData_inputs.Shape[0]];
-                
+
                 for (int i = 0; i < ValidData_inputs.Shape[0]; i++)
                 {
                     int index = i;
@@ -767,7 +772,7 @@ namespace My_DNN
                 lossFunc.ResetAverageLossPerIteration();
             }
 
-            
+
 
             ExtraControlFunc(loss);
             if (GeneralNeuralNetworkSettings.SequenceTrain)
@@ -778,7 +783,7 @@ namespace My_DNN
             {
                 ConsoleControler.ShowEpochInfo(model, loss, layerOutput.Sum() / layerOutput.Count());
             }
-                
+
         }
 
         private void ExtraControlFunc(double loss)
