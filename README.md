@@ -151,7 +151,7 @@ This method is the main and most advanced training procedure in the library. It 
 
 Parameters:
 - **`Array inputs_values`** – *required parameter*
-Input dataset in array format (jagged or multi). the maximum input is a four-dimensional array.
+Input dataset in array format (jagged or multi). the maximum input is a five-dimensional array.
 
 - **`Array current_output_values`** – *mandatory parameter*
 Corresponding outputs (labels) for input data, also in Array format.
