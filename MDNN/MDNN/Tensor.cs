@@ -1,6 +1,4 @@
-﻿
-
-namespace My_DNN
+﻿namespace My_DNN
 {
     public class Tensor
     {
@@ -70,7 +68,6 @@ namespace My_DNN
             if (indices.Length >= Shape.Length)
                 throw new ArgumentException("Počet indexů nesmí být větší než dimenze tenzoru.");
 
-            // 2) Zavolej slice (GetSubTensor) nebo co potřebuješ
             return GetSubTensor(OriginalInput, indices);
         }
         public Tensor GetTensorValue(int[] indices)
@@ -110,7 +107,6 @@ namespace My_DNN
 
         public static Array ConvertJaggedToMulti(Array jaggedArray)
         {
-            // Získáme tvar jagged pole (např. {2, 3} pro double[][])
             int[] shape = GetJaggedShape(jaggedArray);
 
             // Vytvoříme prázdné multidimenzionální pole odpovídajícího tvaru
@@ -120,6 +116,42 @@ namespace My_DNN
             CopyJaggedToMulti(jaggedArray, multiArray, new int[0]);
 
             return multiArray;
+        }
+
+        public static Tensor ConvertArrayToTensor(Array array)
+        {
+            Type type = array.GetType();
+            Type? elementType = type.GetElementType();
+
+            bool isjagged = false;
+
+            if (elementType == null)
+            {
+                throw new Exception("input array is null");
+            }
+
+            if (elementType.IsArray)
+            {
+                elementType = elementType.GetElementType();
+                isjagged = true;
+            }
+
+            if (elementType?.Name == "Int" || elementType?.Name == "Float" || elementType?.Name == "Double")
+            {
+                if (isjagged)
+                {
+                    return new Tensor(ConvertJaggedToMulti(array));
+                }
+                else
+                {
+                    return new Tensor(array);
+                }
+                
+            }
+            else
+            {
+                throw new Exception("invalid type on input array, it can be only `int`,`double`,`float`");
+            }
         }
 
         private static int[] GetJaggedShape(Array array)

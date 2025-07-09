@@ -1,0 +1,13 @@
+/Users/martin/Project/C#/MDNN/MDNN/MDNN/MDNN/bin/Release/net9.0/MDNN.deps.json
+/Users/martin/Project/C#/MDNN/MDNN/MDNN/MDNN/bin/Release/net9.0/MDNN.dll
+/Users/martin/Project/C#/MDNN/MDNN/MDNN/MDNN/bin/Release/net9.0/MDNN.pdb
+/Users/martin/Project/C#/MDNN/MDNN/MDNN/MDNN/obj/Release/net9.0/MDNN.csproj.AssemblyReference.cache
+/Users/martin/Project/C#/MDNN/MDNN/MDNN/MDNN/obj/Release/net9.0/MDNN.GeneratedMSBuildEditorConfig.editorconfig
+/Users/martin/Project/C#/MDNN/MDNN/MDNN/MDNN/obj/Release/net9.0/MDNN.AssemblyInfoInputs.cache
+/Users/martin/Project/C#/MDNN/MDNN/MDNN/MDNN/obj/Release/net9.0/MDNN.AssemblyInfo.cs
+/Users/martin/Project/C#/MDNN/MDNN/MDNN/MDNN/obj/Release/net9.0/MDNN.csproj.CoreCompileInputs.cache
+/Users/martin/Project/C#/MDNN/MDNN/MDNN/MDNN/obj/Release/net9.0/MDNN.sourcelink.json
+/Users/martin/Project/C#/MDNN/MDNN/MDNN/MDNN/obj/Release/net9.0/MDNN.dll
+/Users/martin/Project/C#/MDNN/MDNN/MDNN/MDNN/obj/Release/net9.0/refint/MDNN.dll
+/Users/martin/Project/C#/MDNN/MDNN/MDNN/MDNN/obj/Release/net9.0/MDNN.pdb
+/Users/martin/Project/C#/MDNN/MDNN/MDNN/MDNN/obj/Release/net9.0/ref/MDNN.dll
