@@ -7,12 +7,14 @@ MDNN je knihovna pro návrh a trénování neuronových sítí v jazyce C#. Umo�
 - [Klíčové vlastnosti](#klíčové-vlastnosti)
 - [Instalace](#instalace)
 - [Rychlý start](#rychlý-start)
+- [Příklady](#příklady)
 - [Konfigurace modelu](#konfigurace-modelu)
 - [Přidávání vrstev](#přidávání-vrstev)
 - [Trénování modelu](#trénování-modelu)
 - [GPU akcelerace a asynchronní výpočty](#gpu-akcelerace-a-asynchronní-výpočty)
 - [Ukládání a načítání modelů](#ukládání-a-načítání-modelů)
 - [Podpůrné nástroje](#podpůrné-nástroje)
+- [Jak to funguje uvnitř](#jak-to-funguje-uvnitř)
 - [Testy](#testy)
 
 ## Klíčové vlastnosti
@@ -70,6 +72,12 @@ model.Train.TrainLoop(inputsDataset, outputDataset, epochs, 1);
 
 model.SaveAsJson("save");
 ```
+
+## Příklady
+
+Kompletní spustitelné příklady pro každý typ úlohy — klasifikace, regrese, sekvenční data (RNN) a obrazová data (Conv + MaxPool) — najdete v samostatném repozitáři:
+
+[github.com/SilM4r/MDNN_examples](https://github.com/SilM4r/MDNN_examples)
 
 ## Konfigurace modelu
 
@@ -254,6 +262,65 @@ Každý model vlastní `NetworkContext` (`model.Context`), který drží jeho ko
 ### Tvorba grafů
 
 Třída `GraphPlotter` vizualizuje průběh trénování. Její metoda `ShowLossGraph()` vygeneruje graf trénovací a validační ztráty v závislosti na počtu epoch a uloží ho jako `loss.png` do kořenového adresáře aplikace. To usnadňuje odhalení přeučení (overfitting) nebo nedostatečného trénování. K vykreslení se používá knihovna ScottPlot.
+
+## Jak to funguje uvnitř
+
+Tato sekce popisuje, co se děje pod kapotou. Pro použití knihovny ji není nutné číst, ale vysvětluje návrh a hodí se při rozšiřování knihovny.
+
+### Objektový model
+
+```
+MDNN (model)
+├── NetworkContext        konfigurace za běhu per-model (loss, optimizér, tvar vstupu, příznaky)
+├── LayerManager (Layers) seřazený seznam vrstev + odvození tvaru vstupu
+│   └── Layer             Dense · Conv · MaxPool · RNN
+│       └── Neuron        váhy + bias + vlastní optimizér   (Dense, RNN)
+└── Train                 trénovací smyčky a vstupní body pro forward/backward
+```
+
+- `MDNN` je vrcholový objekt. Vlastní `NetworkContext`, `LayerManager` (přístupný jako `model.Layers`) a pomocníka `Train` (`model.Train`).
+- `Layer` je abstraktní báze pro každý typ vrstvy. `Dense` a `RNN` jsou postavené z objektů `Neuron` (dědí z `LayerBasedOnNeurons`); `Conv` drží přímo kernely a biasy; `MaxPool` nemá žádné trénovatelné parametry a jen si pamatuje, které pozice byly vybrány.
+- `Neuron` drží své váhy, bias, naakumulované gradienty a **vlastní** instanci optimizéru.
+- `Tensor` je datový nosič předávaný mezi vrstvami (jednorozměrné pole `Data` plus `Shape`).
+- `NetworkContext` (`model.Context`) drží stav per-model. Protože tento stav není globální, dva modely v jednom procesu jsou plně nezávislé.
+
+### Odvození tvaru vstupu (lazy)
+
+Vrstvy se vytvářejí, aniž by znaly velikost svého vstupu — zadáváte jen počet neuronů (nebo kernelů). Při prvním dopředném průchodu si model zaznamená tvar vstupu do `Context.InputShape` a zavolá `Layers.SetInputSizeForFirstLayer()`, které projde vrstvy a u každé zavolá `LayerAdjustment()`. Každá vrstva si odvodí skutečnou velikost vstupu z výstupní velikosti předchozí vrstvy a teprve pak alokuje své parametry (neurony, kernely). Proto váhy vrstvy neexistují, dokud model poprvé neuvidí data.
+
+### Dopředný průchod
+
+`model.GetResults(input)` protáhne `Tensor` vrstvami v pořadí a u každé zavolá `FeedForward()`. Vrstva `Dense` počítá pro každý neuron `w · x + b` následované aktivací; celovrstvové aktivace jako `Softmax` se aplikují na celou vrstvu najednou.
+
+### Zpětný průchod
+
+Zpětnou propagaci řídí `Gradient.GetGradients(target, model)`:
+
+1. Chyba výstupní vrstvy se spočítá z derivace loss funkce. U prvkové výstupní aktivace se násobí derivací té aktivace; u fúzovaného případu softmax + cross-entropy (níže) se použije přímo.
+2. Chyba se propaguje zpět: `CalculateLayerGradients()` každé vrstvy převede chybu následující vrstvy na svou vlastní chybu (řetízkové pravidlo) a cestou aplikuje derivaci aktivace vrstvy.
+3. `BackPropagation()` každé vrstvy pak naakumuluje gradienty parametrů (u neuronových vrstev do `gradientsW` / `gradientsB` každého `Neuron`u).
+
+Gradienty se **akumulují, neaplikují**. `UpdateParams()` vydělí naakumulované gradienty počtem viděných vzorků a předá je optimizéru. Proto je několik volání `Fit()` následovaných jedním `UpdateParams()` ekvivalentní jednomu minibatchi dané velikosti.
+
+### Fúze softmax + cross-entropy
+
+Když je loss funkcí `CrossEntropy` (která hlásí `RequiresSoftmax`) a výstupní vrstva používá `Softmax`, výstupní gradient se spočítá přímo jako `výstup − cíl`. To je fúzovaná, numericky stabilní forma: jacobián softmaxu se přeskočí a derivace aktivace se záměrně *nenásobí*, což by ji jinak aplikovalo dvakrát. Použití `CrossEntropy` bez softmax výstupní vrstvy vyhodí výjimku.
+
+### Optimizéry
+
+Každý `Neuron` (a každá vrstva `Conv`) vlastní svou instanci optimizéru, naklonovanou z toho v `NetworkContext`u modelu. Stav optimizéru je proto per-parametr a per-model — například `Adam` drží odhady prvního a druhého momentu s bias korekcí pro každou jednotlivou váhu. Metoda `Update(value, gradient, index)` optimizéru vrací novou hodnotu parametru.
+
+### Rekurentní vrstvy (RTRL)
+
+Vrstvy `RNN` se trénují pomocí **Real-Time Recurrent Learning**, ne backpropagation-through-time. Místo rozvinutí sekvence si vrstva nese citlivosti dopředu v čase (`∂h/∂váha` a `∂h/∂bias`), které se posouvají v každém časovém kroku uvnitř `FeedForward()`. Při zpětné propagaci se příchozí chyba násobí těmito uloženými citlivostmi. Na začátku každé sekvence zavolejte `model.ResetSequence()`, čímž se vynuluje skrytý stav i citlivosti.
+
+### Inicializace vah
+
+Neurony `Dense` a `RNN` se inicializují uniformním schématem ve stylu Xavier/He — `U(−1, 1) · sqrt(6 / n_vstupů)` — a biasy začínají na nule.
+
+### Správnost: numerický gradient check
+
+Celý zpětný průchod je ověřen testovací sadou pomocí numerického gradient checku (centrální diference): analytické gradienty každé vrstvy se porovnávají s odhady z konečných diferencí. Tyto kontroly fungují jako regresní pojistka — jakákoli změna, která rozbije matematiku, je automaticky odhalena.
 
 ## Testy
 

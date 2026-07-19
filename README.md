@@ -7,12 +7,14 @@ MDNN is a library for designing and training neural networks in C#. It allows st
 - [Key features](#key-features)
 - [Installation](#installation)
 - [Quick start](#quick-start)
+- [Examples](#examples)
 - [Model configuration](#model-configuration)
 - [Adding layers](#adding-layers)
 - [Training the model](#training-the-model)
 - [GPU acceleration and asynchronous execution](#gpu-acceleration-and-asynchronous-execution)
 - [Saving and loading models](#saving-and-loading-models)
 - [Supporting utilities](#supporting-utilities)
+- [How it works internally](#how-it-works-internally)
 - [Tests](#tests)
 
 ## Key features
@@ -70,6 +72,12 @@ model.Train.TrainLoop(inputsDataset, outputDataset, epochs, 1);
 
 model.SaveAsJson("save");
 ```
+
+## Examples
+
+Full, runnable examples for each task type — classification, regression, sequential data (RNN), and image data (Conv + MaxPool) — live in a separate repository:
+
+[github.com/SilM4r/MDNN_examples](https://github.com/SilM4r/MDNN_examples)
 
 ## Model configuration
 
@@ -254,6 +262,65 @@ Each model owns a `NetworkContext` (`model.Context`) that holds its runtime conf
 ### Plotting
 
 The `GraphPlotter` class visualizes training progress. Its `ShowLossGraph()` method produces a graph of training and validation loss over epochs and saves it as `loss.png` in the application's root directory. This makes it easy to spot overfitting or undertraining. Plotting uses the ScottPlot library.
+
+## How it works internally
+
+This section describes what happens under the hood. It is not required reading to use the library, but it explains the design and is useful when extending it.
+
+### Object model
+
+```
+MDNN (model)
+├── NetworkContext        per-model runtime config (loss, optimizer, input shape, flags)
+├── LayerManager (Layers) ordered list of layers + lazy shape inference
+│   └── Layer             Dense · Conv · MaxPool · RNN
+│       └── Neuron        weights + bias + its own optimizer   (Dense, RNN)
+└── Train                 training loops and the forward/backward entry points
+```
+
+- `MDNN` is the top-level object. It owns a `NetworkContext`, a `LayerManager` (exposed as `model.Layers`), and a `Train` helper (`model.Train`).
+- `Layer` is the abstract base for every layer type. `Dense` and `RNN` are built from `Neuron` objects (they extend `LayerBasedOnNeurons`); `Conv` holds kernels and biases directly; `MaxPool` has no trainable parameters and only records which positions were selected.
+- A `Neuron` holds its weights, bias, accumulated gradients, and its **own** optimizer instance.
+- `Tensor` is the data carrier passed between layers (a flat `Data` array plus a `Shape`).
+- `NetworkContext` (`model.Context`) holds the per-model state. Because this state is not global, two models in the same process are fully independent.
+
+### Lazy shape inference
+
+Layers are constructed without knowing their input size — you only specify the number of neurons (or kernels). On the first forward pass the model records the input shape into `Context.InputShape` and calls `Layers.SetInputSizeForFirstLayer()`, which walks the layers calling each one's `LayerAdjustment()`. Every layer derives its real input size from the previous layer's output size and only then allocates its parameters (neurons, kernels). This is why a layer's weights do not exist until the model first sees data.
+
+### Forward pass
+
+`model.GetResults(input)` threads a `Tensor` through the layers in order, calling each layer's `FeedForward()`. A `Dense` layer computes `w · x + b` per neuron followed by the activation; layer-wide activations such as `Softmax` are applied across the whole layer at once.
+
+### Backward pass
+
+Backpropagation is driven by `Gradient.GetGradients(target, model)`:
+
+1. The output-layer error is computed from the loss derivative. For an element-wise output activation it is multiplied by that activation's derivative; for the fused softmax + cross-entropy case (below) it is used directly.
+2. The error is propagated backwards: each layer's `CalculateLayerGradients()` turns the next layer's error into its own error (the chain rule), applying the layer activation's derivative along the way.
+3. Each layer's `BackPropagation()` then accumulates the parameter gradients (for neuron-based layers, into each `Neuron`'s `gradientsW` / `gradientsB`).
+
+Gradients are **accumulated, not applied**. `UpdateParams()` divides the accumulated gradients by the number of samples seen and hands them to the optimizer. This is why several `Fit()` calls followed by one `UpdateParams()` are equivalent to one minibatch of that size.
+
+### Softmax + cross-entropy fusion
+
+When the loss is `CrossEntropy` (which reports `RequiresSoftmax`) and the output layer uses `Softmax`, the output gradient is computed directly as `output − target`. This is the fused, numerically stable form: the softmax Jacobian is skipped and the activation derivative is deliberately *not* multiplied in, which would otherwise apply it twice. Using `CrossEntropy` without a `Softmax` output layer raises an exception.
+
+### Optimizers
+
+Each `Neuron` (and each `Conv` layer) owns its own optimizer instance, cloned from the one in the model's `NetworkContext`. Optimizer state is therefore per-parameter and per-model — for example `Adam` keeps first/second-moment estimates with bias correction for every individual weight. The optimizer's `Update(value, gradient, index)` returns the new parameter value.
+
+### Recurrent layers (RTRL)
+
+`RNN` layers train with **Real-Time Recurrent Learning** rather than backpropagation-through-time. Instead of unrolling the sequence, the layer carries forward-in-time sensitivities (`∂h/∂weight` and `∂h/∂bias`) that are advanced at every timestep inside `FeedForward()`. During backpropagation the incoming error is multiplied by those stored sensitivities. Call `model.ResetSequence()` at the start of each sequence to zero the hidden state and the sensitivities.
+
+### Weight initialization
+
+Dense and RNN neurons are initialized with a Xavier/He-style uniform scheme — `U(−1, 1) · sqrt(6 / n_inputs)` — and biases start at zero.
+
+### Correctness: numerical gradient checking
+
+The entire backward pass is validated by the test suite using numerical gradient checking (central difference): every layer's analytic gradients are compared against finite-difference estimates. These checks act as a regression guard — any change that breaks the underlying math is caught automatically.
 
 ## Tests
 
