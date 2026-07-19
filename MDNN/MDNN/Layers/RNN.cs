@@ -26,14 +26,16 @@ namespace My_DNN.Layers
         private List<Neuron> neurons;
         private Activation_func activation_func;
 
-        private double[] old_layer_e;
+        // RTRL: citlivosti ∂h_i/∂param, akumulované DOPŘEDU v čase
+        private double[][] sW;   // sW[neuron][váha]  (poslední váha = rekurentní)
+        private double[] sB;     // sB[neuron]        (bias)
+        private double[] gImm;   // okamžitý gradient shora vůči h_i (mezi CalcGrad → BackProp)
 
 
         public RNN(ExportRnnLayer layer)
         {
             activation_func = Activation_func.inicialization_activation_func(layer.Name_of_activation_function);
             output = new double[layer.Neurons.Count()];
-            old_layer_e = new double[layer.Neurons.Count()];
             raw_output = new double[layer.Neurons.Count()];
 
             neurons = new List<Neuron>();
@@ -87,7 +89,6 @@ namespace My_DNN.Layers
 
             output = new double[number_of_neuron];
             raw_output = new double[number_of_neuron];
-            old_layer_e = new double [number_of_neuron];
 
             this.activation_func = activation_func;
             neurons = new List<Neuron>();
@@ -101,8 +102,28 @@ namespace My_DNN.Layers
 
         public void ResetSequence()
         {
-            old_layer_e = new double[Output_size_and_shape[0]];
+            // nová sekvence → vynuluj skrytý stav i RTRL citlivosti (realokace = vynulování)
             output = new double[Output_size_and_shape[0]];
+            AllocateSensitivities();
+        }
+
+        // alokuje (a tím vynuluje) citlivosti podle aktuálních neuronů
+        private void AllocateSensitivities()
+        {
+            sW = new double[neurons.Count][];
+            for (int i = 0; i < neurons.Count; i++)
+                sW[i] = new double[neurons[i].Weights.Length];
+            sB = new double[neurons.Count];
+            gImm = new double[neurons.Count];
+        }
+
+        // pojistka: citlivosti musí sedět na počet neuronů I na počet vah
+        // (neurony se přebudují až ve Fit → SetInputSizeForFirstLayer, po ResetSequence)
+        private void EnsureSensitivities()
+        {
+            if (sW == null || sW.Length != neurons.Count
+                || (neurons.Count > 0 && sW[0].Length != neurons[0].Weights.Length))
+                AllocateSensitivities();
         }
 
         public override void LayerAdjustment(int? number_of_elements = null, int[]? number_of_input = null)
@@ -151,13 +172,21 @@ namespace My_DNN.Layers
                 newValues[i] = values[i];
             }
 
+            EnsureSensitivities();
+
             for (int i = 0; i < neurons.Count(); i++)
             {
-
-                newValues[values.Length] = output[i];
+                newValues[values.Length] = output[i];   // rekurentní vstup = h_i(t-1) = předchozí výstup
 
                 output[i] = neurons[i].feedForward(newValues);
-                raw_output[i] = neurons[i].raw_output;
+                raw_output[i] = neurons[i].raw_output;   // z_i(t)
+
+                // RTRL: posuň citlivosti o krok dopředu
+                double actD = neurons[i].activation_func.Derivative(raw_output[i]);   // act'(z_i)
+                double r = neurons[i].Weights[newValues.Length - 1];                  // rekurentní váha
+                for (int k = 0; k < newValues.Length; k++)                            // ∂z/∂w_k = newValues[k]
+                    sW[i][k] = actD * (newValues[k] + r * sW[i][k]);
+                sB[i] = actD * (1.0 + r * sB[i]);                                     // ∂z/∂bias = 1
             }
 
             if (activation_func.Apply_to_layer)
@@ -182,10 +211,11 @@ namespace My_DNN.Layers
 
         public override void BackPropagation(Tensor tenosorDe)
         {
-            double[] e = tenosorDe.Data;
+            // RTRL: gradient parametru = g_imm(t) · citlivost(t), sečteno přes čas.
+            // Argument se nepoužije — pracujeme s uloženým gImm + citlivostmi (jako Conv s dOutput).
             for (int i = 0; i < neurons.Count(); i++)
             {
-                neurons[i].Calculate_gradients_of_W_B(e[i]);
+                neurons[i].AccumulateGradient(gImm[i], sW[i], sB[i]);
             }
         }
 
@@ -206,40 +236,29 @@ namespace My_DNN.Layers
             }
 
             double[] next_layer_e = nextLayerE.Data;
-
-            double de = 0;
             double[] e = new double[Neurons.Count()];
 
             LayerBasedOnNeurons? nextlayer = next_layer as LayerBasedOnNeurons;
 
-            if (nextlayer != null)
+            for (int j = 0; j < Neurons.Count(); j++)
             {
-
-                for (int j = 0; j < Neurons.Count(); j++)
+                // g_imm_j = OKAMŽITÝ gradient shora vůči h_j (dL_t/dh_j; bez rekurence, bez act')
+                double gImmJ;
+                if (nextlayer != null)
                 {
+                    gImmJ = 0;
                     for (int k = 0; k < nextlayer.Neurons.Count(); k++)
-                    {
-                        de += next_layer_e[k] * nextlayer.Neurons[k].Weights[j];
-                    }
-
-                    Neuron neuron = Neurons[j];
-
-                    de += old_layer_e[j] * neuron.Weights[neuron.Weights.Count() - 1];
-
-                    de = de * neuron.activation_func.Derivative(neuron.raw_output);
-                    e[j] = de;
-
-                    old_layer_e[j] = de;
-                    de = 0;
+                        gImmJ += next_layer_e[k] * nextlayer.Neurons[k].Weights[j];
                 }
-            }
-            else
-            {
-                for (int j = 0; j < Neurons.Count(); j++)
+                else
                 {
-                    Neuron neuron = Neurons[j];
-                    e[j] = next_layer_e[j] * neuron.activation_func.Derivative(neuron.raw_output);
+                    gImmJ = next_layer_e[j];
                 }
+
+                gImm[j] = gImmJ;   // ulož pro BackPropagation (RTRL: dParam += g_imm · citlivost)
+
+                // vrať OKAMŽITOU deltu (g_imm · act') pro předchozí vrstvu
+                e[j] = gImmJ * Neurons[j].activation_func.Derivative(Neurons[j].raw_output);
             }
 
             return new Tensor(e);

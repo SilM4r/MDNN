@@ -227,7 +227,7 @@ namespace My_DNN.Layers
             }
             else if (TensorValues.Shape.Length == 2)
             {
-                TensorValues.Reshape(new int[] { TensorValues.Shape[0], TensorValues.Shape[0], 1 });
+                TensorValues.Reshape(new int[] { TensorValues.Shape[0], TensorValues.Shape[1], 1 });
             }
             else if (TensorValues.Shape.Length >= 4)
             {

@@ -5,8 +5,9 @@
         private double b1;
         private double b2;
         private double L;
-        private double m;
-        private double v;
+        private double[] m = new double[0];
+        private double[] v = new double[0];
+        private int[] t = new int[0];
 
         private double[] Parameters = new double[2];
 
@@ -23,13 +24,20 @@
 
         }
 
-        public override double Update(double w, double gradient)
+        public override double Update(double w, double gradient, int i)
         {
-
-            m = b1 * m + (1 - b1) * gradient;
-            v = b2 * v + (1 - b2) * Math.Pow(gradient, 2);
-            w = w - L * (m / Rms(v));
-            return w;
+            if (m.Length <= i) 
+            { 
+                Array.Resize(ref m, i+1); 
+                Array.Resize(ref v, i+1); 
+                Array.Resize(ref t, i+1); 
+            }
+            t[i]++;
+            m[i] = b1 * m[i] + (1 - b1) * gradient;
+            v[i] = b2 * v[i] + (1 - b2) * gradient * gradient;
+            double mHat = m[i] / (1 - Math.Pow(b1, t[i]));   
+            double vHat = v[i] / (1 - Math.Pow(b2, t[i]));
+            return w - L * mHat / (Math.Sqrt(vHat) + 1e-8);
         }
     }
 }
