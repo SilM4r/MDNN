@@ -1,5 +1,7 @@
-MDNN/MDNN/bin/
-MDNN/MDNN/obj/
+bin/
+obj/
 .DS_Store
 secret/
-
+.idea/
+*.user
+*.DotSettings.user
