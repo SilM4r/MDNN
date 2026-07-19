@@ -15,7 +15,7 @@
             Parameters[0] = L;
         }
 
-        public override double Update(double w, double gradient)
+        public override double Update(double w, double gradient, int i)
         {
             w = w - L * gradient;
 

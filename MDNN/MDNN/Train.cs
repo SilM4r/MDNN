@@ -441,6 +441,11 @@ namespace My_DNN
 
             this.size_of_mini_batch = size_of_mini_batch;
             totalEpoch = number_of_epoch;
+            
+            if (Number_Of_Show_Epoch_In_Console <= 0)
+                Number_Of_Show_Epoch_In_Console = 1;
+            else if (Number_Of_Show_Epoch_In_Console > totalEpoch)
+                Number_Of_Show_Epoch_In_Console = totalEpoch;
 
 
             GeneralNeuralNetworkSettings.modelInputSizeAndShape = new int[] { inputs_values[0].Length };

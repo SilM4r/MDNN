@@ -5,7 +5,7 @@
         private double L;
         private double a;
 
-        private double velocity;
+        private double[] velocity = new double[0];
 
         public double[] Parameters = new double[2];
 
@@ -20,15 +20,11 @@
             Parameters = new double[] {L,a};
         }
 
-        public override double Update(double w, double gradient)
+        public override double Update(double w, double gradient, int i)
         {
-            //V(t)=γV(t−1)+α.∇J(θ)
-
-            velocity = a * velocity + L * gradient;
-
-            w = w - velocity;
-
-            return w;
+            if (velocity.Length <= i) Array.Resize(ref velocity, i + 1);  
+            velocity[i] = a * velocity[i] + L * gradient;
+            return w - velocity[i];
         }
     }
 }

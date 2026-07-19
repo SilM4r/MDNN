@@ -241,7 +241,7 @@ namespace My_DNN.Layers
         {
             if (TensorValues.Shape.Length == 2)
             {
-                TensorValues.Reshape(new int[] { TensorValues.Shape[0], TensorValues.Shape[0], 1 });
+                TensorValues.Reshape(new int[] { TensorValues.Shape[0], TensorValues.Shape[1], 1 });
             }
 
             else if (TensorValues.Shape.Length == 1)
@@ -379,6 +379,7 @@ namespace My_DNN.Layers
         public override void UpdateParams()
         {
             int numFilters = kernels.Length;
+            int idx = 0;
             for (int f = 0; f < numFilters; f++)
             {
                 int kernelHeight = kernels[f].Length;
@@ -391,12 +392,12 @@ namespace My_DNN.Layers
                     {
                         for (int c = 0; c < inChannels; c++)
                         {
-                            kernels[f][i][j][c] = optimizer.Update(kernels[f][i][j][c], dKernels[f][i][j][c] / mini_batch_size);
+                            kernels[f][i][j][c] = optimizer.Update(kernels[f][i][j][c], dKernels[f][i][j][c] / mini_batch_size,idx++);
                         }
                     }
                 }
                 // Aktualizace biasu pro daný filtr
-                biases[f] = optimizer.Update(biases[f], dBiases[f] / mini_batch_size);
+                biases[f] = optimizer.Update(biases[f], dBiases[f] / mini_batch_size, idx++);
             }
             mini_batch_size = 0;
             inicializationK_B_dK_dB();
@@ -666,7 +667,9 @@ namespace My_DNN.Layers
                         {
                             for (int k = 0; k < kernel_Shape[2]; k++)
                             {
-                                kernels[l][i][j][k] = GeneralNeuralNetworkSettings.rnd.NextDouble() / (k + 1) ;
+                                double fanIn = kernel_Shape[0] * kernel_Shape[1] * kernel_Shape[2];
+                                double limit = Math.Sqrt(6.0 / fanIn);
+                                kernels[l][i][j][k] = (GeneralNeuralNetworkSettings.rnd.NextDouble() * 2 - 1) * limit;
                                 dKernels[l][i][j][k] = 0;
                             }
                         }
