@@ -1,6 +1,7 @@
 ﻿using My_DNN.Activation_functions;
 using My_DNN.Layers.classes;
 using My_DNN.Save_neural_network;
+using My_DNN.Optimizers;
 
 namespace My_DNN.Layers
 {
@@ -40,39 +41,9 @@ namespace My_DNN.Layers
                 throw new ArgumentException("The number of neurons in a layer must be greater than 0");
             }
 
-            if (activation_func == null)
-            {
-                if (LayerManager.number_of_penultimate_output_in_Layer[0] == -1)
-                {
-                    activation_func = GeneralNeuralNetworkSettings.default_output_activation_func;
-                }
-                else
-                {
-                    activation_func = GeneralNeuralNetworkSettings.default_hidden_layers_activation_func;
-                }
-
-            }
-            this.activation_func = activation_func;
-
-            if (LayerManager.number_of_penultimate_output_in_Layer[0] == -1)
-            {
-                input_size = new int[] { 0 };
-            }
-            else
-            {
-                input_size = LayerManager.number_of_penultimate_output_in_Layer;
-            }
-
-            if (input_size.Length > 1)
-            {
-                int[] size = new int[] { 1 };
-                foreach (int input in input_size)
-                {
-                    size[0] *= input;
-                }
-
-                input_size = size;
-            }
+            // aktivace: default když nezadaná; správný input size + neurony dopočítá LayerAdjustment (při připojení k modelu)
+            this.activation_func = activation_func ?? GeneralNeuralNetworkSettings.default_hidden_layers_activation_func;
+            input_size = new int[] { 0 };
 
             output = new double[number_of_neuron];
             raw_output = new double[number_of_neuron];
@@ -81,7 +52,7 @@ namespace My_DNN.Layers
 
             for (int i = 0; i < number_of_neuron; i++)
             {
-                neurons.Add(new Neuron(input_size[0], activation_func));
+                neurons.Add(new Neuron(input_size[0], this.activation_func));   // placeholder (0 vah), přepíše LayerAdjustment
             }
         }
         public Dense(ExportDenseLayer layer)
@@ -132,13 +103,18 @@ namespace My_DNN.Layers
             {
                 neurons.Add(new Neuron(input_size[0], activation_func));
             }
+
+            // per-model optimizer: každý neuron dostane klon optimizeru z Contextu (nezávislost modelů)
+            if (Context != null)
+                foreach (Neuron n in neurons)
+                    n.optimizer = Optimizer.Clone_optimizer(Context.Optimizer);
         }
         public override Tensor FeedForward(Tensor input_values)
         {
 
             double[] values = input_values.Data;
 
-            if (GeneralNeuralNetworkSettings.calculationViaGpu)
+            if (Context != null && Context.CalculationViaGpu)
             {
                 return FeedForwardViaGpu(values);
             }
@@ -172,7 +148,7 @@ namespace My_DNN.Layers
         {
             double[] values = input_values.Data;
 
-            if (GeneralNeuralNetworkSettings.calculationViaGpu)
+            if (Context != null && Context.CalculationViaGpu)
             {
                 return FeedForwardViaGpu(values);
             }
