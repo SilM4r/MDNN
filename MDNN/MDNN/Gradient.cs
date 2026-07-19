@@ -15,6 +15,12 @@ namespace My_DNN
 
             int lastElement = layers.Count() - 1;
             Layer lastLayer = layers[lastElement];
+            
+            if (GeneralNeuralNetworkSettings.loss_func.RequiresSoftmax && !lastLayer.Activation_Func.Apply_to_layer)
+            {
+                throw new InvalidOperationException(
+                    "CrossEntropy vyžaduje softmax výstupní vrstvu.");
+            }
 
             if ((lastLayer.Layer_output == null && output_values_from_model == null) || lastLayer.Layer_raw_output == null)
             {
@@ -31,7 +37,12 @@ namespace My_DNN
                 outputTensor = output_values_from_model;
             }
 
-            if (lastLayer.Activation_Func.Apply_to_layer)
+            // Fúze softmax + CrossEntropy: loss vrací rovnou deltu dL/dz = s - t,
+            // takže se NEbuduje Jacobian a NEnásobí se softmax derivací (jinak dvojitá aplikace).
+            bool fusedSoftmaxCE = GeneralNeuralNetworkSettings.loss_func.RequiresSoftmax
+                                  && lastLayer.Activation_Func.Apply_to_layer;
+
+            if (lastLayer.Activation_Func.Apply_to_layer && !fusedSoftmaxCE)
             {
                 LayerActivationFunc? layerActivationFunc = lastLayer.Activation_Func as LayerActivationFunc;
 
@@ -47,11 +58,18 @@ namespace My_DNN
 
             for (int i = 0; i < outputTensor.Data.Length; i++)
             {
-                double Output = lastLayer.Layer_raw_output.Data[i];
+                if (fusedSoftmaxCE)
+                {
+                    de[i] = GeneralNeuralNetworkSettings.loss_func.DerivativeOfLossFunction(outputTensor.Data[i], target_values.Data[i]);
+                }
+                else
+                {
+                    double Output = lastLayer.Layer_raw_output.Data[i];
 
-                double derivateActivationOutputLayer = lastLayer.Activation_Func.Derivative(Output);
+                    double derivateActivationOutputLayer = lastLayer.Activation_Func.Derivative(Output);
 
-                de[i] = (GeneralNeuralNetworkSettings.loss_func.DerivativeOfLossFunction(outputTensor.Data[i], target_values.Data[i]) * derivateActivationOutputLayer);
+                    de[i] = (GeneralNeuralNetworkSettings.loss_func.DerivativeOfLossFunction(outputTensor.Data[i], target_values.Data[i]) * derivateActivationOutputLayer);
+                }
             }
 
             e.Add(new Tensor(de));
@@ -87,6 +105,12 @@ namespace My_DNN
 
             int lastElement = layers.Count() - 1;
             Layer lastLayer = layers[lastElement];
+            
+            if (GeneralNeuralNetworkSettings.loss_func.RequiresSoftmax && !lastLayer.Activation_Func.Apply_to_layer)
+            {
+                throw new InvalidOperationException(
+                    "CrossEntropy vyžaduje softmax výstupní vrstvu.");
+            }
 
 
             if ((lastLayer.Layer_output == null && output_values_from_model == null) || lastLayer.Layer_raw_output == null)
@@ -104,7 +128,12 @@ namespace My_DNN
                 outputTensor = output_values_from_model;
             }
 
-            if (lastLayer.Activation_Func.Apply_to_layer)
+            // Fúze softmax + CrossEntropy (viz synchronní verze). Ve fúzní cestě se
+            // nevolá Derivative() → odpadá i race na stavovém čítači 'a' v Softmaxu.
+            bool fusedSoftmaxCE = GeneralNeuralNetworkSettings.loss_func.RequiresSoftmax
+                                  && lastLayer.Activation_Func.Apply_to_layer;
+
+            if (lastLayer.Activation_Func.Apply_to_layer && !fusedSoftmaxCE)
             {
                 LayerActivationFunc? layerActivationFunc = lastLayer.Activation_Func as LayerActivationFunc;
 
@@ -124,11 +153,18 @@ namespace My_DNN
                 int index = i;
                 tasks[index] = Task.Run(() =>
                 {
-                    double Output = lastLayer.Layer_raw_output.Data[index];
+                    if (fusedSoftmaxCE)
+                    {
+                        de[index] = GeneralNeuralNetworkSettings.loss_func.DerivativeOfLossFunction(outputTensor.Data[index], target_values.Data[index]);
+                    }
+                    else
+                    {
+                        double Output = lastLayer.Layer_raw_output.Data[index];
 
-                    double derivateActivationOutputLayer = lastLayer.Activation_Func.Derivative(Output);
+                        double derivateActivationOutputLayer = lastLayer.Activation_Func.Derivative(Output);
 
-                    de[index] = (GeneralNeuralNetworkSettings.loss_func.DerivativeOfLossFunction(outputTensor.Data[index], target_values.Data[index]) * derivateActivationOutputLayer);
+                        de[index] = (GeneralNeuralNetworkSettings.loss_func.DerivativeOfLossFunction(outputTensor.Data[index], target_values.Data[index]) * derivateActivationOutputLayer);
+                    }
                 });
             }
 
