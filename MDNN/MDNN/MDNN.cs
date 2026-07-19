@@ -12,8 +12,10 @@ namespace My_DNN
     {
         private Train train;
         private LayerManager layerManager;
+        private NetworkContext context = new();
         private string? schema = null;
         public string Note { get; set; }
+        public NetworkContext Context => context;
         public string Schema
         {
             get { return $"[{schema}]"; }
@@ -26,37 +28,38 @@ namespace My_DNN
         {
             get { return layerManager; }
         }
-        public Loss Loss 
-        { 
-            get { return GeneralNeuralNetworkSettings.loss_func; }
+        public Loss Loss
+        {
+            get { return context.Loss; }
         }
         public Optimizer Optimizer
         {
-            get { return GeneralNeuralNetworkSettings.optimizer; }
+            get { return context.Optimizer; }
         }
         private MDNN(NetworkSaveLoadManager loadModel)
         {
 
-            GeneralNeuralNetworkSettings.optimizer = Optimizer.Refactor_optimizer(loadModel.Optimizer);
+            context.Optimizer = Optimizer.Refactor_optimizer(loadModel.Optimizer);
+            GeneralNeuralNetworkSettings.optimizer = context.Optimizer;   // export-konstrukce neuronů klonuje static
 
-            layerManager = new LayerManager(loadModel.Layers);
+            layerManager = new LayerManager(loadModel.Layers, context);
             train = new Train(this, loadModel.Current_epoch, loadModel.Target_epoch, loadModel.Mini_batch);
-            GeneralNeuralNetworkSettings.loss_func = Loss.inicialization_Loss_func(loadModel.Loss_functions);
+            context.Loss = Loss.inicialization_Loss_func(loadModel.Loss_functions);
             Note = loadModel.Note;
         }
         public MDNN(Layer Output_Layer, Optimizer? optimizer = null, Loss? loss = null)
         {
             if (optimizer != null)
             {
-                GeneralNeuralNetworkSettings.optimizer = optimizer;
+                context.Optimizer = optimizer;
             }
 
             if (loss != null)
             {
-                GeneralNeuralNetworkSettings.loss_func = loss;
+                context.Loss = loss;
             }
 
-            layerManager = new LayerManager(Output_Layer);
+            layerManager = new LayerManager(Output_Layer, context);
 
             train = new Train(this);
             Note = "";
@@ -66,7 +69,7 @@ namespace My_DNN
 
             if (Layers.Layers[0].Input_size_and_shape[0] <= 0)
             {
-                GeneralNeuralNetworkSettings.modelInputSizeAndShape = inputs_values.Shape;
+                context.InputShape = inputs_values.Shape;
                 Layers.SetInputSizeForFirstLayer();
             }
 
@@ -95,7 +98,7 @@ namespace My_DNN
 
             if (Layers.Layers[0].Input_size_and_shape[0] <= 0)
             {
-                GeneralNeuralNetworkSettings.modelInputSizeAndShape = inputs_values.Shape;
+                context.InputShape = inputs_values.Shape;
                 Layers.SetInputSizeForFirstLayer();
             }
 

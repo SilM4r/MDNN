@@ -17,7 +17,7 @@ namespace My_DNN.Activation_functions
 
         public override double Derivative(double value)
         {
-            return value;
+            return 1;
         }
     }
 }

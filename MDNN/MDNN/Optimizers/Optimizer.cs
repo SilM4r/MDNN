@@ -7,7 +7,7 @@ namespace My_DNN.Optimizers
     {
         public abstract string Name { get; }
         public abstract double[] Hyperparameters { get; }
-        public abstract double Update(double w, double gradient);
+        public abstract double Update(double w, double gradient,  int paramIndex);
 
         protected static double Rms(double val)
         {

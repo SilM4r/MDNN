@@ -92,7 +92,7 @@ namespace My_DNN
         {
             if (model.Layers.Layers[0].Input_size_and_shape[0] <= 0)
             {
-                GeneralNeuralNetworkSettings.modelInputSizeAndShape = inputs_values.Shape;
+                model.Context.InputShape = inputs_values.Shape;
                 model.Layers.SetInputSizeForFirstLayer();
             }
 
@@ -109,7 +109,7 @@ namespace My_DNN
         {
             if (model.Layers.Layers[0].Input_size_and_shape[0] <= 0)
             {
-                GeneralNeuralNetworkSettings.modelInputSizeAndShape = inputs_values.Shape;
+                model.Context.InputShape = inputs_values.Shape;
                 model.Layers.SetInputSizeForFirstLayer();
             }
             CheckLayersAreNotEmpty();
@@ -199,14 +199,14 @@ namespace My_DNN
         {
             if (model.Layers.Layers[0].Input_size_and_shape[0] == 0)
             {
-                if (GeneralNeuralNetworkSettings.SequenceTrain)
+                if (model.Context.SequenceTrain)
                 {
-                    GeneralNeuralNetworkSettings.modelInputSizeAndShape = inputs_values.GetTensorValue(new int[] { 0,0 }).Shape;
+                    model.Context.InputShape = inputs_values.GetTensorValue(new int[] { 0,0 }).Shape;
                 }
 
                 else
                 {
-                    GeneralNeuralNetworkSettings.modelInputSizeAndShape = inputs_values.GetTensorValue(new int[] { 0 }).Shape;
+                    model.Context.InputShape = inputs_values.GetTensorValue(new int[] { 0 }).Shape;
                 }
 
                 model.Layers.SetInputSizeForFirstLayer();
@@ -216,7 +216,7 @@ namespace My_DNN
             int score = 0;
             int maxScore = 0;
 
-            if (GeneralNeuralNetworkSettings.SequenceTrain)
+            if (model.Context.SequenceTrain)
             {
                 for (int i = 0; i < inputs_values.Shape[0]; i++)
                 {
@@ -332,12 +332,12 @@ namespace My_DNN
 
             for (uint epoch = this.epoch; epoch < totalEpoch; epoch++)
             {
-                GeneralNeuralNetworkSettings.loss_func.ResetAverageLossPerIteration();
+                model.Context.Loss.ResetAverageLossPerIteration();
 
                 for (uint miniBatch = 0; miniBatch < size_of_mini_batch; miniBatch++)
                 {
                     int num = rnd.Next(trainData_inputs.Shape[0]);
-                    if (!GeneralNeuralNetworkSettings.SequenceTrain)
+                    if (!model.Context.SequenceTrain)
                     {
                         Fit(trainData_inputs.GetTensorValue(new int[] { num }), trainData_current_output.GetTensorValue(new int[] { num }));
                     }
@@ -352,7 +352,7 @@ namespace My_DNN
                     }
                 }
 
-                if (GeneralNeuralNetworkSettings.SequenceTrain)
+                if (model.Context.SequenceTrain)
                 {
                     model.ResetSequence();
                 }
@@ -390,11 +390,11 @@ namespace My_DNN
 
             for (uint epoch = this.epoch; epoch < totalEpoch; epoch++)
             {
-                GeneralNeuralNetworkSettings.loss_func.ResetAverageLossPerIteration();
+                model.Context.Loss.ResetAverageLossPerIteration();
                 for (uint miniBatch = 0; miniBatch < size_of_mini_batch; miniBatch++)
                 {
                     int num = rnd.Next(trainData_inputs.Shape[0]);
-                    if (!GeneralNeuralNetworkSettings.SequenceTrain)
+                    if (!model.Context.SequenceTrain)
                     {
                         await FitAsync(trainData_inputs.GetTensorValue(new int[] { num }), trainData_current_output.GetTensorValue(new int[] { num }));
                     }
@@ -409,7 +409,7 @@ namespace My_DNN
                     }
                 }
 
-                if (GeneralNeuralNetworkSettings.SequenceTrain)
+                if (model.Context.SequenceTrain)
                 {
                     model.ResetSequence();
                 }
@@ -441,9 +441,14 @@ namespace My_DNN
 
             this.size_of_mini_batch = size_of_mini_batch;
             totalEpoch = number_of_epoch;
+            
+            if (Number_Of_Show_Epoch_In_Console <= 0)
+                Number_Of_Show_Epoch_In_Console = 1;
+            else if (Number_Of_Show_Epoch_In_Console > totalEpoch)
+                Number_Of_Show_Epoch_In_Console = totalEpoch;
 
 
-            GeneralNeuralNetworkSettings.modelInputSizeAndShape = new int[] { inputs_values[0].Length };
+            model.Context.InputShape = new int[] { inputs_values[0].Length };
             model.Layers.SetInputSizeForFirstLayer();
 
             CheckLayersAreNotEmpty();
@@ -461,7 +466,7 @@ namespace My_DNN
 
                 if (epoch % (totalEpoch / Number_Of_Show_Epoch_In_Console) == 0)
                 {
-                    double loss = GeneralNeuralNetworkSettings.loss_func.GetAverageLossPerIteration();
+                    double loss = model.Context.Loss.GetAverageLossPerIteration();
                     if (loss is not double.NaN)
                     {
                         if (loss < minLoss)
@@ -493,10 +498,10 @@ namespace My_DNN
 
             if (isSequence)
             {
-                GeneralNeuralNetworkSettings.SequenceTrain = true;
+                model.Context.SequenceTrain = true;
             }
 
-            if (GeneralNeuralNetworkSettings.SequenceTrain)
+            if (model.Context.SequenceTrain)
             {
                 if (inputs_values.Shape.Length == 1)
                 {
@@ -514,7 +519,7 @@ namespace My_DNN
                     throw new Exception("for sequential training, the maximum input is a four-dimensional array.");
                 }
 
-                GeneralNeuralNetworkSettings.modelInputSizeAndShape = inputs_values.GetTensorValue(new int[] { 0, 0 }).Shape;
+                model.Context.InputShape = inputs_values.GetTensorValue(new int[] { 0, 0 }).Shape;
             }
 
             else
@@ -531,7 +536,7 @@ namespace My_DNN
                     throw new Exception("for non-sequential training, the maximum input is a three-dimensional array.");
                 }
 
-                GeneralNeuralNetworkSettings.modelInputSizeAndShape = inputs_values.GetTensorValue(new int[] { 0 }).Shape;
+                model.Context.InputShape = inputs_values.GetTensorValue(new int[] { 0 }).Shape;
             }
 
             
@@ -701,9 +706,9 @@ namespace My_DNN
         }
         private void TrainLoopControlFunc()
         {
-            Loss lossFunc = GeneralNeuralNetworkSettings.loss_func;
+            Loss lossFunc = model.Context.Loss;
             double loss = lossFunc.GetResetAverageLossPerIteration();
-            if (GeneralNeuralNetworkSettings.SequenceTrain)
+            if (model.Context.SequenceTrain)
             {
                 for (int i = 0; i < ValidData_inputs.Shape[0]; i++)
                 {
@@ -731,11 +736,11 @@ namespace My_DNN
 
         private async Task TrainLoopControlFuncAsync()
         {
-            Loss lossFunc = GeneralNeuralNetworkSettings.loss_func;
+            Loss lossFunc = model.Context.Loss;
             List<double> layerOutput = new List<double>();
 
             double loss = lossFunc.GetResetAverageLossPerIteration();
-            if (GeneralNeuralNetworkSettings.SequenceTrain)
+            if (model.Context.SequenceTrain)
             {
                 for (int i = 0; i < ValidData_inputs.Shape[0]; i++)
                 {
@@ -775,7 +780,7 @@ namespace My_DNN
 
 
             ExtraControlFunc(loss);
-            if (GeneralNeuralNetworkSettings.SequenceTrain)
+            if (model.Context.SequenceTrain)
             {
                 ConsoleControler.ShowEpochInfo(model, loss);
             }
@@ -788,7 +793,7 @@ namespace My_DNN
 
         private void ExtraControlFunc(double loss)
         {
-            Loss lossFunc = GeneralNeuralNetworkSettings.loss_func;
+            Loss lossFunc = model.Context.Loss;
 
             if (loss is double.NaN || lossFunc.GetAverageLossPerIteration() is double.NaN)
             {

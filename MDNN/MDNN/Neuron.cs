@@ -26,7 +26,7 @@ namespace My_DNN
         private double[] weights;
         private double bias;
         
-        private double[] gradientsW;
+        internal double[] gradientsW;
         private double gradientsB;
 
         private int mini_batch_size = 0;
@@ -43,7 +43,8 @@ namespace My_DNN
 
             for (int i = 0; i < Number_of_input; i++)
             {
-                Weights[i] = GeneralNeuralNetworkSettings.rnd.NextDouble() / Number_of_input;
+                double limit = Math.Sqrt(6.0 / Number_of_input);
+                Weights[i] = (GeneralNeuralNetworkSettings.rnd.NextDouble() * 2 - 1) * limit;
             }
 
             bias = 0;
@@ -107,14 +108,27 @@ namespace My_DNN
             mini_batch_size++;
         }
 
+        // RTRL: gradient parametru = okamžitý gradient shora (gImm) × citlivost tohoto parametru.
+        // sensW[i] = ∂h/∂Weights[i], sensB = ∂h/∂bias (obojí drží a posouvá RNN vrstva).
+        public void AccumulateGradient(double gImm, double[] sensW, double sensB)
+        {
+            for (int i = 0; i < Weights.Count(); i++)
+            {
+                gradientsW[i] += gImm * sensW[i];
+            }
+            gradientsB += gImm * sensB;
+
+            mini_batch_size++;
+        }
+
         public void Update_weights_bias()
         {
 
             for (int i = 0; i < Weights.Count(); i++)
             {
-                Weights[i] = optimizer.Update(Weights[i], gradientsW[i] / mini_batch_size);
+                Weights[i] = optimizer.Update(Weights[i], gradientsW[i] / mini_batch_size,i);
             }
-            bias = optimizer.Update(bias, gradientsB / mini_batch_size);
+            bias = optimizer.Update(bias, gradientsB / mini_batch_size,Weights.Count());
 
             mini_batch_size = 0;
 
@@ -128,7 +142,7 @@ namespace My_DNN
                 int randomValueBetween0And100 = GeneralNeuralNetworkSettings.rnd.Next(101);
                 if (randomValueBetween0And100 < chance_of_mutation)
                 {
-                    Random random = new Random();
+                    Random random = GeneralNeuralNetworkSettings.rnd;
                     // Rozmezí je -percentage/2 až +percentage/2
                     double minPercentage = -percent_mutation / 100.0 / 2.0;
                     double maxPercentage = percent_mutation / 100.0 / 2.0;
