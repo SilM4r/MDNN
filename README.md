@@ -1,266 +1,450 @@
-# MDNN (My Deep Neural Network)
+**MDNN (My Deep Neural Network)**
+==============
 
-MDNN is a library for designing and training neural networks in C#. It allows straightforward creation and configuration of neural network models, their training, and their subsequent integration into applications.
+MDNN (My Deep Neural Network) is a library for designing and training neural networks in C#. It allows easy creation and configuration of neural network models, their training and subsequent integration into projects.
 
-## Contents
+## 📚 **Content**
 
-- [Key features](#key-features)
-- [Installation](#installation)
-- [Quick start](#quick-start)
-- [Model configuration](#model-configuration)
-- [Adding layers](#adding-layers)
-- [Training the model](#training-the-model)
-- [GPU acceleration and asynchronous execution](#gpu-acceleration-and-asynchronous-execution)
-- [Saving and loading models](#saving-and-loading-models)
-- [Supporting utilities](#supporting-utilities)
-- [Tests](#tests)
+- [📌 Key features](#-key-properties)
+- [🛠 Installation](#-installation)
+- [🚀 Quick Start](#-quick-start)
+- [⚙ Model Configuration](#-configuration-model)
+- [📌 Add layers to the model](#-adding-layers-to-model)
+- [🎯 Model Training](#-model-training)
+- [⏳ Optimization](#-optimization)
+- [📦 Production Deployment](#-production-deployment)
+- [👏 Support features](#-support-features)
 
-## Key features
+## 📌 Key features
 
-Supported layer types:
+Support for different layer types, including:
+- **Dense** (fully connected layers)
+- **MaxPooling**
+- **Convolutional neural networks (CNNs)**
+- **Recurrent Neural Networks (RNN)**
+  
+Possibility to use a wide range of:
+- Activation functions
+- Optimization algorithms
+- Loss functions
+- Easy integration into C# projects
+- Support for GPU computation acceleration
+- Save and load models in JSON format
+- Predefined training loops to simplify the training process
 
-- Dense (fully connected)
-- Convolutional (Conv)
-- Max pooling (MaxPool)
-- Recurrent (RNN)
+## 🛠 Installation
 
-Additional capabilities:
+MDNN is distributed as a dynamic library **MDNN.dll**. To use it, you must:
 
-- A range of activation functions, optimizers, and loss functions
-- Straightforward integration into C# projects
-- Optional GPU computation
-- Asynchronous training and inference
-- Saving and loading models in JSON format
-- Pre-built training loops
+1. Add the **MDNN.dll** file to the project. (add a new reference to the project)
+2. Include the appropriate namespaces in the source code.
 
-## Installation
+Alternatively, you can download the entire repository and run the build, which will automatically generate a new **MDNN.dll** file.
 
-MDNN is distributed as a dynamic library, `MDNN.dll`. To use it:
+## 🚀 Quick Start
 
-1. Add a reference to `MDNN.dll` in your project.
-2. Include the relevant namespaces in your source code.
-
-Alternatively, download the repository and build it; the build produces a fresh `MDNN.dll`.
-
-## Quick start
-
-A minimal example that creates and trains a network:
+Below is a simple example of using MDNN to create and train a neural network.
 
 ```csharp
-using My_DNN;
 using My_DNN.Layers;
 using My_DNN.Layers.classes;
 using My_DNN.Optimizers;
-using My_DNN.Loss_functions;
+using My_DNN;
 using My_DNN.Activation_functions;
+using My_DNN.Loss_functions;
 
-double[][] inputsDataset  = { /* input samples */ };
-double[][] outputDataset  = { /* corresponding targets */ };
+namespace MDNN_example
+{
 
-Layer outputLayer = new Dense(1, new Linear()); // output layer
-Optimizer optimizer = new SGD(0.01);            // optimization algorithm
-Loss loss = new MSE();                          // loss function
+    internal class Program
+    {
 
-uint epochs = 1000;
+        static void Main(string[] args)
+        {
 
-MDNN model = new MDNN(outputLayer, optimizer, loss);
-model.Layers.Add(new Dense(8, new ReLu()));     // hidden layer
-
-model.Train.TrainLoop(inputsDataset, outputDataset, epochs, 1);
-
-model.SaveAsJson("save");
+            double[,] inputsDataset = new double[][] {...}; // Input data
+            double[,] outputDataset = new double[][] {...}; // Corresponding output data
+            
+            Layer outputLayer = new Dense(1, new Linear()); // Configure the output layer
+            Optimizer optimizer = new SGD(0.01); // Setting up the optimization algorithm
+            Loss loss = new MSE(); // Definition of a loss function
+            
+            uint epoch = 1000;
+            
+            //Initializing the model
+            MDNN model = new MDNN(outputLayer, optimizer, loss);
+            model. Layers.Add(new Dense(1, new ReLu())); // Add a hidden layer
+            
+            Tensor tensorInputDataset = new Tensor(inputsDataset);
+            Tensor tensorOutputDataset = new Tensor(outputDataset);
+            
+            //Train a model
+            model.Train.TrainLoop(tensorInputDataset, tensorOutputDataset, epoch, 1);
+            
+            //Save the model
+            model.SaveAsJson("save");
+        }
+    }
+}
 ```
+## ⚙ Model configuration
 
-## Model configuration
-
-The model is created through the `MDNN` class, which is the central object for working with the network:
+The MDNN library allows easy configuration of the neural network architecture, including the output layer, optimization algorithm and loss function.
+The model is initialized using the MDNN class, which serves as the central object for manipulating the neural network:
 
 ```csharp
 MDNN model = new MDNN(outputLayer, optimizer, loss);
 ```
+### Constructor parameters
 
-Constructor parameters:
+- **`outputLayer`** *(required parameter)* – object of the **Layer** type, representing the output layer of the mesh.
+- **`optimizer`** *(optional parameter)* – object of the **Optimizer** type, that specifies the optimization algorithm. If not specified, the default value is **SGD(0.0001)**.
+- **`loss`** *(optional parameter)* – object representing the loss function. The default value is **MSE()**.
 
-- `outputLayer` (required) — a `Layer` representing the output layer.
-- `optimizer` (optional) — an `Optimizer`. Defaults to `SGD(0.0001)`.
-- `loss` (optional) — a loss function. Defaults to `MSE()`.
+supported optimizers: SGD,ADAM,Momentum
+Supported loss functions: MSE, Cross Entropy
 
-Supported optimizers: `SGD`, `Adam`, `Momentum`.
-Supported loss functions: `MSE`, `CrossEntropy`.
+Alternatively, the library also supports the creation of your own optimizers and lossy functions – just inherit the corresponding parent class, for example **`loss`**.
 
-Each model owns its own configuration, so multiple independent models can coexist in the same process.
+## 📌 Add layers to the model
 
-You can also create custom optimizers or loss functions by inheriting the corresponding base class (for example `Optimizer` or `Loss`) and implementing its abstract members.
-
-Note on `CrossEntropy`: it is intended to be paired with a `Softmax` output layer. It computes the fused softmax + categorical cross-entropy gradient (`output − target`), which is the numerically stable form. Using `CrossEntropy` without a `Softmax` output layer raises an exception.
-
-## Adding layers
-
-Layers are added through the `Layers` property:
+Additional layers can be added to the model using the **`Layers`** class:
 
 ```csharp
-model.Layers.Add(new Dense(64, new ReLu()));    // hidden layer, 64 neurons, ReLU
-model.Layers.Add(new Dense(32, new Sigmoid())); // hidden layer, 32 neurons, sigmoid
+model.Layers.Add(new Dense(64, new ReLu())); // Addition of a hidden layer with 64 neurons and ReLU activation
+model.Layers.Add(new Dense(32, new Sigmoid())); // Additional layer with 32 neurons and sigmoid activation
 ```
 
-Besides `Add()`, the `Layers` API includes:
+In addition to the **`Add()`** function, the **`Layers`** class also contains methods for removing or adding layers at a specific position, and a number of other functions for manipulating layers.
+- **`Insert()`**
+- **`RemoveAt()`**
+- **`OutputLayerActivationFunc()`** - set a new output activation function
+- **`ClearAllLayersAndSetNewOutputLayer`** - deletes all layers and sets a new output layer
 
-- `Insert()` — insert a layer at a given position
-- `RemoveAt()` — remove a layer at a given position
-- `OutputLayerActivationFunc()` — set a new output activation function
-- `ClearAllLayersAndSetNewOutputLayer()` — remove all layers and set a new output layer
-
-Supported layers:
-
+The MDNN library supports the following layers:
 - `Dense()`
 - `RNN()`
 - `Conv()`
 - `MaxPool()`
+- WIP: Transformer (Attention Layer)
 
-If a layer constructor is called without an activation function, the default hidden-layer activation (ReLU) is used. Pass the activation explicitly for output layers (for example `Linear` for regression or `Softmax` for classification).
+If necessary, you can also create your own specialized layer. It is enough to inherit one of the following abstract classes:
+- `Layer`
+- `LayerBasedOnNeurons`
+- `LayerWithUntrainedParameters`
 
-You can also define a custom layer by inheriting one of the abstract classes `Layer`, `LayerBasedOnNeurons`, or `LayerWithUntrainedParameters` and implementing their abstract members.
+Then, it is necessary to implement all their abstract methods. Once a new layer is defined, it can be added to the model and used in training.
 
-Available activation functions: `Linear`, `ReLu`, `Leak_ReLu`, `Sigmoid`, `Tanh`, `Softmax`.
+## 🎯 Train a model
 
-## Training the model
+The model is trained using the Train class, which contains all the necessary methods to control the training. The user has the option to choose between four training methods according to the desired degree of control over the model training.
+- **`TrainLoop()`**
+- **`SimpleTrainLoop()`**
+- **`Fit()`** and **`UpdateParams()`**
+- **`BackPropagation()`** and **`FeedForward()`**
 
-Training is driven by the `Train` class. Four levels of control are available, from fully automated to fully manual.
+### **`TrainLoop()`**
+This method is the main and most advanced training procedure in the library. It includes a complete train loop and provides the following advanced features:
 
-### `TrainLoop()`
-
-The most complete training procedure. It provides:
-
-- Automatic checkpointing of the best-validation model (early-stopping checkpoint)
-- Automatic shuffling and splitting of the dataset into training, validation, and test sets
-- Progress reporting to the console
-- Detection of `NaN` values
-- Automatic plotting of the loss over epochs
-
-Parameters:
-
-- `Array inputs_values` (required) — input dataset. Each row is one training sample.
-- `Array current_output_values` (required) — corresponding targets.
-- `uint number_of_epoch` (required) — number of training epochs.
-- `uint size_of_mini_batch` (optional, default `1`) — minibatch size.
-- `bool isSequence` (optional, default `false`) — set to `true` for sequential input data (for example time series).
-
-### `SimpleTrainLoop()`
-
-A simplified training loop with checkpointing, console reporting, and `NaN` detection, without the dataset splitting and plotting of `TrainLoop()`.
+- Automatic saving of the model with the best validation (so-called early stopping checkpoint).
+- Automatic mixing and division of the dataset into training, validation and testing parts.
+- Continuous listing of information about the training progress (e.g. current epochs, metrics) to the console.
+- Error detection, such as the occurrence of NaN values.
+- Automatic plotting of the progress of the loss function across epochs.
 
 Parameters:
+- **`Tensor inputs_values`** – *required parameter*
+Input dataset in tensor format. Each row corresponds to one training sample.
 
-- `double[][] inputs_values` (required)
-- `double[][] current_output_values` (required)
-- `uint number_of_epoch` (required)
-- `uint size_of_mini_batch` (optional, default `1`)
+- **`Tensor current_output_values`** – *mandatory parameter*
+Corresponding outputs (labels) for input data, also in tensor format.
 
-### `Fit()` and `UpdateParams()`
+- **`uint number_of_epoch`** – *required parameter*
+Specifies the number of training epochs.
 
-An intermediate approach that lets you write your own training loop. `Fit()` runs the forward pass and backpropagation but accumulates gradients instead of applying them; `UpdateParams()` applies the accumulated gradients. Calling them one after another is equivalent to single-sample training; accumulating several `Fit()` calls before one `UpdateParams()` is equivalent to minibatch training.
+- **`uint size_of_mini_batch`** – *optional parameter*
+The size of the minibatch used during training. If not specified, the default value of `1` is used.
+
+- **`bool isSequence`** – *optional*
+If set to `true`, the model will expect sequential input data (e.g. time series, video or other sequential data). The default value is `false`.
+
+### **`SimpleTrainLoop()`**
+It is a simplified version of the **`TrainLoop()`** method. It includes a complete train loop and provides the following functions:
+
+- Automatic saving of the model with the best validation (so-called early stopping checkpoint).
+- Continuous listing of information about the training progress (e.g. current epochs, metrics) to the console.
+- Error detection, such as the occurrence of NaN values.
+
+Parameters:
+- **`double[][] inputs_values`** – *required parameter*
+Input dataset in double[][] format. Each row corresponds to one training sample.
+
+- **`double[][] current_output_values`** – *required parameter*
+Corresponding outputs (labels) for input data, also in double[][] format.
+
+- **`uint number_of_epoch`** – *required parameter*
+Specifies the number of training epochs.
+
+- **`uint size_of_mini_batch`** – *optional parameter*
+The size of the minibatch used during training. If not specified, the default value of `1` is used.
+
+### **`Fit()`** and **`UpdateParams()`**
+
+It is an intermediate approach to model training that allows you to implement your own training loop. This approach does not provide pre-built functionality, but the user has a set of support classes that can be used to create additional components, such as listing training information to the console, visualizing training losses using graphs, or implementing test procedures to evaluate the model.
+
+This method consists of two functions: **`Fit()`** and **`UpdateParams()`**.
+The **`Fit()`** function performs both output calculation (*feedforward*) and backpropagation, but without immediate updating of the model parameters – instead, gradients are accumulated.
+
+Updating of parameters based on accumulated gradients is performed only when the **`UpdateParams()`` function is called. This approach is equivalent to training with a *minibatch*, which can lead to more efficient and stable learning.
+
+If the user does not want to use the minibatch mode, it is sufficient to call both functions immediately after each other.
 
 ```csharp
 Random rnd = new Random();
-double[][] inputsDataset = { /* input data */ };
-double[][] currentOutputDataset = { /* targets */ };
+double[][] inputsDataset = new double[][] {...}; // input data
+double[][] currentOutputDataset = new double[][] {...}; // currentOutput data
 
+// Initializing the model
 MDNN model = new MDNN(new Dense(3), new Adam(0.001));
 
-int numberOfEpochs = 5000;
-int miniBatchSize = 16;
+//Number of epochs and minibatch size
+int number_of_epoch = 5000;
+int size_of_miniBatch = 16;
 
-for (int i = 0; i < numberOfEpochs; i++)
-{
-    for (int j = 0; j < miniBatchSize; j++)
+// number of all elements in the dataset
+int number_of_element_intDataset = inputsDataset.Length;
+
+// Main training loop
+for (int i = 0, i < number_of_epoch, i++)
+ {
+
+  //Secondary Loop Minibatch
+  for (int j = 0, j < size_of_miniBatch, j++)
+  {
+      int num = rnd. Next(number_of_element_intDataset);
+      
+      double[] inputs = inputsDataset[num];
+      double[] output = currentOutputDataset[num];
+      
+      // calculation on one specific element, which is randomly selected from the whole dataset
+      model.Train.Fit(new Tensor(inputs),new Tensor(output));
+  }
+  
+  //Updating training parameters
+  model.Train.UpdateParams();
+ }
+
+// supporting function that tests the entire dataset on the trained dataset
+model.Train.TestNeuralNetwork(new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset)), new Tensor(Tensor.ConvertJaggedToMulti(currentOutputDataset)));
+```
+
+Parameters:
+
+**`Fit()`** :
+- **`Tensor inputs_values`** – *required parameter*
+Input dataset in tensor format. Each row corresponds to one training sample.
+
+- **`Tensor target_values`** – *required parameter*
+Corresponding outputs (labels) for input data, also in tensor format.
+
+**`UpdateParams()`** - has no parameters
+
+### **`BackPropagation()`** and **`FeedForward()`**
+
+It is the most advanced training method that provides maximum control over the individual stages of learning. Unlike the **`Fit()`** and **`UpdateParams()`** approach, the **`Fit()`** method is divided into two separate functions: **`FeedForward()`** and **`BackPropagation()`**. The **`FeedForward()`** function performs the forward calculation of the neural network, while **`BackPropagation()`** provides backpropagation of the loss and calculation of gradients. This approach allows detailed manipulation of the individual steps of the training process, which is especially suitable for research purposes or advanced optimizations.
+
+**Warning:** To update the model parameters itself, it is necessary to call the **`UpdateParams()`` method afterwards.
+
+```csharp
+
+Random rnd = new Random();
+double[][] inputsDataset = new double[][] {...}; input data
+double[][] currentOutputDataset = new double[][] {...}; currentOutput data
+
+// Initializing the model
+MDNN model = new MDNN(new Dense(3), new Adam(0.001));
+
+// Number of epochs and minibatch size
+int number_of_epoch = 5000;
+int size_of_miniBatch = 16;
+
+//number of all elements in the dataset
+int number_of_element_intDataset = inputsDataset.Length;
+
+//Main training loop
+for (int i = 0, i < number_of_epoch, i++)
+ {
+
+    //Secondary Loop Minibatch
+    for (int j = 0, j < size_of_miniBatch, j++)
     {
-        int num = rnd.Next(inputsDataset.Length);
-        model.Train.Fit(new Tensor(inputsDataset[num]), new Tensor(currentOutputDataset[num]));
-    }
-
+        int num = rnd. Next(number_of_element_intDataset);
+        
+        double[] inputs = inputsDataset[num];
+        double[] output = currentOutputDataset[num];
+        
+        // Forward calculation
+        model.Train.FeedForward(new Tensor(Tensor.ConvertJaggedToMulti(inputs)));
+        
+        // Calculation of gradients (supporting method)
+        Tensor[] gradients = Gradient.GetGradients(new Tensor(Tensor.ConvertJaggedToMulti(inputs)), model);
+        
+        // Backpropagation of gradients
+        model.Train.BackPropagation(gradients);
+     }
+    
+    // Updating training parameters
     model.Train.UpdateParams();
-}
+ }
+
+// A supporting function that tests the model on a trained dataset
+model.Train.TestNeuralNetwork(new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset)), new Tensor(Tensor.ConvertJaggedToMulti(currentOutputDataset)));
 ```
 
-### `FeedForward()` and `BackPropagation()`
+Method parameters:
 
-The most granular approach, splitting `Fit()` into a separate forward pass (`FeedForward()`) and backpropagation (`BackPropagation()`). This gives full control over the individual training steps, which is useful for research or advanced optimization. After backpropagation, call `UpdateParams()` to apply the changes.
 
-`BackPropagation()` has two overloads: one that takes the target values (and computes the layer gradients internally) and one that takes precomputed per-layer gradients.
+**`FeedForward()`**
 
-## GPU acceleration and asynchronous execution
+- **`Tensor inputs_values`** – *required parameter*
+Input data in tensor format.
 
-### GPU
+**`BackPropagation()`**
 
-Network computation can optionally run on an NVIDIA GPU through the accompanying `gpu.dll` library (written in C++ / CUDA). This requires the CUDA Toolkit and `gpu.dll`. GPU computation is a per-model setting:
+The **`BackPropagation()`` method has two overloads:
+
+1. **First overload:**
+- **`Tensor[] layer_gradients`** – *required parameter*
+An array of gradients of individual layers in tensor format. It is used for manually controlled back-propagation.
+
+2. **Second overload:**
+- **`Tensor target_values`** – *required parameter*
+Target output values corresponding to the input data, also in tensor format. In this overload, the method internally calculates the appropriate `layer_gradients` values.
+
+## ⏳ Optimization
+
+The MDNN library supports efficient optimization of neural network calculations. The main optimization techniques include:
+
+- **GPU Utilization** – Neural network calculations can be performed on GPUs, which significantly speeds up model training, especially when working with large amounts of data. For this purpose, a custom library `gpu.dll` has been developed, which is written in **C++** using **CUDA** and allows efficient parallel computations.
+
+- **Asynchronous computing** – The library enables fully asynchronous processing of neural network calculations, resulting in more efficient use of computational resources and reduced latency during training.
+
+Thanks to these optimizations, MDNN can be used to effectively train deep neural networks even on large data sets.
+
+### Requirements for computations via GPU
+
+To enable neural network calculations on the GPU, the following components must be downloaded:
+- A library **`gpu.dll`**
+- **CUDA Toolkit**
+
+Currently, the library only supports calculations on the **NVIDIA GPU**. Support for AMD and Intel graphics cards is in development.
+
+### Activating calculations via GPU
+
+The following code can be used to enable neural network computation via the GPU:
+```csharp
+GeneralNeuralNetworkSettings.calculationViaGpu = true;
+```
+
+### Using asynchronous functions
+
+The library supports asynchronous processing of neural network training. Example of use:
 
 ```csharp
-model.Context.CalculationViaGpu = true;
+await model.Train.TrainLoopAsync(tensorInputDataset, tensorOutputDataset, 1000);
 ```
 
-Support currently targets NVIDIA GPUs only.
+Each synchronous function has its equivalent asynchronous version, which allows for efficient parallel computations.
 
-### Asynchronous execution
+for example:
+- **`TrainLoop()`** -> **`TrainLoopAsync()`**
+- **`Fit()`** -> **`FitAsync()`**
+- **`GetResults()`** -> **`GetResultsAsync()`**
 
-Each synchronous method has an asynchronous counterpart, for example:
+## 📦 Production deployment
 
-- `TrainLoop()` — `TrainLoopAsync()`
-- `Fit()` — `FitAsync()`
-- `GetResults()` — `GetResultsAsync()`
+After the training process is complete and the model is saved in JSON format (e.g. using the `model. SaveAsJson("save")`) is followed by the **production deployment** phase. In this phase, the model is integrated into the target application or system, where it is used for inference – i.e. to make predictions based on new input data.
+
+### Using the trained model
+
+There`s no need for retraining to use the model in production. Just load it and then apply inputs to it:
 
 ```csharp
-await model.Train.TrainLoopAsync(inputsDataset, outputDataset, 1000);
+double[][] inputsDataset = new double[][] {...}; //input data
+
+MDNN model = MDNN.LoadModel("Completed training.json");
+Tensor inputTensor = new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset));
+
+model.GetResults(inputTensor);
+
 ```
 
-## Saving and loading models
+## 👏 Support features
 
-After training, a model can be saved to JSON and later loaded for inference. No retraining is required to use a saved model.
+The library contains a number of supporting methods designed to facilitate work with neural networks.
 
-```csharp
-model.SaveAsJson("save"); // writes save.json
+For example, in the MDNN library you will find:
+- functions for plotting graphs of training losses in individual epochs,
+- Tools for clear display of outputs and statistics in the console,
+- and many other useful tools that make model tuning and analysis more efficient.
 
-MDNN loaded = MDNN.LoadModel("save.json");
-Tensor input = new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset));
-Tensor result = loaded.GetResults(input);
-```
-
-## Supporting utilities
+These features significantly contribute to clarity, efficiency and comfort when working with neural networks.
 
 ### Tensor
 
-`Tensor` is the universal data type for multidimensional arrays. It stores:
+The **`Tensor`** class serves as a universal data type for working with multidimensional arrays (*arrays*).
+It allows efficient manipulation of data of any dimension and ensures its uniform representation across the entire library.
 
-- the original multidimensional array (`OriginalInput`),
-- an equivalent flat array (`Data`) for faster computation,
-- and the shape as a list of dimensions (`Shape`).
+Internally, this class stores:
+- the original multidimensional array `OriginalInput` (e.g. about the size `[5][5][5][5]`),
+- equivalent one-dimensional array `Data` (e.g. size `[125]`) for faster calculations,
+- and information about the shape of the original pattern in the form of a list of dimensions `Shape` (e.g. `[5, 5, 5, 5]`).
 
-It supports reshaping via `Reshape(int[] newShape)`, along with convenient element access and conversions between jagged and multidimensional arrays.
+One of the key features of the class is the support of very easy and fast transformation of data into another dimension using the **Reshape(int[] newShape)** operation, which significantly increases the flexibility when working with different data structures.
+Thanks to this structure, `Tensor` makes it easy to access elements, perform mathematical operations, and work efficiently with data in a neural network, regardless of its original dimension.
 
-### Console output
+### Console outputs
 
-The static `ConsoleControler` class handles console output:
+The library contains a static ConsoleManager class that provides all outputs to the console:
+- **`ShowModelInfo()`** – prints detailed information about the current model.
+- **`ShowEpochInfo()`** – displays information about the current epoch during training.
+- **`ShowScoreOfModel()`** – prints the achieved accuracy of the model.
+- **`ErrorHandler()`** - handles and prints error messages, making it easier to diagnose and debug the model.
 
-- `ShowModelInfo()` — prints detailed information about the model
-- `ShowEpochInfo()` — prints information about the current epoch during training
-- `ShowScoreOfmodel()` — prints the model's accuracy
-- `ErrorHandler()` — prints error messages
+### `GeneralNeuralNetworkSettings`
 
-### NetworkContext
+It is a static support class that stores the default settings of the entire library for neural networks. For example, it contains a default trigger function, a lossy function, or an optimization algorithm.
 
-Each model owns a `NetworkContext` (`model.Context`) that holds its runtime configuration: the loss function, optimizer, input shape, sequence-training flag, and the GPU flag. Because this state is per-model, two models in the same process do not interfere with each other.
+The class also serves as a simple **dependency injection mechanism**, which allows management and passing of common dependencies between individual library components without the need to bind them tightly.
 
-`GeneralNeuralNetworkSettings` holds only process-wide defaults (the default activation functions and a shared random generator).
+Attributes:
+- **`default_output_activation_func`** (*Activation_func*)
+Default trigger for the output layer (e.g. `Linear`).
 
-### Plotting
+- **`default_hidden_layers_activation_func`** (*Activation_func*)
+Default activation function for hidden layers (e.g. `ReLU`).
 
-The `GraphPlotter` class visualizes training progress. Its `ShowLossGraph()` method produces a graph of training and validation loss over epochs and saves it as `loss.png` in the application's root directory. This makes it easy to spot overfitting or undertraining. Plotting uses the ScottPlot library.
+- **`loss_func`** (*Loss*)
+The default loss function used in training (e.g. `MSE` – mean square error).
 
-## Tests
+- **`optimizer`**  (*Optimizer*)
+Default optimization algorithm (e.g. `SGD` with a learning rate of `0.0001`).
 
-The repository includes an xUnit test project (`MDNN.Tests`) with numerical gradient checks for every layer, unit tests for the activation, loss, and optimizer implementations, and end-to-end training smoke tests. Run them with:
+- **`calculationViaGpu`** (*bool*)
+Specifies whether the calculations should be performed on the GPU (`true`) or the CPU (`false`).
 
-```
-dotnet test
-```
+- **`SequenceTrain`** (*bool*)
+Sequential training mode (e.g. for recurrent networks).
 
-The gradient checks act as a regression guard: any change that breaks the underlying math is caught automatically.
+- **`modelInputSizeAndShape`** (*int[]*)
+Defines the shape and size of the model`s input tensor.
+
+
+### Creating charts
+
+The library contains the **`GraphPlotter`** class, which is used to visualize the progress of neural network training. Its main purpose is to provide the user with a tool for monitoring the development of loss functions during the training process.
+The class has a single method **`ShowLossGraph()`**, which generates a graph of training and validation loss (*TrainLoss* and *ValidLoss*) depending on the number of epochs. The resulting graph is automatically saved as an image named `loss.png` in the root directory of the application.
+
+With this visual overview, the user can easily identify problems such as overfitting or undertraining and adjust the training parameters accordingly.
+
+The publicly available **ScottPlot** library is used to plot the graph, which allows simple and clear generation of scientific graphs.
