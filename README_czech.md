@@ -71,11 +71,8 @@ namespace MDNN_example
             MDNN model = new MDNN(outputLayer, optimizer, loss);
             model.Layers.Add(new Dense(1, new ReLu()));  // Přidání skryté vrstvy
 
-            Tensor tensorInputDataset = new Tensor(inputsDataset);
-            Tensor tensorOutputDataset = new Tensor(outputDataset);
-
             // Trénování modelu
-            model.Train.TrainLoop(tensorInputDataset, tensorOutputDataset, epoch, 1);
+            model.Train.TrainLoop(inputsDataset, outputDataset, epoch, 1);
             
             // Uložení modelu
             model.SaveAsJson("save");
@@ -149,11 +146,11 @@ Tato metoda představuje hlavní a zároveň nejpokročilejší trénovací proc
 - Automatické vykreslení grafu průběhu ztrátové funkce (loss) napříč epochami.
 
 Parametry:
-- **`Tensor inputs_values`** – *povinný parametr*  
-  Vstupní dataset ve formátu tenzoru. Každý řádek odpovídá jednomu trénovacímu vzorku.
+- **`Array inputs_values`** – *povinný parametr*  
+  Vstupní dataset ve formátu Array. Každý řádek odpovídá jednomu trénovacímu vzorku. Masimální počet dimensí array je 5.
 
-- **`Tensor current_output_values`** – *povinný parametr*  
-  Odpovídající výstupy (labely) pro vstupní data, rovněž ve formátu tenzoru.
+- **`Array current_output_values`** – *povinný parametr*  
+  Odpovídající výstupy (labely) pro vstupní data, rovněž ve formátu Array.
 
 - **`uint number_of_epoch`** – *povinný parametr*  
   Určuje počet trénovacích epoch.
