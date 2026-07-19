@@ -1,436 +1,266 @@
-**MDNN (My Deep Neural Network)**
-==============
+# MDNN (My Deep Neural Network)
 
-MDNN (My Deep Neural Network) je knihovna pro návrh a trénování neuronových sítí v jazyce C#. Umožňuje snadnou tvorbu a konfiguraci modelů neuronových sítí, jejich trénování a následnou integraci do projektů.
+MDNN je knihovna pro návrh a trénování neuronových sítí v jazyce C#. Umožňuje snadnou tvorbu a konfiguraci modelů neuronových sítí, jejich trénování a následnou integraci do aplikací.
 
-## 📚 **Obsah**
-- [📌 Klíčové vlastnosti](#-klíčové-vlastnosti)  
-- [🛠 Instalace](#-instalace)  
-- [🚀 Rychlý start](#-rychlý-start)  
-- [⚙ Konfigurace modelu](#-konfigurace-modelu)  
-- [📌 Přidávání vrstev do modelu](#-přidávání-vrstev-do-modelu)  
-- [🎯 Trénování modelu](#-trénování-modelu)  
-- [⏳ Optimalizace](#-optimalizace)
-- [📦 Produkční nasazení](#-produkční-nasazení)
-- [👏 Podpůrné funkce](#-podpůrné-funkce)
+## Obsah
 
+- [Klíčové vlastnosti](#klíčové-vlastnosti)
+- [Instalace](#instalace)
+- [Rychlý start](#rychlý-start)
+- [Konfigurace modelu](#konfigurace-modelu)
+- [Přidávání vrstev](#přidávání-vrstev)
+- [Trénování modelu](#trénování-modelu)
+- [GPU akcelerace a asynchronní výpočty](#gpu-akcelerace-a-asynchronní-výpočty)
+- [Ukládání a načítání modelů](#ukládání-a-načítání-modelů)
+- [Podpůrné nástroje](#podpůrné-nástroje)
+- [Testy](#testy)
 
-## 📌 Klíčové vlastnosti
+## Klíčové vlastnosti
 
-- Podpora různých typů vrstev, včetně:
-  - **Dense** (plně propojené vrstvy)
-  - **MaxPooling**
-  - **Konvoluční neuronové sítě (CNN)**
-  - **Rekurentní neuronové sítě (RNN)**
-- Možnost využití široké škály:
-  - Aktivačních funkcí
-  - Optimalizačních algoritmů
-  - Ztrátových funkcí
+Podporované typy vrstev:
+
+- Dense (plně propojené)
+- Konvoluční (Conv)
+- Max pooling (MaxPool)
+- Rekurentní (RNN)
+
+Další možnosti:
+
+- Škála aktivačních funkcí, optimizérů a ztrátových funkcí
 - Snadná integrace do projektů v C#
-- Podpora akcelerace výpočtů pomocí GPU
+- Volitelný výpočet na GPU
+- Asynchronní trénování a inference
 - Ukládání a načítání modelů ve formátu JSON
-- Předdefinované trénovací smyčky pro zjednodušení procesu trénování
+- Předdefinované trénovací smyčky
 
-## 🛠 Instalace
+## Instalace
 
-MDNN je distribuována jako dynamická knihovna **MDNN.dll**. Pro její použití je nutné:
+MDNN je distribuována jako dynamická knihovna `MDNN.dll`. Pro použití:
 
-1. Přidat soubor **MDNN.dll** do projektu. (přidat novou závyslot do projektu)
-2. Zahrnout příslušné jmenné prostory ve zdrojovém kódu.
+1. Přidejte do projektu referenci na `MDNN.dll`.
+2. Zahrňte příslušné jmenné prostory ve zdrojovém kódu.
 
-Alternativně lze stáhnout celý repozitář a spustit sestavení, které automaticky vygeneruje nový soubor **MDNN.dll**.
+Alternativně stáhněte repozitář a sestavte ho; sestavení vygeneruje nový soubor `MDNN.dll`.
 
-## 🚀 Rychlý start
+## Rychlý start
 
-Níže je uveden jednoduchý příklad použití knihovny MDNN pro vytvoření a trénování neuronové sítě.
+Minimální příklad, který vytvoří a natrénuje síť:
 
 ```csharp
+using My_DNN;
 using My_DNN.Layers;
 using My_DNN.Layers.classes;
 using My_DNN.Optimizers;
-using My_DNN;
-using My_DNN.Activation_functions;
 using My_DNN.Loss_functions;
+using My_DNN.Activation_functions;
 
-namespace MDNN_example
-{
-    internal class Program
-    {
-        static void Main(string[] args)
-        {
-            double[,] inputsDataset = new double[][] {...};  // Vstupní data
-            double[,] outputDataset = new double[][] {...};  // Odpovídající výstupní data
+double[][] inputsDataset = { /* vstupní vzorky */ };
+double[][] outputDataset = { /* odpovídající cíle */ };
 
-            Layer outputLayer = new Dense(1, new Linear());  // Konfigurace výstupní vrstvy
-            Optimizer optimizer = new SGD(0.01);  // Nastavení optimalizačního algoritmu
-            Loss loss = new MSE();  // Definice ztrátové funkce
+Layer outputLayer = new Dense(1, new Linear()); // výstupní vrstva
+Optimizer optimizer = new SGD(0.01);            // optimalizační algoritmus
+Loss loss = new MSE();                          // ztrátová funkce
 
-            uint epoch = 1000;
+uint epochs = 1000;
 
-            // Inicializace modelu
-            MDNN model = new MDNN(outputLayer, optimizer, loss);
-            model.Layers.Add(new Dense(1, new ReLu()));  // Přidání skryté vrstvy
+MDNN model = new MDNN(outputLayer, optimizer, loss);
+model.Layers.Add(new Dense(8, new ReLu()));     // skrytá vrstva
 
-            // Trénování modelu
-            model.Train.TrainLoop(inputsDataset, outputDataset, epoch, 1);
-            
-            // Uložení modelu
-            model.SaveAsJson("save");
-        }
-    }
-}
+model.Train.TrainLoop(inputsDataset, outputDataset, epochs, 1);
+
+model.SaveAsJson("save");
 ```
 
-## ⚙ Konfigurace modelu
+## Konfigurace modelu
 
-Knihovna **MDNN** umožňuje snadné nastavení architektury neuronové sítě, včetně výstupní vrstvy, optimalizačního algoritmu a ztrátové funkce.
-Model je inicializován pomocí třídy **MDNN**, která slouží jako centrální objekt pro manipulaci s neuronovou sítí:
+Model se vytváří přes třídu `MDNN`, která je centrálním objektem pro práci se sítí:
+
 ```csharp
 MDNN model = new MDNN(outputLayer, optimizer, loss);
 ```
-### Parametry konstruktoru
 
-- **`outputLayer`** *(povinný parametr)* – objekt typu **Layer**, představující výstupní vrstvu sítě.
-- **`optimizer`** *(volitelný parametr)* – objekt typu **Optimizer**, který specifikuje optimalizační algoritmus. Pokud není zadán, výchozí hodnota je **SGD(0.0001)**.
-- **`loss`** *(volitelný parametr)* – objekt reprezentující ztrátovou funkci. Výchozí hodnota je **MSE()**.
+Parametry konstruktoru:
 
-podporované optimizéry: SGD,ADAM,Momentum
-podporované zrátové funkce: MSE, Cross Entropy
+- `outputLayer` (povinný) – objekt `Layer` představující výstupní vrstvu.
+- `optimizer` (volitelný) – objekt `Optimizer`. Výchozí hodnota je `SGD(0.0001)`.
+- `loss` (volitelný) – ztrátová funkce. Výchozí hodnota je `MSE()`.
 
-Případně knihovna podporuje i tvorbu vlastních optimalizátorů a ztrátových funkcí – stačí zdědit odpovídající mateřskou třídu například **`loss`**.
+Podporované optimizéry: `SGD`, `Adam`, `Momentum`.
+Podporované ztrátové funkce: `MSE`, `CrossEntropy`.
 
-## 📌 Přidávání vrstev do modelu
-Další vrstvy lze do modelu přidávat pomocí třídy **`Layers`**:
+Každý model vlastní svou konfiguraci, takže v jednom procesu může existovat více nezávislých modelů.
+
+Vlastní optimizér nebo ztrátovou funkci lze vytvořit zděděním odpovídající bázové třídy (například `Optimizer` nebo `Loss`) a implementací jejích abstraktních členů.
+
+Poznámka k `CrossEntropy`: je určená pro použití se softmax výstupní vrstvou. Počítá fúzovaný gradient softmax + kategorická cross-entropy (`výstup − cíl`), což je numericky stabilní forma. Použití `CrossEntropy` bez softmax výstupní vrstvy vyhodí výjimku.
+
+## Přidávání vrstev
+
+Vrstvy se přidávají přes vlastnost `Layers`:
 
 ```csharp
-model.Layers.Add(new Dense(64, new ReLu()));  // Přidání skryté vrstvy s 64 neurony a ReLU aktivací
-model.Layers.Add(new Dense(32, new Sigmoid()));  // Další vrstva s 32 neurony a sigmoid aktivací
+model.Layers.Add(new Dense(64, new ReLu()));    // skrytá vrstva, 64 neuronů, ReLU
+model.Layers.Add(new Dense(32, new Sigmoid())); // skrytá vrstva, 32 neuronů, sigmoid
 ```
 
-Kromě funkce **`Add()`** obsahuje třída **`Layers`** také metody pro odebírání nebo přidávání vrstev na konkrétní pozici a řadu dalších funkcí pro manipulaci s vrstvami.
-- **`Insert()`**
-- **`RemoveAt()`**
-- **`OutputLayerActivationFunc()`** - nastavý novou výstupní aktivační funkci
-- **`ClearAllLayersAndSetNewOutputLayer`** - vymaže všechny vrstvy a nastavý novou výstupní vrstvu
+Kromě `Add()` nabízí `Layers` také:
 
+- `Insert()` – vloží vrstvu na danou pozici
+- `RemoveAt()` – odebere vrstvu na dané pozici
+- `OutputLayerActivationFunc()` – nastaví novou výstupní aktivační funkci
+- `ClearAllLayersAndSetNewOutputLayer()` – odebere všechny vrstvy a nastaví novou výstupní vrstvu
 
-Knihovna **MDNN** podporuje následující vrstvy:
+Podporované vrstvy:
+
 - `Dense()`
 - `RNN()`
 - `Conv()`
 - `MaxPool()`
-- WIP: transformer vrstva respektive attention Layer
 
-V případě potřeby lze vytvořit i vlastní specializovanou vrstvu. Stačí zdědit jednu z následujících abstraktních tříd:
-- `Layer`
-- `LayerBasedOnNeurons`
-- `LayerWithUntrainedParameters`
+Pokud se konstruktoru vrstvy nezadá aktivační funkce, použije se výchozí aktivace pro skryté vrstvy (ReLU). U výstupních vrstev zadejte aktivaci explicitně (například `Linear` pro regresi nebo `Softmax` pro klasifikaci).
 
-Poté je nutné implementovat všechny jejich abstraktní metody. Jakmile je nová vrstva definována, lze ji přidat do modelu a použít při trénování.
+Vlastní vrstvu lze vytvořit zděděním jedné z abstraktních tříd `Layer`, `LayerBasedOnNeurons` nebo `LayerWithUntrainedParameters` a implementací jejích abstraktních členů.
 
-## 🎯 Trénování modelu
-model se trénuje pomocí třídy Train, která obsahuje veškeré potřebné metody pro řízení trénování. Uživatel má možnost volit mezi čtyřmi metodami trénování podle požadované míry kontroly nad učením modelu. 
--	**`TrainLoop()`**
--	**`SimpleTrainLoop()`** 
--	**`Fit()`** a **`UpdateParams()`** 
--	**`BackPropagation()`** a **`FeedForward()`**
+Dostupné aktivační funkce: `Linear`, `ReLu`, `Leak_ReLu`, `Sigmoid`, `Tanh`, `Softmax`.
 
+## Trénování modelu
 
-### **`TrainLoop()`**
-Tato metoda představuje hlavní a zároveň nejpokročilejší trénovací proceduru v knihovně. Zahrnuje kompletní trénovací smyčku (train loop) a poskytuje následující pokročilé funkce:
+Trénování řídí třída `Train`. K dispozici jsou čtyři úrovně kontroly, od plně automatické po plně ruční.
 
-- Automatické ukládání modelu s nejlepší validací (tzv. early stopping checkpoint).
-- Automatické míchání a rozdělení datasetu na trénovací, validační a testovací části.
-- Průběžný výpis informací o průběhu trénování (např. aktuální epochy, metriky) do konzole.
-- Detekce chyb, jako je výskyt hodnot typu NaN.
-- Automatické vykreslení grafu průběhu ztrátové funkce (loss) napříč epochami.
+### `TrainLoop()`
+
+Nejúplnější trénovací procedura. Poskytuje:
+
+- Automatické ukládání modelu s nejlepší validací (early-stopping checkpoint)
+- Automatické zamíchání a rozdělení datasetu na trénovací, validační a testovací část
+- Průběžný výpis do konzole
+- Detekci hodnot `NaN`
+- Automatické vykreslení grafu ztráty napříč epochami
 
 Parametry:
-- **`Array inputs_values`** – *povinný parametr*  
-  Vstupní dataset ve formátu Array. Každý řádek odpovídá jednomu trénovacímu vzorku. Masimální počet dimensí array je 5.
 
-- **`Array current_output_values`** – *povinný parametr*  
-  Odpovídající výstupy (labely) pro vstupní data, rovněž ve formátu Array.
+- `Array inputs_values` (povinný) – vstupní dataset. Každý řádek je jeden trénovací vzorek.
+- `Array current_output_values` (povinný) – odpovídající cíle.
+- `uint number_of_epoch` (povinný) – počet trénovacích epoch.
+- `uint size_of_mini_batch` (volitelný, výchozí `1`) – velikost minibatche.
+- `bool isSequence` (volitelný, výchozí `false`) – nastavte na `true` pro sekvenční data (například časové řady).
 
-- **`uint number_of_epoch`** – *povinný parametr*  
-  Určuje počet trénovacích epoch.
+### `SimpleTrainLoop()`
 
-- **`uint size_of_mini_batch`** – *nepovinný parametr*  
-  Velikost minibatche používané během trénování. Pokud není specifikováno, použije se výchozí hodnota `1`.
-
-- **`bool isSequence`** – *nepovinný parametr*  
-  Pokud je nastaveno na `true`, model bude očekávat sekvenční vstupní data (např. časové řady, video nebo jiná sekvenční data). Výchozí hodnota je `false`.
-
-### **`SimpleTrainLoop()`**
-Jedná se o zjednodušenou verzi metody **`TrainLoop()`** Zahrnuje kompletní trénovací smyčku (train loop) a poskytuje následující funkce:
-
-- Automatické ukládání modelu s nejlepší validací (tzv. early stopping checkpoint).
-- Průběžný výpis informací o průběhu trénování (např. aktuální epochy, metriky) do konzole.
-- Detekce chyb, jako je výskyt hodnot typu NaN.
+Zjednodušená trénovací smyčka s checkpointingem, výpisem do konzole a detekcí `NaN`, bez rozdělení datasetu a vykreslování grafu z `TrainLoop()`.
 
 Parametry:
-- **`double[][] inputs_values`** – *povinný parametr*  
-  Vstupní dataset ve formátu double[][]. Každý řádek odpovídá jednomu trénovacímu vzorku.
 
-- **`double[][] current_output_values`** – *povinný parametr*  
-  Odpovídající výstupy (labely) pro vstupní data, rovněž ve formátu double[][].
+- `double[][] inputs_values` (povinný)
+- `double[][] current_output_values` (povinný)
+- `uint number_of_epoch` (povinný)
+- `uint size_of_mini_batch` (volitelný, výchozí `1`)
 
-- **`uint number_of_epoch`** – *povinný parametr*  
-  Určuje počet trénovacích epoch.
+### `Fit()` a `UpdateParams()`
 
-- **`uint size_of_mini_batch`** – *nepovinný parametr*  
-  Velikost minibatche používané během trénování. Pokud není specifikováno, použije se výchozí hodnota `1`.
-
-### **`Fit()`** a **`UpdateParams()`** 
-Jedná se o středně pokročilý přístup k trénování modelů, který umožňuje implementaci vlastní trénovací smyčky (training loop). Tento přístup neposkytuje předpřipravené funkcionality, avšak uživatel má k dispozici sadu podpůrných tříd, které lze využít pro vytvoření doplňkových komponent, jako je například výpis informací o trénování do konzole, vizualizace trénovacích ztrát pomocí grafů, nebo implementace testovacích procedur pro vyhodnocení modelu.
-
-Tato metoda je tvořena dvěma funkcemi: **`Fit()`** a **`UpdateParams()`**.  
-Funkce **`Fit()`** provádí jak výpočet výstupu (tzv. *feedforward*), tak i zpětnou propagaci chyby (*backpropagation*), avšak bez okamžité aktualizace modelových parametrů – místo toho dochází k akumulaci gradientů.
-
-Aktualizace parametrů na základě akumulovaných gradientů je provedena až při volání funkce **`UpdateParams()`**. Tento přístup odpovídá trénování pomocí *minibatch*, které může vést k efektivnějšímu a stabilnějšímu učení.
-
-V případě, že uživatel nechce využívat minibatch režim, postačí volat obě funkce bezprostředně po sobě.
+Středně pokročilý přístup, který umožňuje napsat vlastní trénovací smyčku. `Fit()` provede dopředný výpočet i zpětnou propagaci, ale gradienty pouze akumuluje; `UpdateParams()` akumulované gradienty aplikuje. Volání obou funkcí bezprostředně po sobě odpovídá trénování po jednom vzorku; akumulace více `Fit()` před jedním `UpdateParams()` odpovídá trénování s minibatchem.
 
 ```csharp
- Random rnd = new Random();
+Random rnd = new Random();
+double[][] inputsDataset = { /* vstupní data */ };
+double[][] currentOutputDataset = { /* cíle */ };
 
- double[][] inputsDataset = new double[][] {...};  // input data 
- double[][] currentOutputDataset = new double[][] {...};  // currentOutput data 
+MDNN model = new MDNN(new Dense(3), new Adam(0.001));
 
- // Inicializace modelu
- MDNN model = new MDNN(new Dense(3), new Adam(0.001));
+int numberOfEpochs = 5000;
+int miniBatchSize = 16;
 
- // počet epoch a velikost minibatche
- int number_of_epoch = 5000;
- int size_of_miniBatch = 16;
+for (int i = 0; i < numberOfEpochs; i++)
+{
+    for (int j = 0; j < miniBatchSize; j++)
+    {
+        int num = rnd.Next(inputsDataset.Length);
+        model.Train.Fit(new Tensor(inputsDataset[num]), new Tensor(currentOutputDataset[num]));
+    }
 
- // počet všech prvků v datasetu 
- int number_of_element_intDataset = inputsDataset.Length;
-
- // hlavní trénovací smyčka
- for (int i = 0; i < number_of_epoch; i++)
- {
-     // sekundární smyčka minibatch
-     for (int j = 0; j < size_of_miniBatch; j++)
-     {
-         int num = rnd.Next(number_of_element_intDataset);
-
-         double[] inputs = inputsDataset[num];
-         double[] output = currentOutputDataset[num];
-
-         // výpočet na jednom konkrétním prvku který je náhodně zvolen z celého datasetu
-         model.Train.Fit(new Tensor(inputs),new Tensor(output));
-     }
-
-     // aktualizace trénovacích parametrů
-     model.Train.UpdateParams();
- }
-
- // podpůrná funkce která otestuje celý dataset na natrénovaném datsetu
- model.Train.TestNeuralNetwork(new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset)), new Tensor(Tensor.ConvertJaggedToMulti(currentOutputDataset)));
+    model.Train.UpdateParams();
+}
 ```
-Parametry:
-**`Fit()`** :
-- **`Tensor inputs_values`** – *povinný parametr*  
-  Vstupní dataset ve formátu tenzoru. Každý řádek odpovídá jednomu trénovacímu vzorku.
 
-- **`Tensor target_values`** – *povinný parametr*  
-  Odpovídající výstupy (labely) pro vstupní data, rovněž ve formátu tenzoru.
+### `FeedForward()` a `BackPropagation()`
 
-**`UpdateParams()`** - nemá žádné paramtery
+Nejgranulárnější přístup, který dělí `Fit()` na samostatný dopředný výpočet (`FeedForward()`) a zpětnou propagaci (`BackPropagation()`). Dává plnou kontrolu nad jednotlivými kroky trénování, což je vhodné pro výzkum nebo pokročilé optimalizace. Po zpětné propagaci je nutné zavolat `UpdateParams()`.
 
-### **`BackPropagation()`** a **`FeedForward()`**
-Jedná se o nejpokročilejší metodu trénování, která poskytuje maximální míru kontroly nad jednotlivými fázemi učení. Na rozdíl od přístupu využívajícího funkce **`Fit()`** a **`UpdateParams()`** je zde metoda **`Fit()`** rozdělena do dvou samostatných funkcí: **`FeedForward()`** a **`BackPropagation()`**. Funkce **`FeedForward()`** provádí dopředný výpočet neuronové sítě, zatímco **`BackPropagation()`** zajišťuje zpětnou propagaci chyby a výpočet gradientů. Tento přístup umožňuje detailní manipulaci s jednotlivými kroky trénovacího procesu, což je vhodné zejména pro výzkumné účely nebo pokročilé optimalizace.
+`BackPropagation()` má dvě přetížení: jedno bere cílové hodnoty (a gradienty vrstev spočítá interně) a druhé bere předpočítané gradienty jednotlivých vrstev.
 
-**Upozornění:** Pro samotnou aktualizaci modelových parametrů je i v tomto případě nutné následně zavolat metodu **`UpdateParams()`**.
+## GPU akcelerace a asynchronní výpočty
+
+### GPU
+
+Výpočty sítě mohou volitelně běžet na NVIDIA GPU přes doprovodnou knihovnu `gpu.dll` (napsanou v C++ / CUDA). Vyžaduje to CUDA Toolkit a `gpu.dll`. GPU je nastavení per-model:
 
 ```csharp
- Random rnd = new Random();
-
- double[][] inputsDataset = new double[][] {...};  // input data 
- double[][] currentOutputDataset = new double[][] {...};  // currentOutput data 
-
- // Inicializace modelu
- MDNN model = new MDNN(new Dense(3), new Adam(0.001));
-
- // počet epoch a velikost minibatche
- int number_of_epoch = 5000;
- int size_of_miniBatch = 16;
-
- // počet všech prvků v datasetu 
- int number_of_element_intDataset = inputsDataset.Length;
-
- // hlavní trénovací smyčka
- for (int i = 0; i < number_of_epoch; i++)
- {
-     // sekundární smyčka minibatch
-     for (int j = 0; j < size_of_miniBatch; j++)
-     {
-         int num = rnd.Next(number_of_element_intDataset);
-
-         double[] inputs = inputsDataset[num];
-         double[] output = currentOutputDataset[num];
-
-         // dopředný výpočet 
-         model.Train.FeedForward(new Tensor(Tensor.ConvertJaggedToMulti(inputs)));
-
-         // výpočet gradientů (podpůrná meotda)
-         Tensor[] gradients = Gradient.GetGradients(new Tensor(Tensor.ConvertJaggedToMulti(inputs)), model);
-
-         // zpětná propagace gradientů
-         model.Train.BackPropagation(gradients);
-     }
-
-     // aktualizace trénovacích parametrů
-     model.Train.UpdateParams();
- }
-
- // podpůrná funkce která otestuje model na natrénovaném datsetu
- model.Train.TestNeuralNetwork(new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset)), new Tensor(Tensor.ConvertJaggedToMulti(currentOutputDataset)));
-```
-Parametry metod:
-
-**`FeedForward()`**
-- **`Tensor inputs_values`** – *povinný parametr*  
-  Vstupní data ve formátu tenzor.
-
-**`BackPropagation()`**
-
-Metoda **`BackPropagation()`** má dvě přetížení:
-
-1. **První přetížení:**
-   - **`Tensor[] layer_gradients`** – *povinný parametr*  
-     Pole gradientů jednotlivých vrstev ve formátu tenzoru. Slouží k ručně řízené zpětné propagaci.
-
-2. **Druhé přetížení:**
-   - **`Tensor target_values`** – *povinný parametr*  
-     Cílové výstupní hodnoty odpovídající vstupním datům, rovněž ve formátu tenzoru. V tomto přetížení metoda interně spočítá příslušné hodnoty `layer_gradients`.
-
-## ⏳ Optimalizace
-
-Knihovna **MDNN** podporuje efektivní optimalizaci výpočtů neuronové sítě. Mezi hlavní optimalizační techniky patří:
-- **Využití GPU** – Výpočty neuronové sítě lze provádět na grafických procesorech, což výrazně urychluje trénování modelů, zejména při práci s velkým množstvím dat. Pro tento účel byla vyvinuta vlastní knihovna `gpu.dll`, která je napsaná v **C++** s využitím **CUDA** a umožňuje efektivní paralelní výpočty.
-- **Asynchronní výpočty** – Knihovna umožňuje plně asynchronní zpracování výpočtů neuronové sítě, což vede k efektivnějšímu využití výpočetních zdrojů a snížení latence během trénování.
-
-Díky těmto optimalizacím lze s MDNN efektivně trénovat hluboké neuronové sítě i na rozsáhlých datových sadách.
-
-### Požadavky na výpočty přes GPU
-
-Pro umožnění výpočtů neuronové sítě na GPU je nutné stáhnout následující komponenty:
-- Knihovnu **`gpu.dll`**
-- **CUDA Toolkit**
-
-Aktuálně knihovna podporuje výpočty pouze na **NVIDIA GPU**. Podpora pro **AMD** a **Intel** grafické karty je ve vývoji.
-
-### Aktivace výpočtů přes GPU
-
-Pro zapnutí výpočtu neuronové sítě přes GPU lze použít následující kód:
-```csharp
-GeneralNeuralNetworkSettings.calculationViaGpu = true;
+model.Context.CalculationViaGpu = true;
 ```
 
-### Použití asynchronních funkcí
+Podpora aktuálně cílí pouze na NVIDIA GPU.
 
-Knihovna podporuje asynchronní zpracování trénování neuronové sítě. Ukázka použití:
-```csharp
-await model.Train.TrainLoopAsync(tensorInputDataset, tensorOutputDataset, 1000);
-```
-Každá synchronní funkce má svou ekvivalentní asynchronní verzi, což umožňuje efektivní paralelní výpočty.
-například:
+### Asynchronní výpočty
 
-- **`TrainLoop()`**  -> **`TrainLoopAsync()`** 
-- **`Fit()`**  -> **`FitAsync()`** 
-- **`GetResults()`**  -> **`GetResultsAsync()`**
+Každá synchronní metoda má asynchronní protějšek, například:
 
-## 📦 Produkční nasazení
-
-Po dokončení procesu trénování a uložení modelu ve formátu JSON (např. pomocí metody `model.SaveAsJson("save")`) následuje fáze **produkčního nasazení**. V této fázi je model integrován do cílové aplikace nebo systému, kde slouží k inference – tedy k provádění predikcí na základě nových vstupních dat.
-
-### Využití natrénovaného modelu
-
-Pro použití modelu v produkčním prostředí není třeba opětovné trénování. Stačí ho načíst a následně na něj aplikovat vstupy:
+- `TrainLoop()` – `TrainLoopAsync()`
+- `Fit()` – `FitAsync()`
+- `GetResults()` – `GetResultsAsync()`
 
 ```csharp
-double[][] inputsDataset = new double[][] {...};  // input data 
-
-MDNN model = MDNN.LoadModel("Completed training.json");
-
-Tensor inputTensor = new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset));
-
-model.GetResults(inputTensor);
+await model.Train.TrainLoopAsync(inputsDataset, outputDataset, 1000);
 ```
-## 👏 Podpůrné funkce
 
-Knihovna obsahuje řadu podpůrných metod navržených pro usnadnění práce s neuronovou sítí.  
+## Ukládání a načítání modelů
 
-Například v knihovně **MDNN** naleznete:
-- funkce pro vykreslování grafů trénovacích ztrát v jednotlivých epochách,
-- nástroje pro přehledné zobrazování výstupů a statistik v konzoli,
-- a mnoho dalších užitečných nástrojů, které zefektivňují ladění a analýzu modelu.
+Po natrénování lze model uložit do JSON a později načíst pro inference. K použití uloženého modelu není třeba opětovné trénování.
 
-Tyto funkce výrazně přispívají k přehlednosti, efektivitě a komfortu při práci s neuronovými sítěmi.
+```csharp
+model.SaveAsJson("save"); // zapíše save.json
+
+MDNN loaded = MDNN.LoadModel("save.json");
+Tensor input = new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset));
+Tensor result = loaded.GetResults(input);
+```
+
+## Podpůrné nástroje
 
 ### Tensor
 
-Třída **`Tensor`** slouží jako univerzální datový typ pro práci s vícerozměrnými poli (*arrays*).  
-Umožňuje efektivní manipulaci s daty libovolné dimenze a zajišťuje jejich jednotnou reprezentaci napříč celou knihovnou.
+`Tensor` je univerzální datový typ pro vícerozměrná pole. Uchovává:
 
-Interně tato třída uchovává:
-- původní vícerozměrné pole `OriginalInput` (např. o veliskoti `[5][5][5][5]`),
-- ekvivalentní jednorozměrné pole `Data` (např. o velikosti `[125]`) pro rychlejší výpočty,
-- a informaci o tvaru původního pole ve formě seznamu rozměrů `Shape` (např. `[5, 5, 5, 5]`).
+- původní vícerozměrné pole (`OriginalInput`),
+- ekvivalentní jednorozměrné pole (`Data`) pro rychlejší výpočty,
+- a tvar jako seznam rozměrů (`Shape`).
 
-Jednou z klíčových vlastností třídy je podpora velmi snadného a rychlého přetváření dat do jiného rozměru pomocí operace **Reshape(int[] newShape)**, což výrazně zvyšuje flexibilitu při práci s různými strukturami dat.
-
-Díky této struktuře umožňuje `Tensor` jednoduše přistupovat k prvkům, provádět matematické operace a efektivně pracovat s daty v neuronové síti bez ohledu na jejich původní dimenzi.
+Podporuje přetváření přes `Reshape(int[] newShape)` a pohodlný přístup k prvkům i převody mezi jagged a vícerozměrnými poli.
 
 ### Konzolové výstupy
 
-Knihovna obsahuje statickou třídu ConsoleManager, která zajišťuje veškeré výstupy do konzole: 
-- **`ShowModelInfo()`** – vypisuje podrobné informace o aktuálním modelu.
--	**`ShowEpochInfo()`** – zobrazí informace o aktuální epoše během trénování.
--	**`ShowScoreOfModel()`** – vypíše dosaženou přesnost modelu.
--	**`ErrorHandler()`** - zpracování a výpis chybových hlášek, čímž usnadňuje diagnostiku a ladění modelu.
+Statická třída `ConsoleControler` zajišťuje výstupy do konzole:
 
-### `GeneralNeuralNetworkSettings`
+- `ShowModelInfo()` – vypíše podrobné informace o modelu
+- `ShowEpochInfo()` – vypíše informace o aktuální epoše během trénování
+- `ShowScoreOfmodel()` – vypíše přesnost modelu
+- `ErrorHandler()` – vypíše chybové hlášky
 
-Jedná se o statickou podpůrnou třídu, která uchovává výchozí (defaultní) nastavení celé knihovny pro neuronové sítě. Například obsahuje výchozí aktivační funkce, ztrátovou funkci nebo optimalizační algoritmus.
+### NetworkContext
 
-Třída současně slouží jako jednoduchý **dependency injection mechanismus**, což umožňuje správu a předávání společných závislostí mezi jednotlivými komponentami knihovny bez nutnosti jejich pevného svázání.
+Každý model vlastní `NetworkContext` (`model.Context`), který drží jeho konfiguraci za běhu: ztrátovou funkci, optimizér, tvar vstupu, příznak sekvenčního trénování a příznak GPU. Protože je tento stav per-model, dva modely v jednom procesu se navzájem neovlivňují.
 
-Atributy:
-- **`default_output_activation_func`** (*Activation_func*)  
-  Výchozí aktivační funkce pro výstupní vrstvu (např. `Linear`).
-
-- **`default_hidden_layers_activation_func`** (*Activation_func*)  
-  Výchozí aktivační funkce pro skryté vrstvy (např. `ReLU`).
-
-- **`loss_func`** (*Loss*)  
-  Výchozí ztrátová funkce používaná při trénování (např. `MSE` – střední kvadratická chyba).
-
-- **`optimizer`** (*Optimizer*)  
-  Výchozí optimalizační algoritmus (např. `SGD` s learning rate `0.0001`).
-
-- **`calculationViaGpu`** (*bool*)  
-  Určuje, zda se výpočty mají provádět na GPU (`true`) nebo CPU (`false`).
-
-- **`SequenceTrain`** (*bool*)  
-  Režim sekvenčního trénování (např. pro rekurentní sítě).
-
-- **`modelInputSizeAndShape`** (*int[]*)  
-  Definuje tvar a velikost vstupního tenzoru modelu.
-
-- **`rnd`** (*Random*)  
-  Statický generátor náhodných čísel pro inicializaci a stochastické procesy v síti.
+`GeneralNeuralNetworkSettings` drží už jen procesní výchozí hodnoty (výchozí aktivační funkce a sdílený generátor náhodných čísel).
 
 ### Tvorba grafů
 
-Knihovna obsahuje třídu **`GraphPlotter`**, která slouží k vizualizaci průběhu trénování neuronové sítě. Jejím hlavním účelem je poskytnout uživateli nástroj pro sledování vývoje ztrátových funkcí během trénovacího procesu.
+Třída `GraphPlotter` vizualizuje průběh trénování. Její metoda `ShowLossGraph()` vygeneruje graf trénovací a validační ztráty v závislosti na počtu epoch a uloží ho jako `loss.png` do kořenového adresáře aplikace. To usnadňuje odhalení přeučení (overfitting) nebo nedostatečného trénování. K vykreslení se používá knihovna ScottPlot.
 
-Třída disponuje jedinou metodou **`ShowLossGraph()`**, která vygeneruje graf trénovací a validační ztráty (*TrainLoss* a *ValidLoss*) v závislosti na počtu epoch. Výsledný graf je automaticky uložen jako obrázek s názvem `loss.png` do kořenového adresáře aplikace.
+## Testy
 
-Díky tomuto vizuálnímu přehledu může uživatel snadno identifikovat problémy jako např. přeučení modelu (*overfitting*) nebo nedostatečné trénování a podle toho upravit trénovací parametry.
+Repozitář obsahuje xUnit testovací projekt (`MDNN.Tests`) s numerickými gradient checky pro každou vrstvu, jednotkovými testy aktivačních, ztrátových a optimalizačních tříd a end-to-end trénovacími smoke testy. Spuštění:
 
-K vykreslení grafu je využita veřejně dostupná knihovna **ScottPlot**, která umožňuje jednoduché a přehledné generování vědeckých grafů.
+```
+dotnet test
+```
 
-
+Gradient checky slouží jako regresní pojistka: jakákoli změna, která rozbije matematiku, je automaticky odhalena.
