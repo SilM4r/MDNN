@@ -126,41 +126,15 @@ namespace My_DNN.Layers
 
         public Conv(int number_of_kernels,int kernel_size, Activation_func? activation_func = null, string padding = "valid")
         {
-            if (activation_func == null)
-            {
-                if (LayerManager.number_of_penultimate_output_in_Layer[0] == 0)
-                {
-                    activation_func = GeneralNeuralNetworkSettings.default_output_activation_func;
-                }
-                else
-                {
-                    activation_func = GeneralNeuralNetworkSettings.default_hidden_layers_activation_func;
-                }
-            }
+            this.activation_func = activation_func ?? GeneralNeuralNetworkSettings.default_hidden_layers_activation_func;
+            CheckIsActivationFuncIsNotApplyToLayer();
 
             inputsShape = new int[] { 0 };
             outputShape = new int[] { 0 };
-
-            this.activation_func = activation_func;
-            CheckIsActivationFuncIsNotApplyToLayer();
-            int inputChannels;
-
-            if (LayerManager.number_of_penultimate_output_in_Layer[0] == -1)
-            {
-                inputChannels = 0;
-            }
-            else if (LayerManager.number_of_penultimate_output_in_Layer.Length == 1 || LayerManager.number_of_penultimate_output_in_Layer.Length == 2)
-            {
-                inputChannels = 1;
-            }
-            else
-            {
-                inputChannels = LayerManager.number_of_penultimate_output_in_Layer[2];
-            }
-
             this.padding = padding;
 
-            inicializationK_B_dK_dB(number_of_kernels,new int[] { kernel_size , kernel_size , inputChannels },true);
+            // vstupní kanály = 0 (placeholder); správné kanály + kernely dopočítá LayerAdjustment
+            inicializationK_B_dK_dB(number_of_kernels, new int[] { kernel_size, kernel_size, 0 }, true);
 
             optimizer = Optimizer.Clone_optimizer(GeneralNeuralNetworkSettings.optimizer);
             mini_batch_size = 0;
@@ -235,6 +209,10 @@ namespace My_DNN.Layers
                 number_of_kernels = Kernel.Length;
             }
             inicializationK_B_dK_dB(number_of_kernels, new int[] { Kernel[0].Count(), Kernel[0][0].Count(), inputsShape[2] }, true);
+
+            // per-model optimizer (nezávislost modelů)
+            if (Context != null)
+                optimizer = Optimizer.Clone_optimizer(Context.Optimizer);
         }
 
         public override Tensor FeedForward(Tensor TensorValues)

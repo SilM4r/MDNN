@@ -58,29 +58,10 @@ namespace My_DNN.Layers
         {
             this.poolSize = poolSize;
 
-            if (LayerManager.number_of_penultimate_output_in_Layer[0] == -1)
-            {
-                inputsShape = new int[] { 0 };
-                outputShape = new int[] { 0 };
-                indexes = new PoolingIndex[0,0,0];
-            }
-            else
-            {
-                inputsShape = LayerManager.number_of_penultimate_output_in_Layer;
-
-                if (inputsShape.Length == 1)
-                {
-                    inputsShape = new int[] {0,0,0 };
-                }
-
-                int outHeight = (inputsShape[0] - poolSize) / poolSize + 1;
-                int outWidth = (inputsShape[1] - poolSize) / poolSize + 1;
-
-                outputShape = new int[] { outHeight, outWidth, inputsShape[2] };
-                indexes = new PoolingIndex[outputShape[0], outputShape[1], outputShape[2]];
-            }
-
-            
+            // vstupní/výstupní tvar se dopočítá v LayerAdjustment (při připojení k modelu)
+            inputsShape = new int[] { 0 };
+            outputShape = new int[] { 0 };
+            indexes = new PoolingIndex[0, 0, 0];
         }
         public MaxPool(ExportMaxPoolLayer layer)
         {

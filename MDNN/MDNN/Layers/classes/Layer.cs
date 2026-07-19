@@ -2,6 +2,9 @@
 {
     public abstract class Layer
     {
+        // Reference na kontext modelu, do kterého vrstva patří (nastaví LayerManager při připojení).
+        public My_DNN.NetworkContext? Context { get; set; }
+
         abstract public string Name { get; }
 
         abstract public int[] Input_size_and_shape { get; }

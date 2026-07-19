@@ -7,8 +7,8 @@ namespace My_DNN
 {
     public class LayerManager
     {
-        private static List<Layer> layersList = new List<Layer>();
-        public static int[] number_of_penultimate_output_in_Layer
+        private List<Layer> layersList = new List<Layer>();
+        private int[] number_of_penultimate_output_in_Layer
         {
             get 
             {
@@ -17,10 +17,6 @@ namespace My_DNN
                     case 1:
                         return layersList[layersList.Count() - 1].Input_size_and_shape;
                     case 0:
-                        if (GeneralNeuralNetworkSettings.modelInputSizeAndShape[0] != 0)
-                        {
-                            return GeneralNeuralNetworkSettings.modelInputSizeAndShape;
-                        }
                         return new int[] { -1 };
                     default: 
                         return layersList[layersList.Count() - 2].Output_size_and_shape; ;
@@ -31,12 +27,17 @@ namespace My_DNN
         {
             get { return layersList; }
         }
-        public LayerManager(Layer Output_Layer)
+        private NetworkContext context;
+
+        public LayerManager(Layer Output_Layer, NetworkContext context)
         {
+            this.context = context;
+            Output_Layer.Context = context;
             layersList = new List<Layer> { Output_Layer };
         }
-        public LayerManager(List<BaseExportLayer> exportLayers)
+        public LayerManager(List<BaseExportLayer> exportLayers, NetworkContext context)
         {
+            this.context = context;
             layersList = new List<Layer>();
 
             foreach (BaseExportLayer layer in exportLayers)
@@ -63,15 +64,17 @@ namespace My_DNN
                     throw new Exception("not implemetet yet");
                 }
             }
+
+            foreach (Layer l in layersList) l.Context = context;
         }
         public void SetInputSizeForFirstLayer(int[]? input_size = null)
         {
             if (input_size != null)
             {
-                GeneralNeuralNetworkSettings.modelInputSizeAndShape = input_size;
+                context.InputShape = input_size;
             }
 
-            foreach (int size in GeneralNeuralNetworkSettings.modelInputSizeAndShape)
+            foreach (int size in context.InputShape)
             {
                 if (size <= 0)
                 {
@@ -79,7 +82,7 @@ namespace My_DNN
                 }
             }
 
-            int[] inputShape = GeneralNeuralNetworkSettings.modelInputSizeAndShape;
+            int[] inputShape = context.InputShape;
 
 
 
@@ -103,11 +106,13 @@ namespace My_DNN
         }
         public void Add(Layer Hidden_Layer)
         {
+            Hidden_Layer.Context = context;
             layersList.Insert(layersList.Count() - 1, Hidden_Layer);
             layersList[layersList.Count() - 1].LayerAdjustment(null, number_of_penultimate_output_in_Layer);
         }
         public void Insert(int position, Layer Hidden_Layer)
         {
+            Hidden_Layer.Context = context;
             if (position <= layersList.Count())
             {
                 int[] New_Layer_Input;
@@ -167,8 +172,8 @@ namespace My_DNN
         }
         public void ClearAllLayersAndSetNewOutputLayer(Layer Output_Layer)
         {
+            Output_Layer.Context = context;
             layersList = new List<Layer> { Output_Layer };
         }
-        internal static void ResetForTests() => layersList = new List<Layer>();
     }
 }
