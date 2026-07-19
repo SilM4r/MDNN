@@ -26,7 +26,7 @@ namespace My_DNN
         private double[] weights;
         private double bias;
         
-        private double[] gradientsW;
+        internal double[] gradientsW;
         private double gradientsB;
 
         private int mini_batch_size = 0;

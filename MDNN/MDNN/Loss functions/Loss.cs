@@ -15,6 +15,10 @@
 
         public abstract double DerivativeOfLossFunction(double value, double target_value);
 
+        // True pokud DerivativeOfLossFunction vrací rovnou fúzovaný gradient dL/dz
+        // pro softmax výstup (tj. s - t). Backprop pak přeskočí násobení softmax derivací.
+        public virtual bool RequiresSoftmax => false;
+
         public void CalculateLoss(double[] value, double[] target_value)
         {
             int n = value.Length;

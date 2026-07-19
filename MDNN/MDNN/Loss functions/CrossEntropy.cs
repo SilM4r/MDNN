@@ -3,30 +3,20 @@
     public class CrossEntropy: Loss
     {
         public override string Name => "Cross Entropy";
-        public override double LossFunction(double value, double target_value)
+        // Kategorická cross-entropy: L = -Σ t_i · ln(s_i)
+        public override double LossFunction(double value, double targetValue)
         {
-            if (target_value == 1)
-            {
-                return -Math.Log(value + 1e-15);
-            }
-
-            else
-            {
-                return -Math.Log(1 - value + 1e-15);
-            }
-
-            //return Math.Pow(value - target_value, 2);
+            return -targetValue * Math.Log(value + 1e-15);
         }
 
-        public override double DerivativeOfLossFunction(double value, double target_value)
+        // Fúzovaný gradient softmax + kategorická CE: dL/dz = s - t.
+        // Platí jen pro softmax výstup; backprop díky FusedWithSoftmax bere
+        // tuto hodnotu jako hotovou deltu a NEnásobí ji softmax derivací.
+        public override double DerivativeOfLossFunction(double value, double targetValue)
         {
-
-            //return (target_value == 1) ? -1 / (value + 1e-15) : 1 / (1 - value + 1e-15);
-
-
-            // Note: pokud je výstupní aktivační funkce SoftMax;
-            return value - target_value;
-
+            return value - targetValue;
         }
+
+        public override bool RequiresSoftmax => true;
     }
 }

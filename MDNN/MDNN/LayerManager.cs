@@ -169,5 +169,6 @@ namespace My_DNN
         {
             layersList = new List<Layer> { Output_Layer };
         }
+        internal static void ResetForTests() => layersList = new List<Layer>();
     }
 }

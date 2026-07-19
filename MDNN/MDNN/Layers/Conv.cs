@@ -40,9 +40,9 @@ namespace My_DNN.Layers
         }
 
         private double[][][][] kernels;
-        private double[][][][] dKernels;
+        internal double[][][][] dKernels;   // internal kvůli gradient-check testům
         private double[] biases;
-        private double[] dBiases;
+        internal double[] dBiases;           // internal kvůli gradient-check testům
         private double[][][] dOutput;
         private string padding;
         private double[][][] output;
