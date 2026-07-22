@@ -310,11 +310,62 @@
               $"maxRel={maxRel} u neuronu {worstI} váhy {worstJ}: " +
               $"analytic={analytic[worstI][worstJ]}");
       }
-      
+
+      [Fact]
+      public void Dense_two_hidden_layers_build_and_forward()
+      {
+          // Regrese: DVĚ skryté Dense za sebou + výstupní = [Dense, Dense, Dense].
+          // Před opravou SetInputSizeForFirstLayer se prostřední (neuron-po-neuronu)
+          // NEpřestavěla a zůstala s placeholder neurony (0 vah) → IndexOutOfRange
+          // při forwardu. (Dense_multi_layer_test má jen [skrytá, výstupní] → bug nechytil.)
+          var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE());
+          model.Layers.Add(new Dense(3, new ReLu()));
+          model.Layers.Add(new Dense(3, new ReLu()));
+
+          var x = new Tensor(new double[] { 0.5, -0.3, 0.8, 0.1 });   // 4 vstupy
+
+          var output = model.GetResults(x);   // spustí SetInputSizeForFirstLayer; nesmí spadnout
+
+          // každá vrstva má vstupní váhy = výstup předchozí (ne placeholder 0)
+          Assert.Equal(4, ((Dense)model.Layers.Layers[0]).Neurons[0].Weights.Length);  // 1. skrytá: 4 vstupy
+          Assert.Equal(3, ((Dense)model.Layers.Layers[1]).Neurons[0].Weights.Length);  // 2. skrytá: 3 (výstup 1.)
+          Assert.Equal(3, ((Dense)model.Layers.Layers[2]).Neurons[0].Weights.Length);  // výstupní: 3
+          Assert.Equal(2, output.Data.Length);                                         // 2 výstupy
+      }
+
+      [Fact]
+      public void Conv_maxpool_dense_dense_pipeline_wires_correctly()
+      {
+          // Napojení mezi RŮZNÝMI typy vrstev: Conv → MaxPool → Dense → Dense → Dense(out).
+          // Ověřuje wiring napříč změnou typu (3D→3D→flatten→neuron) I neuron-po-neuronu
+          // UPROSTŘED pipeline (Dense→Dense) — ten na staré logice padal (placeholder 0 vah).
+          var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE());
+          model.Layers.Add(new Conv(2, 3, new ReLu(), "valid"));   // Layers[0]
+          model.Layers.Add(new MaxPool(2));                        // Layers[1]
+          model.Layers.Add(new Dense(8, new ReLu()));              // Layers[2]  (po MaxPoolu)
+          model.Layers.Add(new Dense(4, new ReLu()));              // Layers[3]  (neuron-po-neuronu!)
+          // Layers[4] = výstupní Dense(2)
+
+          var input = new double[8, 8, 1];                          // vstup 8×8×1
+          for (int i = 0; i < 8; i++)
+          for (int j = 0; j < 8; j++)
+              input[i, j, 0] = (i * 8 + j) * 0.01;
+
+          var output = model.GetResults(new Tensor(input));   // spustí wiring; nesmí spadnout
+
+          // Conv valid: 8-3+1=6 → [6,6,2];  MaxPool/2: [3,3,2];  Dense flatten = 3*3*2 = 18
+          Assert.Equal(new int[] { 6, 6, 2 }, model.Layers.Layers[0].Output_size_and_shape);
+          Assert.Equal(new int[] { 3, 3, 2 }, model.Layers.Layers[1].Output_size_and_shape);
+          Assert.Equal(18, ((Dense)model.Layers.Layers[2]).Neurons[0].Weights.Length);  // MaxPool → Dense (flatten 3*3*2)
+          Assert.Equal(8,  ((Dense)model.Layers.Layers[3]).Neurons[0].Weights.Length);  // Dense → Dense (uprostřed)
+          Assert.Equal(4,  ((Dense)model.Layers.Layers[4]).Neurons[0].Weights.Length);  // Dense → Dense (výstup)
+          Assert.Equal(2, output.Data.Length);
+      }
+
       [Theory]
       [InlineData(4, 4, 1, 2)]
       [InlineData(6, 6, 1, 3)]
-      [InlineData(4, 4, 2, 2)]  
+      [InlineData(4, 4, 2, 2)]
       [InlineData(10, 10, 3, 5)]
       public void MaxPool_input_gradient_matches_numeric(int x, int y, int z, int poolsize)
       {

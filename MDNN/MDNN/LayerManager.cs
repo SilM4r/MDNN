@@ -82,26 +82,15 @@ namespace My_DNN
                 }
             }
 
-            int[] inputShape = context.InputShape;
-
-
-
-            layersList[0].LayerAdjustment(null, inputShape);
-            if (layersList.Count() > 1)
+            // 1. vrstva dostane vstup modelu; každá další se přestaví vstupem = výstup předchozí.
+            // Jde zleva doprava, takže Output_size_and_shape předchozí vrstvy je už správně
+            // nastavené (nutné hlavně pro Conv/MaxPool, jejichž výstup závisí na vstupu).
+            // Bez rozlišení typu — dvě neuronové vrstvy za sebou (Dense→Dense) se JINAK
+            // nepřestaví a druhá zůstane s placeholder neurony (0 vah) → IndexOutOfRange.
+            layersList[0].LayerAdjustment(null, context.InputShape);
+            for (int i = 1; i < layersList.Count; i++)
             {
-                for (int i = 1; i < layersList.Count; i++)
-                {
-                    if (layersList[i] is not LayerBasedOnNeurons)
-                    {
-                        inputShape = layersList[i - 1].Output_size_and_shape;
-                        layersList[i].LayerAdjustment(null, inputShape);
-                    }
-                    else if (layersList[i] is LayerBasedOnNeurons && layersList[i-1] is not LayerBasedOnNeurons)
-                    {
-                        inputShape = layersList[i - 1].Output_size_and_shape;
-                        layersList[i].LayerAdjustment(null, inputShape);
-                    }
-                }
+                layersList[i].LayerAdjustment(null, layersList[i - 1].Output_size_and_shape);
             }
         }
         public void Add(Layer Hidden_Layer)
