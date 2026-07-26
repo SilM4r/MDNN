@@ -38,6 +38,13 @@ namespace My_DNN
         public uint EarlyStoppingPatience = 10;        // kolik valid reportů bez zlepšení = stop
         public double EarlyStoppingMinDelta = 0.0;     // min. pokles loss, aby se počítal jako zlepšení
 
+        // Poměry rozdělení datasetu. null = dopočítat ze zbytku (rovným dílem mezi vynechané).
+        // Když jsou všechny null, použije se 0.7 / 0.15 / 0.15 (dosavadní default).
+        // Např. Train=0.6, Valid=0.2, Test=null → test se dopočítá na 0.2.
+        public double? TrainSplitRatio = null;
+        public double? ValidSplitRatio = null;
+        public double? TestSplitRatio = null;
+
         private Tensor? _trainDataInputs;
         private Tensor? _testDataInputs;
         private Tensor? _validDataInputs;
@@ -707,6 +714,41 @@ namespace My_DNN
 
         }
 
+        // Vyřeší poměry train/valid/test: vynechané (null) dostanou rovným dílem zbytek do 1.
+        // Všechny null → kanonický default 0.7/0.15/0.15 (zachová dosavadní chování).
+        private (double train, double valid, double test) ResolveSplitRatios()
+        {
+            if (TrainSplitRatio == null && ValidSplitRatio == null && TestSplitRatio == null)
+            {
+                return (0.7, 0.15, 0.15);
+            }
+
+            double setSum = 0;
+            int nullCount = 0;
+            foreach (double? r in new[] { TrainSplitRatio, ValidSplitRatio, TestSplitRatio })
+            {
+                if (r == null)
+                {
+                    nullCount++;
+                }
+                else
+                {
+                    if (r <= 0 || r >= 1)
+                        throw new Exception("Split poměr musí být v intervalu (0,1).");
+                    setSum += r.Value;
+                }
+            }
+
+            if (nullCount == 0 && Math.Abs(setSum - 1.0) > 1e-9)
+                throw new Exception("Když jsou zadané všechny tři poměry, musí dát dohromady 1.");
+            if (nullCount > 0 && setSum >= 1.0)
+                throw new Exception("Součet zadaných poměrů musí být < 1, aby na dopočítané (null) zbyl kladný podíl.");
+
+            double each = nullCount > 0 ? (1.0 - setSum) / nullCount : 0.0;
+
+            return (TrainSplitRatio ?? each, ValidSplitRatio ?? each, TestSplitRatio ?? each);
+        }
+
         public void DividingDataIntoDatasets(Tensor inputsValues, Tensor currentOutputValues)
         {
             int trainDataSize;
@@ -717,9 +759,10 @@ namespace My_DNN
 
             if (_validDataInputs == null && _testDataInputs == null)
             {
-                trainDataSize = (int)(totalSize * 0.7);
-                validDataSize = (int)(totalSize * 0.15);
-                testDataSize = totalSize - trainDataSize - validDataSize;
+                var (trainRatio, validRatio, _) = ResolveSplitRatios();
+                trainDataSize = (int)(totalSize * trainRatio);
+                validDataSize = (int)(totalSize * validRatio);
+                testDataSize = totalSize - trainDataSize - validDataSize;   // zbytek → žádný vzorek se neztratí
 
                 _validDataInputs = inputsValues.Slice(trainDataSize, validDataSize);
                 _testDataInputs = inputsValues.Slice(trainDataSize + validDataSize, testDataSize);
@@ -734,15 +777,14 @@ namespace My_DNN
             {
                 int oldValidSize = _validDataInputs.Shape[0];
 
-                validDataSize = (int)(oldValidSize * 0.8);
+                // předaný valid dělíme na valid/test ve stejném poměru valid:test
+                var (_, validRatio, testRatio) = ResolveSplitRatios();
+                validDataSize = (int)(oldValidSize * validRatio / (validRatio + testRatio));
                 testDataSize = oldValidSize - validDataSize;
 
                 _trainDataInputs = inputsValues;
                 _trainDataCurrentOutput = currentOutputValues;
 
-                // Test se musí vyříznout z PŮVODNÍHO valid tensoru; kdyby se _validDataInputs
-                // nejdřív přepsal na Slice(0, validDataSize), test-slice od offsetu validDataSize
-                // by byl mimo rozsah zmenšeného tensoru → "Invalid slice range!".
                 // Test se musí vyříznout z PŮVODNÍHO valid tensoru; kdyby se _validDataInputs
                 // nejdřív přepsal na Slice(0, validDataSize), test-slice od offsetu validDataSize
                 // by byl mimo rozsah zmenšeného tensoru → "Invalid slice range!".
@@ -757,7 +799,9 @@ namespace My_DNN
             }
             else if (_validDataInputs == null && _testDataInputs != null)
             {
-                trainDataSize = (int)(totalSize * 0.8);
+                // test je předaný → zbytek (train+valid) dělíme ve stejném poměru train:valid
+                var (trainRatio, validRatio, _) = ResolveSplitRatios();
+                trainDataSize = (int)(totalSize * trainRatio / (trainRatio + validRatio));
                 validDataSize = totalSize - trainDataSize;
 
                 _trainDataInputs = inputsValues.Slice(0, trainDataSize);

@@ -883,7 +883,12 @@
           }
           model.Train.ValidDataInputs = new Tensor(validIn);
           model.Train.ValidDataCurrentOutput = new Tensor(validOut);
-          // TestDataInputs zůstává null → spustí se právě ta opravená větev
+          // TestDataInputs zůstává null → spustí se ta větev (dělí předaný valid na valid/test)
+
+          // custom poměr valid:test = 0.4:0.1 = 4:1 → z 10 dá 8 valid / 2 test.
+          // Zároveň ověřuje, že branch 2 respektuje nastavené poměry.
+          model.Train.ValidSplitRatio = 0.4;
+          model.Train.TestSplitRatio = 0.1;
 
           var trainIn = new double[4, 2];    // train data (stanou se _trainDataInputs); tvar libovolný
           var trainOut = new double[4, 1];
@@ -891,7 +896,7 @@
           // nesmí hodit "Invalid slice range!"
           model.Train.DividingDataIntoDatasets(new Tensor(trainIn), new Tensor(trainOut));
 
-          // 80/20 split z 10 = 8 valid, 2 test
+          // poměr 4:1 z 10 = 8 valid, 2 test
           Assert.NotNull(model.Train.ValidDataInputs);
           Assert.NotNull(model.Train.TestDataInputs);
           Assert.Equal(8, model.Train.ValidDataInputs!.Shape[0]);
@@ -909,6 +914,43 @@
           Assert.NotNull(model.Train.TestDataCurrentOutput);
           Assert.Equal(new double[] { 8 }, model.Train.TestDataCurrentOutput!.GetTensorValue([0]).Data);
           Assert.Equal(new double[] { 9 }, model.Train.TestDataCurrentOutput.GetTensorValue([1]).Data);
+      }
+
+      [Fact]
+      public void Default_split_ratios_are_70_15_15()
+      {
+          // beze změny konfigurace = dosavadní default (100 vzorků → 70/15/15)
+          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          var (x, y) = MakeSamples(100);
+
+          model.Train.DividingDataIntoDatasets(x, y);
+
+          Assert.Equal(15, model.Train.ValidDataInputs!.Shape[0]);
+          Assert.Equal(15, model.Train.TestDataInputs!.Shape[0]);   // train = zbytek = 70
+      }
+
+      [Fact]
+      public void Custom_split_ratios_respected_and_remainder_auto_computed()
+      {
+          // Train=0.6, Valid=0.2, Test vynechaný → dopočítá se 0.2 (zbytek).
+          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          model.Train.TrainSplitRatio = 0.6;
+          model.Train.ValidSplitRatio = 0.2;
+          // TestSplitRatio zůstává null
+
+          var (x, y) = MakeSamples(100);
+          model.Train.DividingDataIntoDatasets(x, y);
+
+          Assert.Equal(20, model.Train.ValidDataInputs!.Shape[0]);
+          Assert.Equal(20, model.Train.TestDataInputs!.Shape[0]);   // train = zbytek = 60
+      }
+
+      private static (Tensor x, Tensor y) MakeSamples(int n)
+      {
+          var xs = new double[n, 1];
+          var ys = new double[n, 1];
+          for (int i = 0; i < n; i++) { xs[i, 0] = i; ys[i, 0] = i; }
+          return (new Tensor(xs), new Tensor(ys));
       }
   }
 
