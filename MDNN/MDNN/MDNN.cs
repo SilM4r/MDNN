@@ -124,6 +124,39 @@ namespace My_DNN
             NetworkSaveLoadManager loadModel = NetworkSaveLoadManager.Load(fullPath);
             return new MDNN(loadModel);
         }
+        // serializace TOHOTO modelu do JSON stringu (pro in-memory snapshot nejlepšího modelu)
+        public string SaveAsJsonString()
+        {
+            CreateSchema();
+            return new NetworkSaveLoadManager(this).SaveToString();
+        }
+
+        // In-place načtení uloženého modelu do TÉTO instance: přepíše vrstvy/optimizer/loss
+        // stavem ze snapshotu, ALE zachová identitu objektu i jeho Train (a tím i rozdělené
+        // datasety). Volající tak drží dál stejný `model`, který je teď ten nejlepší —
+        // žádná divergence jako u `model = LoadModel(...)`. context (a jeho InputShape /
+        // SequenceTrain) se nechává, takže testovací větev pozná sekvenční režim správně.
+        public void LoadWeightsInPlace(string fullPath)
+        {
+            ApplyLoaded(NetworkSaveLoadManager.Load(fullPath));
+        }
+
+        // stejné jako LoadWeightsInPlace, ale z in-memory JSON stringu (snapshot nejlepšího modelu)
+        public void LoadWeightsFromString(string json)
+        {
+            ApplyLoaded(NetworkSaveLoadManager.LoadFromString(json));
+        }
+
+        private void ApplyLoaded(NetworkSaveLoadManager loaded)
+        {
+            context.Optimizer = Optimizer.Refactor_optimizer(loaded.Optimizer);
+            GeneralNeuralNetworkSettings.optimizer = context.Optimizer;   // export-konstrukce neuronů klonuje static
+            context.Loss = Loss.inicialization_Loss_func(loaded.Loss_functions);
+
+            layerManager = new LayerManager(loaded.Layers, context);
+            Note = loaded.Note;
+            schema = null;   // zneplatnit cache schématu (přepočítá se z nových vrstev)
+        }
         public void info()
         {
             CreateSchema();

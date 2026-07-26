@@ -653,6 +653,83 @@
           Assert.Equal(2, outp.Shape[0]);
           Assert.Equal(3, outp.Shape[1]);
       }
+
+      [Fact]
+      public void Full_CNN_stack_end_to_end_gradients_match_numeric()
+      {
+          // End-to-end gradient check CELÉ CNN pipeline (mini verze modelu z Program.cs):
+          // Conv → MaxPool → Conv → MaxPool → Dense → Dense(out).
+          // Jednotlivé vrstvy jsou gradient-checknuté ZVLÁŠŤ (Conv_*_gradient, MaxPool_*),
+          // ALE tohle ověřuje WIRING backpropu skrz CELÝ řetězec: gradient tekoucí
+          // z MaxPoolu zpět do Convu a přes DVĚ conv vrstvy za sebou. Přesně to, co nejde
+          // ověřit čtením kódu a co by jinak shodilo dlouhý MNIST běh až po hodinách.
+          //
+          // Tanh (ne ReLu) ve skrytých vrstvách = čistá numerika bez kinku v nule (ReLu
+          // derivace je testovaná zvlášť); malý vstup → tanh nesaturuje. Tolerance 1e-4
+          // (volnější než izolovaných 1e-5) kvůli hloubce řetězce + tanh-of-tanh.
+          var input = new double[8, 8, 1];
+          for (int i = 0; i < 8; i++)
+          for (int j = 0; j < 8; j++)
+              input[i, j, 0] = ((i * 8 + j) * 0.005) + 0.01;
+          var x = new Tensor(input);
+          var target = new Tensor(new double[] { 0.3, -0.2 });
+
+          var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE());
+          model.Layers.Add(new Conv(2, 3, new Tanh(), "valid"));   // [0]  8×8×1 → 6×6×2
+          model.Layers.Add(new MaxPool(2));                        // [1]  → 3×3×2
+          model.Layers.Add(new Conv(3, 2, new Tanh(), "valid"));   // [2]  → 2×2×3
+          model.Layers.Add(new MaxPool(2));                        // [3]  → 1×1×3
+          model.Layers.Add(new Dense(4, new Tanh()));              // [4]  flatten 3 → 4
+          // [5] = výstupní Dense(2, Linear)
+
+          // ---- ANALYTIC: jeden Fit (forward + backprop CELÝM řetězcem), BEZ UpdateParams ----
+          model.Train.Fit(x, target);
+
+          var conv1 = (Conv)model.Layers.Layers[0];
+          var conv2 = (Conv)model.Layers.Layers[2];
+          var denseH = ((Dense)model.Layers.Layers[4]).Neurons;
+          var denseO = ((Dense)model.Layers.Layers[5]).Neurons;
+
+          // sanity: řetězec se opravdu propojil (ne placeholder 0 vah)
+          Assert.Equal(new int[] { 6, 6, 2 }, conv1.Output_size_and_shape);
+          Assert.Equal(new int[] { 2, 2, 3 }, conv2.Output_size_and_shape);
+          Assert.Equal(3, denseH[0].Weights.Length);   // flatten 1*1*3
+
+          // ---- NUMERIC: co doopravdy dělá loss CELÉHO modelu ----
+          // (forward nikdy nepřepisuje gradientní buffery dKernels/dBiases/gradientsW,
+          //  takže je čteme inline i během perturbace parametrů)
+          Func<double> lossAt = () =>
+              model.Loss.CalculateAndGetLoss(model.GetResults(x).Data, target.Data);
+
+          double maxRel = 0; string worst = "";
+          void Check(double analytic, ref double param, string label)
+          {
+              double num = Numeric.ParamGrad(lossAt, ref param);
+              double rel = Numeric.RelErr(analytic, num);
+              if (rel > maxRel) { maxRel = rel; worst = $"{label}: analytic={analytic}, numeric={num}"; }
+          }
+
+          // conv1 + conv2: kernely i biasy (gradient přišel skrz zbytek řetězce)
+          foreach (var conv in new[] { conv1, conv2 })
+          {
+              for (int f = 0; f < conv.Kernel.Length; f++)
+              {
+                  for (int ki = 0; ki < conv.Kernel[0].Length; ki++)
+                  for (int kj = 0; kj < conv.Kernel[0][0].Length; kj++)
+                  for (int c = 0; c < conv.Kernel[0][0][0].Length; c++)
+                      Check(conv.dKernels[f][ki][kj][c], ref conv.Kernel[f][ki][kj][c], $"convK[{f}][{ki}][{kj}][{c}]");
+                  Check(conv.dBiases[f], ref conv.Biases[f], $"convB[{f}]");
+              }
+          }
+
+          // dense skrytá + výstupní: váhy
+          foreach (var (layer, name) in new[] { (denseH, "H"), (denseO, "O") })
+              for (int i = 0; i < layer.Count; i++)
+              for (int j = 0; j < layer[i].Weights.Length; j++)
+                  Check(layer[i].gradientsW[j], ref layer[i].Weights[j], $"dense{name}[{i}]W[{j}]");
+
+          Assert.True(maxRel < 1e-4, $"maxRel={maxRel} @ {worst}");
+      }
   }
   
   public class SmokeTrainTest:GradientCheckTestBase
@@ -781,5 +858,127 @@
           Assert.Equal(3, b.GetResults(new Tensor(new double[] { 0.5, 0.3, 0.2 })).Data.Length);
           Assert.IsType<MSE>(a.Loss);
           Assert.IsType<CrossEntropy>(b.Loss);
+      }
+  }
+
+  public class DataSplitTests : GradientCheckTestBase
+  {
+      [Fact]
+      public void DividingDataIntoDatasets_userValidNoTest_carves_test_from_original_valid()
+      {
+          // Regrese #3: uživatel dodá VALID set, ale ne TEST set → valid se má rozdělit
+          // 80 % valid / 20 % test. Před opravou se test krájel z UŽ zmenšeného
+          // _validDataInputs (Slice(0, 80%)), takže Slice od offsetu 80 % byl mimo rozsah
+          // → "Invalid slice range!". Po opravě se test řeže z PŮVODNÍHO valid tensoru.
+          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+
+          // valid: 10 vzorků, každý distinktní ([i*10, i*10+1]) → poznám, odkud se test vyřízl
+          var validIn = new double[10, 2];
+          var validOut = new double[10, 1];
+          for (int i = 0; i < 10; i++)
+          {
+              validIn[i, 0] = i * 10;
+              validIn[i, 1] = i * 10 + 1;
+              validOut[i, 0] = i;
+          }
+          model.Train.ValidDataInputs = new Tensor(validIn);
+          model.Train.ValidDataCurrentOutput = new Tensor(validOut);
+          // TestDataInputs zůstává null → spustí se právě ta opravená větev
+
+          var trainIn = new double[4, 2];    // train data (stanou se _trainDataInputs); tvar libovolný
+          var trainOut = new double[4, 1];
+
+          // nesmí hodit "Invalid slice range!"
+          model.Train.DividingDataIntoDatasets(new Tensor(trainIn), new Tensor(trainOut));
+
+          // 80/20 split z 10 = 8 valid, 2 test
+          Assert.NotNull(model.Train.ValidDataInputs);
+          Assert.NotNull(model.Train.TestDataInputs);
+          Assert.Equal(8, model.Train.ValidDataInputs!.Shape[0]);
+          Assert.Equal(2, model.Train.TestDataInputs!.Shape[0]);
+
+          // valid = vzorky 0..7 originálu
+          Assert.Equal(new double[] { 0, 1 },   model.Train.ValidDataInputs.GetTensorValue([0]).Data);
+          Assert.Equal(new double[] { 70, 71 }, model.Train.ValidDataInputs.GetTensorValue([7]).Data);
+
+          // test = vzorky 8..9 originálu (vyříznuto z PŮVODNÍHO valid, ne ze zmenšeného)
+          Assert.Equal(new double[] { 80, 81 }, model.Train.TestDataInputs.GetTensorValue([0]).Data);
+          Assert.Equal(new double[] { 90, 91 }, model.Train.TestDataInputs.GetTensorValue([1]).Data);
+
+          // labely testu odpovídají vzorkům 8,9
+          Assert.NotNull(model.Train.TestDataCurrentOutput);
+          Assert.Equal(new double[] { 8 }, model.Train.TestDataCurrentOutput!.GetTensorValue([0]).Data);
+          Assert.Equal(new double[] { 9 }, model.Train.TestDataCurrentOutput.GetTensorValue([1]).Data);
+      }
+  }
+
+  public class SerializationTests : GradientCheckTestBase
+  {
+      [Fact]
+      public void LoadWeightsFromString_restores_weights_in_place()
+      {
+          // Krok 1 in-memory snapshotu: serializace do stringu + obnova zpět DO STEJNÉ instance.
+          // Ověřuje, že snapshot věrně zachytí váhy, obnova je vrátí a zachová identitu objektu
+          // i jeho Train (základ pro „vždy si nech nejlepší model" bez nutného disku).
+          var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.1), new MSE());
+          model.Layers.Add(new Dense(3, new Tanh()));
+
+          var x = new Tensor(new double[] { 0.5, -0.3, 0.8, 0.1 });   // 4 vstupy
+          double[] outBefore = model.GetResults(x).Data;              // spustí wiring + zapamatuje výstup
+
+          string snapshot = model.SaveAsJsonString();                // snapshot nejlepšího stavu
+          var trainBefore = model.Train;                             // identita Train (drží datasety)
+
+          // změň váhy tréninkem → výstup se musí pohnout
+          for (int i = 0; i < 20; i++)
+          {
+              model.Train.Fit(x, new Tensor(new double[] { 1.0, -1.0 }));
+              model.Train.UpdateParams();
+          }
+          double[] outMutated = model.GetResults(x).Data;
+          Assert.NotEqual(outBefore, outMutated);                   // trénink váhy opravdu změnil
+
+          // obnova ze snapshotu → in-place
+          model.LoadWeightsFromString(snapshot);
+
+          double[] outRestored = model.GetResults(x).Data;
+          Assert.Equal(outBefore, outRestored);                     // váhy věrně obnoveny (bit-identický forward)
+          Assert.Same(trainBefore, model.Train);                    // identita zachována (in-place, ne nový objekt)
+      }
+  }
+
+  public class EarlyStoppingTests : GradientCheckTestBase
+  {
+      [Fact]
+      public void EarlyStopping_stops_before_total_epochs()
+      {
+          // y = x regrese; minDelta nastavíme absurdně vysoko → po prvním reportu (zlepšení
+          // z MaxValue) se už NIC nepočítá jako zlepšení → po `patience` reportech se zastaví.
+          // Bez early stoppingu by loop dojel do totalEpoch (100).
+          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+
+          double[][] X = new double[20][];
+          double[][] Y = new double[20][];
+          for (int i = 0; i < 20; i++)
+          {
+              X[i] = new double[] { i * 0.1 };
+              Y[i] = new double[] { i * 0.1 };
+          }
+
+          model.Train.ShowLossChartInTrainLoop = false;      // ať v testu neskáče graf
+          model.Train.ShowModelInfoIntrainLoop = false;
+          model.Train.AutoSaveInTrainLoop = false;           // žádné psaní na disk
+          model.Train.TestNeuralNetworkAfterTraining = false;
+          model.Train.NumberOfShowEpochInConsole = 100;      // report každou epochu (totalEpoch=100)
+
+          model.Train.EarlyStoppingEnabled = true;
+          model.Train.EarlyStoppingPatience = 3;
+          model.Train.EarlyStoppingMinDelta = 1e9;           // nic se nebude počítat jako zlepšení
+
+          model.Train.TrainLoop(X, Y, 100, 1);
+
+          // 1 report se zlepšením (z MaxValue) + 3 bez zlepšení → stop hluboko pod 100 epochami
+          Assert.True(model.Train.CurrentEpoch < 20,
+              $"CurrentEpoch = {model.Train.CurrentEpoch}, early stopping mělo zastavit brzy");
       }
   }

@@ -1,24 +1,29 @@
 ﻿using System.Data;
+using System.Globalization;
 using My_DNN.Layers.classes;
 using My_DNN.Loss_functions;
 namespace My_DNN
 {
     public class Train
     {
-        private MDNN model;
+        private readonly MDNN _model;
 
-        private uint epoch;
-        private uint totalEpoch;
-        private uint size_of_mini_batch;
-        private double lowestLoss;
-        private Random rnd = new Random();
+        private uint _epoch;
+        private uint _totalEpoch;
+        private uint _sizeOfMiniBatch;
+        private double _lowestLoss;
+        private uint _bestEpoch;
+        private string? _bestSnapshot;   // nejlepší model v paměti (JSON snapshot), obnovuje se na konci
+        private uint _reportsWithoutImprovement;   // early stopping: počet valid reportů bez zlepšení
+        private bool _stopEarly;                    // early stopping: flag k ukončení smyčky
+        private readonly Random _rnd = new Random();
 
-        private List<int> listOfepoch = new List<int>();
-        private List<double> listOfValidLoss = new List<double>();
-        private List<double> listOfTrainLoss = new List<double>();
+        private List<int> _listOfepoch = [];
+        private List<double> _listOfValidLoss = [];
+        private List<double> _listOfTrainLoss = [];
 
-        public uint Number_of_skip_frist_Epoch_in_plotter = 0;
-        public uint Number_Of_Show_Epoch_In_Console = 100;
+        public uint NumberOfSkipFristEpochInPlotter = 0;
+        public uint NumberOfShowEpochInConsole = 100;
 
         public bool ShowLossChartInTrainLoop = true;
         public bool TestNeuralNetworkAfterTraining = true;
@@ -27,150 +32,166 @@ namespace My_DNN
 
         public string AutoSaveInTrainLoopFileName = "AutoSave";
 
-        private Tensor trainData_inputs;
-        private Tensor testData_inputs;
-        private Tensor validData_inputs;
+        // Early stopping: zastav trénink, když se valid loss nezlepší po `patience` valid reportech.
+        // Nejlepší model je díky in-memory snapshotu na konci stejně obnoven (restore-best zadarmo).
+        public bool EarlyStoppingEnabled = false;      // opt-in, default vyp → zpětně kompatibilní
+        public uint EarlyStoppingPatience = 10;        // kolik valid reportů bez zlepšení = stop
+        public double EarlyStoppingMinDelta = 0.0;     // min. pokles loss, aby se počítal jako zlepšení
 
-        private Tensor trainData_current_output;
-        private Tensor testData_current_output;
-        private Tensor validData_current_output;
-        public Tensor TestData_inputs
+        private Tensor? _trainDataInputs;
+        private Tensor? _testDataInputs;
+        private Tensor? _validDataInputs;
+
+        private Tensor? _trainDataCurrentOutput;
+        private Tensor? _testDataCurrentOutput;
+        private Tensor? _validDataCurrentOutput;
+        public Tensor? TestDataInputs
         { 
-            get => testData_inputs; 
-            set => testData_inputs = value; 
+            get => _testDataInputs; 
+            set => _testDataInputs = value; 
         }
-        public Tensor ValidData_inputs
+        public Tensor? ValidDataInputs
         {
-            get => validData_inputs;
-            set => validData_inputs = value;
+            get => _validDataInputs;
+            set => _validDataInputs = value;
         }
-        public Tensor TestData_current_output
+        public Tensor? TestDataCurrentOutput
         {
-            get => testData_current_output;
-            set => testData_current_output = value;
+            get => _testDataCurrentOutput;
+            set => _testDataCurrentOutput = value;
         }
-        public Tensor ValidData_current_output
+        public Tensor? ValidDataCurrentOutput
         {
-            get => validData_current_output;
-            set => validData_current_output = value;
-        }
-
-        public uint Current_epoch
-        {
-            get { return epoch; }
+            get => _validDataCurrentOutput;
+            set => _validDataCurrentOutput = value;
         }
 
-        public uint Total_epoch
+        public uint CurrentEpoch
         {
-            get { return totalEpoch; }
-            set { totalEpoch = value; }
+            get { return _epoch; }
         }
 
-        public uint Mini_batch
+        // nejnižší valid loss dosud a epocha, ve které padl (early-stopping indikátor).
+        // _lowestLoss == double.MaxValue znamená, že zatím žádný valid report neproběhl.
+        public double LowestValidLoss
         {
-            get { return size_of_mini_batch; }
-            set { size_of_mini_batch = value; }
+            get { return _lowestLoss; }
+        }
+
+        public uint BestEpoch
+        {
+            get { return _bestEpoch; }
+        }
+
+        public uint TotalEpoch
+        {
+            get { return _totalEpoch; }
+            set { _totalEpoch = value; }
+        }
+
+        public uint MiniBatch
+        {
+            get { return _sizeOfMiniBatch; }
+            set { _sizeOfMiniBatch = value; }
         }
 
         public Train(MDNN model) 
         {
-            this.model = model;
-            epoch = 0;
-            totalEpoch = 0;
-            size_of_mini_batch = 1;
+            this._model = model;
+            _epoch = 0;
+            _totalEpoch = 0;
+            _sizeOfMiniBatch = 1;
         }
 
-        public Train(MDNN model, uint epoch,uint totalEpoch, uint size_of_mini_batch)
+        public Train(MDNN model, uint epoch,uint totalEpoch, uint sizeOfMiniBatch)
         {
-            this.model = model;
-            this.epoch = epoch;
-            this.totalEpoch = totalEpoch;
-            this.size_of_mini_batch=size_of_mini_batch;
+            this._model = model;
+            this._epoch = epoch;
+            this._totalEpoch = totalEpoch;
+            this._sizeOfMiniBatch=sizeOfMiniBatch;
         }
 
-        public Tensor Fit(Tensor inputs_values, Tensor target_values)
+        public Tensor Fit(Tensor inputsValues, Tensor targetValues)
         {
-            if (model.Layers.Layers[0].Input_size_and_shape[0] <= 0)
+            if (_model.Layers.Layers[0].Input_size_and_shape[0] <= 0)
             {
-                model.Context.InputShape = inputs_values.Shape;
-                model.Layers.SetInputSizeForFirstLayer();
+                _model.Context.InputShape = inputsValues.Shape;
+                _model.Layers.SetInputSizeForFirstLayer();
             }
 
             CheckLayersAreNotEmpty();
 
-            Tensor output = model.GetResults(inputs_values);
+            Tensor output = _model.GetResults(inputsValues);
 
-            BackPropagation(target_values);
+            BackPropagation(targetValues);
 
             return output;
         }
 
-        public async Task<Tensor> FitAsync(Tensor inputs_values, Tensor target_values)
+        public async Task<Tensor> FitAsync(Tensor inputsValues, Tensor targetValues)
         {
-            if (model.Layers.Layers[0].Input_size_and_shape[0] <= 0)
+            if (_model.Layers.Layers[0].Input_size_and_shape[0] <= 0)
             {
-                model.Context.InputShape = inputs_values.Shape;
-                model.Layers.SetInputSizeForFirstLayer();
+                _model.Context.InputShape = inputsValues.Shape;
+                _model.Layers.SetInputSizeForFirstLayer();
             }
             CheckLayersAreNotEmpty();
 
-            Tensor output = await model.GetResultsAsync(inputs_values);
+            Tensor output = await _model.GetResultsAsync(inputsValues);
 
-            Tensor[] de = await Gradient.GetGradientsAsync(target_values, model);
+            Tensor[] de = await Gradient.GetGradientsAsync(targetValues, _model);
 
             await PropagationAsync(de);
 
             return output;
         }
 
-        public void BackPropagation(Tensor target_values)
+        public void BackPropagation(Tensor targetValues)
         {
             CheckLayersAreNotEmpty();
 
-            Tensor[] de = Gradient.GetGradients(target_values, model);
+            Tensor[] de = Gradient.GetGradients(targetValues, _model);
 
             Propagation(de);
         }
 
-        public async Task BackPropagationAsync(Tensor target_values)
+        public async Task BackPropagationAsync(Tensor targetValues)
         {
             CheckLayersAreNotEmpty();
 
-            Tensor[] de = await Gradient.GetGradientsAsync(target_values, model);
+            Tensor[] de = await Gradient.GetGradientsAsync(targetValues, _model);
 
             await PropagationAsync(de);
         }
 
-
-
-        public void BackPropagation(Tensor[] layer_gradients)
+        public void BackPropagation(Tensor[] layerGradients)
         {
             CheckLayersAreNotEmpty();
-            Propagation(layer_gradients);
+            Propagation(layerGradients);
         }
 
-        public async Task BackPropagationAsync(Tensor[] layer_gradients)
+        public async Task BackPropagationAsync(Tensor[] layerGradients)
         {
             CheckLayersAreNotEmpty();
-            await PropagationAsync(layer_gradients);
+            await PropagationAsync(layerGradients);
         }
 
-        public Tensor FeedForward(Tensor inputs_value)
+        public Tensor FeedForward(Tensor inputsValue)
         {
-            return model.GetResults(inputs_value);
+            return _model.GetResults(inputsValue);
         }
 
-        public async Task<Tensor> FeedForwardAsync(Tensor inputs_value)
+        public async Task<Tensor> FeedForwardAsync(Tensor inputsValue)
         {
-            return await model.GetResultsAsync(inputs_value);
+            return await _model.GetResultsAsync(inputsValue);
         }
 
         public void UpdateParams()
         {
             CheckLayersAreNotEmpty();
 
-            epoch++;
-            foreach (Layer layer in model.Layers.Layers)
+            _epoch++;
+            foreach (Layer layer in _model.Layers.Layers)
             {
                 layer.UpdateParams();
             }
@@ -180,10 +201,10 @@ namespace My_DNN
         {
             CheckLayersAreNotEmpty();
 
-            epoch++;
+            _epoch++;
             int index = -1;
-            Task[] tasks = new Task[model.Layers.Layers.Count()];
-            foreach (Layer layer in model.Layers.Layers)
+            Task[] tasks = new Task[_model.Layers.Layers.Count()];
+            foreach (Layer layer in _model.Layers.Layers)
             {
                 index++;
                 tasks[index] = Task.Run(async () =>
@@ -195,35 +216,55 @@ namespace My_DNN
             await Task.WhenAll(tasks);
         }
 
-        public void TestNeuralNetwork(Tensor inputs_values, Tensor current_output_values)
+        public void ComplexTestNeuralNetwork()
         {
-            if (model.Layers.Layers[0].Input_size_and_shape[0] == 0)
+            (int,int) testScore, trainScore, validationScore;
+            
+            if (_testDataInputs != null && _testDataCurrentOutput != null && _trainDataInputs != null &&
+                _trainDataCurrentOutput != null && _validDataInputs != null && _validDataCurrentOutput != null)
             {
-                if (model.Context.SequenceTrain)
+                testScore =  TestNeuralNetwork(_testDataInputs, _testDataCurrentOutput,false);
+                trainScore = TestNeuralNetwork(_trainDataInputs, _trainDataCurrentOutput,false);
+                validationScore = TestNeuralNetwork(_validDataInputs, _validDataCurrentOutput,false);
+            }
+            else
+            {
+                throw new Exception("Dataset is Empty");
+            }
+            
+            ConsoleControler.ShowComplexScoreOfmodel(testScore, trainScore, validationScore);
+                    
+        }
+
+        public (int, int) TestNeuralNetwork(Tensor inputsValues, Tensor currentOutputValues, bool showInConsole = true)
+        {
+            if (_model.Layers.Layers[0].Input_size_and_shape[0] == 0)
+            {
+                if (_model.Context.SequenceTrain)
                 {
-                    model.Context.InputShape = inputs_values.GetTensorValue(new int[] { 0,0 }).Shape;
+                    _model.Context.InputShape = inputsValues.GetTensorValue([0,0]).Shape;
                 }
 
                 else
                 {
-                    model.Context.InputShape = inputs_values.GetTensorValue(new int[] { 0 }).Shape;
+                    _model.Context.InputShape = inputsValues.GetTensorValue([0]).Shape;
                 }
 
-                model.Layers.SetInputSizeForFirstLayer();
+                _model.Layers.SetInputSizeForFirstLayer();
             }
             CheckLayersAreNotEmpty();
 
             int score = 0;
             int maxScore = 0;
 
-            if (model.Context.SequenceTrain)
+            if (_model.Context.SequenceTrain)
             {
-                for (int i = 0; i < inputs_values.Shape[0]; i++)
+                for (int i = 0; i < inputsValues.Shape[0]; i++)
                 {
-                    model.ResetSequence();
-                    for (int j = 0; j < inputs_values.Shape[1]; j++)
+                    _model.ResetSequence();
+                    for (int j = 0; j < inputsValues.Shape[1]; j++)
                     {
-                        Tensor outputTensor = model.GetResults(inputs_values.GetTensorValue(new int[] { i, j }));
+                        Tensor outputTensor = _model.GetResults(inputsValues.GetTensorValue([i, j]));
 
                         double[] output = outputTensor.Data;
 
@@ -232,13 +273,13 @@ namespace My_DNN
                         bool zeroError = true;
 
                         // upravit na softMax
-                        if (model.Layers.Layers[model.Layers.Layers.Count() - 1].Activation_Func.Apply_to_layer)
+                        if (_model.Layers.Layers[_model.Layers.Layers.Count() - 1].Activation_Func.Apply_to_layer)
                         {
                             double maxOutputValue = output.Max();
                             int maxOutputIndex = output.ToList().IndexOf(maxOutputValue);
 
-                            double maxCurrentOutputValue = ((double[])current_output_values.GetValue(new int[] { i,j })).Max();
-                            int maxCurrentOutputIndex = ((double[])current_output_values.GetValue(new int[] { i,j })).ToList().IndexOf(maxCurrentOutputValue);
+                            double maxCurrentOutputValue = ((double[])currentOutputValues.GetValue([i,j])).Max();
+                            int maxCurrentOutputIndex = ((double[])currentOutputValues.GetValue([i,j])).ToList().IndexOf(maxCurrentOutputValue);
 
                             if (maxCurrentOutputIndex != maxOutputIndex)
                             {
@@ -250,7 +291,8 @@ namespace My_DNN
                         {
                             for (int k = 0; k < output.Length; k++)
                             {
-                                if (Math.Round(output[k]) != Math.Round(((double[])current_output_values.GetValue(new int[] { i,j }))[k]))
+                                if (Math.Abs(Math.Round(output[k]) - Math.Round(((double[])currentOutputValues.GetValue(
+                                        [i,j]))[k])) > 0.1)
                                 {
                                     zeroError = false;
                                     break;
@@ -265,29 +307,29 @@ namespace My_DNN
                         }
                     }
                 }
-                model.ResetSequence();
+                _model.ResetSequence();
             }
 
             else
             {
-                for (int i = 0; i < inputs_values.Shape[0]; i++)
+                for (int i = 0; i < inputsValues.Shape[0]; i++)
                 {
-                    Tensor outputTensor = model.GetResults(inputs_values.GetTensorValue(new int[] { i }));
+                    Tensor outputTensor = _model.GetResults(inputsValues.GetTensorValue([i]));
 
                     double[] output = outputTensor.Data;
-                    double[] current_output = current_output_values.GetTensorValue(new int[] { i }).Data;
+                    double[] currentOutput = currentOutputValues.GetTensorValue([i]).Data;
 
                     bool zeroError = true;
-                    maxScore = inputs_values.Shape[0];
+                    maxScore = inputsValues.Shape[0];
 
                     // upravit na softMax
-                    if (model.Layers.Layers[model.Layers.Layers.Count() - 1].Activation_Func.Apply_to_layer)
+                    if (_model.Layers.Layers[_model.Layers.Layers.Count() - 1].Activation_Func.Apply_to_layer)
                     {
                         double maxOutputValue = output.Max();
                         int maxOutputIndex = output.ToList().IndexOf(maxOutputValue);
 
-                        double maxCurrentOutputValue = current_output.Max();
-                        int maxCurrentOutputIndex = current_output.ToList().IndexOf(maxCurrentOutputValue);
+                        double maxCurrentOutputValue = currentOutput.Max();
+                        int maxCurrentOutputIndex = currentOutput.ToList().IndexOf(maxCurrentOutputValue);
 
                         if (maxCurrentOutputIndex != maxOutputIndex)
                         {
@@ -299,7 +341,7 @@ namespace My_DNN
                     {
                         for (int j = 0; j < output.Length; j++)
                         {
-                            if (Math.Round(output[j]) != Math.Round(current_output[j]))
+                            if (Math.Abs(Math.Round(output[j]) - Math.Round(currentOutput[j])) > 0.1)
                             {
                                 zeroError = false;
                                 break;
@@ -314,168 +356,212 @@ namespace My_DNN
                     }
                 }
             }
-            ConsoleControler.ShowScoreOfmodel(score, maxScore);
+            if (showInConsole)
+                ConsoleControler.ShowScoreOfmodel(score, maxScore);
+            
+            return (score, maxScore);
         }
 
-        public void TrainLoop(Array inputs_values, Array current_output_values, uint number_of_epoch, uint size_of_mini_batch = 1, bool isSequence = false)
+        public void TrainLoop(Array inputsValues, Array currentOutputValues, uint numberOfEpoch, uint sizeOfMiniBatch = 1, bool isSequence = false)
         {
 
-            Tensor tensorInputs_values = Tensor.ConvertArrayToTensor(inputs_values);
-            Tensor tensorCurrent_output_values = Tensor.ConvertArrayToTensor(current_output_values);
+            Tensor tensorInputsValues = Tensor.ConvertArrayToTensor(inputsValues);
+            Tensor tensorCurrentOutputValues = Tensor.ConvertArrayToTensor(currentOutputValues);
 
-            PreparationForTrainLoop(tensorInputs_values, tensorCurrent_output_values, number_of_epoch, size_of_mini_batch, isSequence);
+            PreparationForTrainLoop(tensorInputsValues, tensorCurrentOutputValues, numberOfEpoch, sizeOfMiniBatch, isSequence);
             if (ShowModelInfoIntrainLoop)
             {
-                model.info();
+                _model.info();
             }
             
-
-            for (uint epoch = this.epoch; epoch < totalEpoch; epoch++)
+            for (uint epoch = this._epoch; epoch < _totalEpoch; epoch++)
             {
-                model.Context.Loss.ResetAverageLossPerIteration();
+                _model.Context.Loss.ResetAverageLossPerIteration();
 
-                for (uint miniBatch = 0; miniBatch < size_of_mini_batch; miniBatch++)
+                for (uint miniBatch = 0; miniBatch < sizeOfMiniBatch; miniBatch++)
                 {
-                    int num = rnd.Next(trainData_inputs.Shape[0]);
-                    if (!model.Context.SequenceTrain)
+                    if (_trainDataInputs != null)
                     {
-                        Fit(trainData_inputs.GetTensorValue(new int[] { num }), trainData_current_output.GetTensorValue(new int[] { num }));
-                    }
+                        int num = _rnd.Next(_trainDataInputs.Shape[0]);
+                        if (!_model.Context.SequenceTrain)
+                        {
+                            Fit(_trainDataInputs.GetTensorValue([num]), _trainDataCurrentOutput?.GetTensorValue([num]) ?? throw new InvalidOperationException("_trainDataCurrentOutput je null — trénovací data nebyla rozdělena (DividingDataIntoDatasets)."));
+                        }
 
+                        else
+                        {
+                            _model.ResetSequence();
+                            for (int i = 0; i < _trainDataInputs.Shape[1]; i++)
+                            {
+                                Fit(_trainDataInputs.GetTensorValue([num,i]), _trainDataCurrentOutput?.GetTensorValue([
+                                    num, i
+                                ]) ?? throw new InvalidOperationException("_trainDataCurrentOutput je null — trénovací data nebyla rozdělena (DividingDataIntoDatasets)."));
+                            }
+                        }
+                    }
                     else
                     {
-                        model.ResetSequence();
-                        for (int i = 0; i < trainData_inputs.Shape[1]; i++)
-                        {
-                            Fit(trainData_inputs.GetTensorValue(new int[] { num,i }), trainData_current_output.GetTensorValue(new int[] { num, i }));
-                        }
+                        throw new Exception("_trainDataInputs is Empty");
                     }
                 }
 
-                if (model.Context.SequenceTrain)
+                if (_model.Context.SequenceTrain)
                 {
-                    model.ResetSequence();
+                    _model.ResetSequence();
                 }
 
                 UpdateParams();
 
-                if (epoch % (totalEpoch/ Number_Of_Show_Epoch_In_Console) == 0)
+                if (epoch % (_totalEpoch/ NumberOfShowEpochInConsole) == 0)
                 {
                     TrainLoopControlFunc();
+                    if (_stopEarly)
+                    {
+                        ConsoleControler.ShowEarlyStopping(_epoch, EarlyStoppingPatience, _lowestLoss, _bestEpoch);
+                        break;
+                    }
                 }
             }
 
             if (TestNeuralNetworkAfterTraining)
             {
-                TestNeuralNetwork(testData_inputs, testData_current_output);
+                // vždy testujeme NEJLEPŠÍ model (nejnižší valid loss), ne poslední epochu:
+                // obnovíme in-memory snapshot in-place (identita + datasety zůstanou).
+                if (_bestSnapshot != null)
+                {
+                    _model.LoadWeightsFromString(_bestSnapshot);
+                }
+                ComplexTestNeuralNetwork();
             }
-
             if (ShowLossChartInTrainLoop)
             {
-                GraphPlotter.ShowLossGraph(listOfepoch.ToArray(), listOfTrainLoss.ToArray(), listOfValidLoss.ToArray());
+                GraphPlotter.ShowLossGraph(_listOfepoch.ToArray(), _listOfTrainLoss.ToArray(), _listOfValidLoss.ToArray());
             }
         }
 
-        public async Task TrainLoopAsync(Array inputs_values, Array current_output_values, uint number_of_epoch, uint size_of_mini_batch = 1, bool isSequence = false)
+        public async Task TrainLoopAsync(Array inputsValues, Array currentOutputValues, uint numberOfEpoch, uint sizeOfMiniBatch = 1, bool isSequence = false)
         {
-            Tensor tensorInputs_values = Tensor.ConvertArrayToTensor(inputs_values);
-            Tensor tensorCurrent_output_values = Tensor.ConvertArrayToTensor(current_output_values);
+            Tensor tensorInputsValues = Tensor.ConvertArrayToTensor(inputsValues);
+            Tensor tensorCurrentOutputValues = Tensor.ConvertArrayToTensor(currentOutputValues);
 
-            PreparationForTrainLoop(tensorInputs_values, tensorCurrent_output_values, number_of_epoch, size_of_mini_batch, isSequence);
+            PreparationForTrainLoop(tensorInputsValues, tensorCurrentOutputValues, numberOfEpoch, sizeOfMiniBatch, isSequence);
 
             if (ShowModelInfoIntrainLoop)
             {
-                model.info();
+                _model.info();
             }
 
-            for (uint epoch = this.epoch; epoch < totalEpoch; epoch++)
+            for (uint epoch = this._epoch; epoch < _totalEpoch; epoch++)
             {
-                model.Context.Loss.ResetAverageLossPerIteration();
-                for (uint miniBatch = 0; miniBatch < size_of_mini_batch; miniBatch++)
+                _model.Context.Loss.ResetAverageLossPerIteration();
+                for (uint miniBatch = 0; miniBatch < sizeOfMiniBatch; miniBatch++)
                 {
-                    int num = rnd.Next(trainData_inputs.Shape[0]);
-                    if (!model.Context.SequenceTrain)
+                    // Skutečný runtime guard (ne Debug.Assert — ten se v Release vykompiluje pryč,
+                    // takže by async cesta neměla ochranu, na rozdíl od synchronního TrainLoop).
+                    // Lokální kopie navíc udrží non-null null-state i přes await.
+                    if (_trainDataInputs == null || _trainDataCurrentOutput == null)
                     {
-                        await FitAsync(trainData_inputs.GetTensorValue(new int[] { num }), trainData_current_output.GetTensorValue(new int[] { num }));
+                        throw new InvalidOperationException(
+                            "_trainDataInputs/_trainDataCurrentOutput je null — trénovací data nebyla rozdělena (DividingDataIntoDatasets).");
+                    }
+
+                    Tensor trainInputs = _trainDataInputs;
+                    Tensor trainOutputs = _trainDataCurrentOutput;
+
+                    int num = _rnd.Next(trainInputs.Shape[0]);
+                    if (!_model.Context.SequenceTrain)
+                    {
+                        await FitAsync(trainInputs.GetTensorValue([num]), trainOutputs.GetTensorValue([num]));
                     }
 
                     else
                     {
-                        model.ResetSequence();
-                        for (int i = 0; i < trainData_inputs.Shape[1]; i++)
+                        _model.ResetSequence();
+                        for (int i = 0; i < trainInputs.Shape[1]; i++)
                         {
-                            await FitAsync(trainData_inputs.GetTensorValue(new int[] { num, i }), trainData_current_output.GetTensorValue(new int[] { num, i }));
+                            await FitAsync(trainInputs.GetTensorValue([num, i]), trainOutputs.GetTensorValue([num, i]));
                         }
                     }
                 }
 
-                if (model.Context.SequenceTrain)
+                if (_model.Context.SequenceTrain)
                 {
-                    model.ResetSequence();
+                    _model.ResetSequence();
                 }
 
                 await UpdateParamsAsync();
 
-                if (epoch % (totalEpoch / Number_Of_Show_Epoch_In_Console) == 0)
+                if (epoch % (_totalEpoch / NumberOfShowEpochInConsole) == 0)
                 {
                     await TrainLoopControlFuncAsync();
+                    if (_stopEarly)
+                    {
+                        ConsoleControler.ShowEarlyStopping(_epoch, EarlyStoppingPatience, _lowestLoss, _bestEpoch);
+                        break;
+                    }
                 }
             }
 
             if (TestNeuralNetworkAfterTraining)
             {
-                TestNeuralNetwork(testData_inputs, testData_current_output);
+                // vždy testujeme NEJLEPŠÍ model (nejnižší valid loss), ne poslední epochu:
+                // obnovíme in-memory snapshot in-place (identita + datasety zůstanou).
+                if (_bestSnapshot != null)
+                {
+                    _model.LoadWeightsFromString(_bestSnapshot);
+                }
+                ComplexTestNeuralNetwork();
             }
 
             if (ShowLossChartInTrainLoop)
             {
-                GraphPlotter.ShowLossGraph(listOfepoch.ToArray(), listOfTrainLoss.ToArray(), listOfValidLoss.ToArray());
+                GraphPlotter.ShowLossGraph(_listOfepoch.ToArray(), _listOfTrainLoss.ToArray(), _listOfValidLoss.ToArray());
             }
 
         }
 
-        public void SimpleTrainLoop(double[][] inputs_values, double[][] current_output_values, uint number_of_epoch, uint size_of_mini_batch = 1)
+        public void SimpleTrainLoop(double[][] inputsValues, double[][] currentOutputValues, uint numberOfEpoch, uint sizeOfMiniBatch = 1)
         {
-            uint epoch = this.epoch;
+            uint epoch = this._epoch;
             double minLoss = 100;
 
-            this.size_of_mini_batch = size_of_mini_batch;
-            totalEpoch = number_of_epoch;
+            this._sizeOfMiniBatch = sizeOfMiniBatch;
+            _totalEpoch = numberOfEpoch;
             
-            if (Number_Of_Show_Epoch_In_Console <= 0)
-                Number_Of_Show_Epoch_In_Console = 1;
-            else if (Number_Of_Show_Epoch_In_Console > totalEpoch)
-                Number_Of_Show_Epoch_In_Console = totalEpoch;
+            if (NumberOfShowEpochInConsole <= 0)
+                NumberOfShowEpochInConsole = 1;
+            else if (NumberOfShowEpochInConsole > _totalEpoch)
+                NumberOfShowEpochInConsole = _totalEpoch;
 
 
-            model.Context.InputShape = new int[] { inputs_values[0].Length };
-            model.Layers.SetInputSizeForFirstLayer();
+            _model.Context.InputShape = [inputsValues[0].Length];
+            _model.Layers.SetInputSizeForFirstLayer();
 
             CheckLayersAreNotEmpty();
 
-            for (; epoch < totalEpoch; epoch++)
+            for (; epoch < _totalEpoch; epoch++)
             {
-                for (uint miniBatch = 0; miniBatch < size_of_mini_batch; miniBatch++)
+                for (uint miniBatch = 0; miniBatch < sizeOfMiniBatch; miniBatch++)
                 {
-                    int num = rnd.Next(inputs_values.Count());
+                    int num = _rnd.Next(inputsValues.Count());
 
-                    Fit(new Tensor(inputs_values[num]), new Tensor(current_output_values[num]));
+                    Fit(new Tensor(inputsValues[num]), new Tensor(currentOutputValues[num]));
                 }
 
                 UpdateParams();
 
-                if (epoch % (totalEpoch / Number_Of_Show_Epoch_In_Console) == 0)
+                if (epoch % (_totalEpoch / NumberOfShowEpochInConsole) == 0)
                 {
-                    double loss = model.Context.Loss.GetAverageLossPerIteration();
+                    double loss = _model.Context.Loss.GetAverageLossPerIteration();
                     if (loss is not double.NaN)
                     {
                         if (loss < minLoss)
                         {
                             minLoss = loss;
-                            model.Note = minLoss.ToString();
+                            _model.Note = minLoss.ToString(CultureInfo.InvariantCulture);
                             if (AutoSaveInTrainLoop)
                             {
-                                model.SaveAsJson(AutoSaveInTrainLoopFileName);
+                                _model.SaveAsJson(AutoSaveInTrainLoopFileName);
                             }
                             
                         }
@@ -485,106 +571,110 @@ namespace My_DNN
                         Console.WriteLine("Error: Nan number");
                         return;
                     }
-                    ConsoleControler.ShowEpochInfo(model);
+                    ConsoleControler.ShowEpochInfo(_model);
                 }
             }
         }
 
-        private void PreparationForTrainLoop(Tensor inputs_values, Tensor current_output_values, uint number_of_epoch, uint size_of_mini_batch = 1, bool isSequence = false)
+        private void PreparationForTrainLoop(Tensor inputsValues, Tensor currentOutputValues, uint numberOfEpoch, uint sizeOfMiniBatch = 1, bool isSequence = false)
         {
-            CheckTensorShapes(inputs_values, current_output_values);
+            CheckTensorShapes(inputsValues, currentOutputValues);
 
-            ShuffleTensor(inputs_values, current_output_values, out inputs_values, out current_output_values);
+            ShuffleTensor(inputsValues, currentOutputValues, out inputsValues, out currentOutputValues);
 
             if (isSequence)
             {
-                model.Context.SequenceTrain = true;
+                _model.Context.SequenceTrain = true;
             }
 
-            if (model.Context.SequenceTrain)
+            if (_model.Context.SequenceTrain)
             {
-                if (inputs_values.Shape.Length == 1)
+                if (inputsValues.Shape.Length == 1)
                 {
                     throw new Exception("for sequential training of the model, the inputs must be at least in a two-dimensional array");
                 }
 
-                if (inputs_values.Shape.Length == 2)
+                if (inputsValues.Shape.Length == 2)
                 {
-                    inputs_values.Reshape(new int[] { inputs_values.Shape[0], inputs_values.Shape[1], 1 });
-                    current_output_values.Reshape(new int[] { inputs_values.Shape[0], inputs_values.Shape[1], 1 });
+                    inputsValues.Reshape([inputsValues.Shape[0], inputsValues.Shape[1], 1]);
+                    currentOutputValues.Reshape([inputsValues.Shape[0], inputsValues.Shape[1], 1]);
                 }
 
-                else if (inputs_values.Shape.Length >= 6)
+                else if (inputsValues.Shape.Length >= 6)
                 {
                     throw new Exception("for sequential training, the maximum input is a four-dimensional array.");
                 }
 
-                model.Context.InputShape = inputs_values.GetTensorValue(new int[] { 0, 0 }).Shape;
+                _model.Context.InputShape = inputsValues.GetTensorValue([0, 0]).Shape;
             }
 
             else
             {
 
-                if (inputs_values.Shape.Length == 1)
+                if (inputsValues.Shape.Length == 1)
                 {
-                    inputs_values.Reshape(new int[] { inputs_values.Shape[0], 1 });
-                    current_output_values.Reshape(new int[] { inputs_values.Shape[0], 1 });
+                    inputsValues.Reshape([inputsValues.Shape[0], 1]);
+                    currentOutputValues.Reshape([inputsValues.Shape[0], 1]);
                 }
 
-                else if (inputs_values.Shape.Length >= 4)
+                else if (inputsValues.Shape.Length >= 4)
                 {
                     throw new Exception("for non-sequential training, the maximum input is a three-dimensional array.");
                 }
 
-                model.Context.InputShape = inputs_values.GetTensorValue(new int[] { 0 }).Shape;
+                _model.Context.InputShape = inputsValues.GetTensorValue([0]).Shape;
             }
 
             
 
-            if (model.Layers.Layers[0].Input_size_and_shape[0] == 0)
+            if (_model.Layers.Layers[0].Input_size_and_shape[0] == 0)
             {
-                model.Layers.SetInputSizeForFirstLayer();
+                _model.Layers.SetInputSizeForFirstLayer();
             }
 
             CheckLayersAreNotEmpty();
 
-            DividingDataIntoDatasets(inputs_values, current_output_values);
+            DividingDataIntoDatasets(inputsValues, currentOutputValues);
 
-            listOfepoch = new List<int>();
-            listOfValidLoss = new List<double>();
-            listOfTrainLoss = new List<double>();
+            _listOfepoch = [];
+            _listOfValidLoss = [];
+            _listOfTrainLoss = [];
 
-            this.size_of_mini_batch = size_of_mini_batch;
-            totalEpoch = number_of_epoch;
+            this._sizeOfMiniBatch = sizeOfMiniBatch;
+            _totalEpoch = numberOfEpoch;
 
-            lowestLoss = double.MaxValue;
+            _lowestLoss = double.MaxValue;
+            _bestEpoch = 0;
+            _bestSnapshot = null;
+            _reportsWithoutImprovement = 0;
+            _stopEarly = false;
 
-            if (Number_Of_Show_Epoch_In_Console <= 0)
+            if (NumberOfShowEpochInConsole <= 0)
             {
-                Number_Of_Show_Epoch_In_Console = 1;
+                NumberOfShowEpochInConsole = 1;
             }
-            else if (Number_Of_Show_Epoch_In_Console > totalEpoch)
+            else if (NumberOfShowEpochInConsole > _totalEpoch)
             {
-                Number_Of_Show_Epoch_In_Console = totalEpoch;
+                NumberOfShowEpochInConsole = _totalEpoch;
             }
         }
 
         private void CheckLayersAreNotEmpty()
         {
-            if (model.Layers.Layers.Count() == 0)
+            if (_model.Layers.Layers.Count == 0)
             {
                 throw new Exception("Only model with layers can be trained, please add at least one Layer using Layer.add() function.");
             }
 
-            if (model.Layers.Layers[0].Input_size_and_shape[0] <= 0)
+            if (_model.Layers.Layers[0].Input_size_and_shape[0] <= 0)
             {
                 throw new Exception("the input layer must always have at least one input (use the SetInputSizeForFirstLayer() method in the layer class to set the input, for example model.layer.SetInputSizeForFirstLayer(new unit[] {1}))");
             }
         }
 
-        private void CheckTensorShapes(Tensor A, Tensor B)
+        private void CheckTensorShapes(Tensor a, Tensor b)
         {
-            if(A == null || B == null)
+            if(a == null || b == null)
             {
                 throw new Exception("it is not possible to train with empty inputs (Tensor), inputs_values or current_output_values is null");
             }
@@ -609,7 +699,7 @@ namespace My_DNN
             }
             */
 
-            if (B.Shape[0] != A.Shape[0])
+            if (b.Shape[0] != a.Shape[0])
             {
                 throw new Exception("both inputs_values and current_output_values must have the same first array dimensions");
             }
@@ -617,66 +707,71 @@ namespace My_DNN
 
         }
 
-        public void DividingDataIntoDatasets(Tensor inputs_values, Tensor current_output_values)
+        public void DividingDataIntoDatasets(Tensor inputsValues, Tensor currentOutputValues)
         {
-            int TrainData_size;
-            int ValidData_size;
-            int TestData_size;
+            int trainDataSize;
+            int validDataSize;
+            int testDataSize;
 
-            int index = -1;
-            int index2 = -1;
+            int totalSize = inputsValues.Shape[0];
 
-            int totalSize = inputs_values.Shape[0];
-
-            if (validData_inputs == null && testData_inputs == null)
+            if (_validDataInputs == null && _testDataInputs == null)
             {
-                TrainData_size = (int)(totalSize * 0.7);
-                ValidData_size = (int)(totalSize * 0.15);
-                TestData_size = totalSize - TrainData_size - ValidData_size;
+                trainDataSize = (int)(totalSize * 0.7);
+                validDataSize = (int)(totalSize * 0.15);
+                testDataSize = totalSize - trainDataSize - validDataSize;
 
-                validData_inputs = inputs_values.Slice(TrainData_size, ValidData_size);
-                testData_inputs = inputs_values.Slice(TrainData_size + ValidData_size, TestData_size);
+                _validDataInputs = inputsValues.Slice(trainDataSize, validDataSize);
+                _testDataInputs = inputsValues.Slice(trainDataSize + validDataSize, testDataSize);
 
-                validData_current_output = current_output_values.Slice(TrainData_size, ValidData_size);
-                testData_current_output = current_output_values.Slice(TrainData_size + ValidData_size, TestData_size);
+                _validDataCurrentOutput = currentOutputValues.Slice(trainDataSize, validDataSize);
+                _testDataCurrentOutput = currentOutputValues.Slice(trainDataSize + validDataSize, testDataSize);
 
-                trainData_inputs = inputs_values.Slice(0, TrainData_size);
-                trainData_current_output = current_output_values.Slice(0, TrainData_size);
+                _trainDataInputs = inputsValues.Slice(0, trainDataSize);
+                _trainDataCurrentOutput = currentOutputValues.Slice(0, trainDataSize);
             }
-            else if (validData_inputs != null && testData_inputs == null)
+            else if (_validDataInputs != null && _testDataInputs == null)
             {
-                int oldValidSize = validData_inputs.Shape[0];
+                int oldValidSize = _validDataInputs.Shape[0];
 
-                ValidData_size = (int)(oldValidSize * 0.8);
-                TestData_size = oldValidSize - ValidData_size;
+                validDataSize = (int)(oldValidSize * 0.8);
+                testDataSize = oldValidSize - validDataSize;
 
-                trainData_inputs = inputs_values;
-                trainData_current_output = current_output_values;
+                _trainDataInputs = inputsValues;
+                _trainDataCurrentOutput = currentOutputValues;
 
-                validData_inputs = validData_inputs.Slice(0, ValidData_size);
-                validData_current_output = validData_current_output.Slice(0, ValidData_size);
+                // Test se musí vyříznout z PŮVODNÍHO valid tensoru; kdyby se _validDataInputs
+                // nejdřív přepsal na Slice(0, validDataSize), test-slice od offsetu validDataSize
+                // by byl mimo rozsah zmenšeného tensoru → "Invalid slice range!".
+                // Test se musí vyříznout z PŮVODNÍHO valid tensoru; kdyby se _validDataInputs
+                // nejdřív přepsal na Slice(0, validDataSize), test-slice od offsetu validDataSize
+                // by byl mimo rozsah zmenšeného tensoru → "Invalid slice range!".
+                Tensor originalValidInputs = _validDataInputs;
+                Tensor? originalValidOutput = _validDataCurrentOutput;
 
-                testData_inputs = validData_inputs.Slice(ValidData_size, TestData_size);
-                testData_current_output = validData_current_output.Slice(ValidData_size, TestData_size);
+                _validDataInputs = originalValidInputs.Slice(0, validDataSize);
+                _validDataCurrentOutput = originalValidOutput?.Slice(0, validDataSize);
+
+                _testDataInputs = originalValidInputs.Slice(validDataSize, testDataSize);
+                _testDataCurrentOutput = originalValidOutput?.Slice(validDataSize, testDataSize);
             }
-            else if (validData_inputs == null && testData_inputs != null)
+            else if (_validDataInputs == null && _testDataInputs != null)
             {
-                TrainData_size = (int)(totalSize * 0.8);
-                ValidData_size = totalSize - TrainData_size;
+                trainDataSize = (int)(totalSize * 0.8);
+                validDataSize = totalSize - trainDataSize;
 
-                trainData_inputs = inputs_values.Slice(0, TrainData_size);
-                trainData_current_output = current_output_values.Slice(0, TrainData_size);
+                _trainDataInputs = inputsValues.Slice(0, trainDataSize);
+                _trainDataCurrentOutput = currentOutputValues.Slice(0, trainDataSize);
 
-                validData_inputs = inputs_values.Slice(TrainData_size, ValidData_size);
-                validData_current_output = current_output_values.Slice(TrainData_size, ValidData_size);
+                _validDataInputs = inputsValues.Slice(trainDataSize, validDataSize);
+                _validDataCurrentOutput = currentOutputValues.Slice(trainDataSize, validDataSize);
             }
             else
             {
-                trainData_inputs = inputs_values;
-                trainData_current_output = current_output_values;
+                _trainDataInputs = inputsValues;
+                _trainDataCurrentOutput = currentOutputValues;
             }
         }
-      
 
         public void ShuffleTensor(Tensor tensorA, Tensor tensorB, out Tensor shuffledA, out Tensor shuffledB)
         {
@@ -704,66 +799,120 @@ namespace My_DNN
             shuffledA = new Tensor(shuffledDataA, tensorA.Shape);
             shuffledB = new Tensor(shuffledDataB, tensorB.Shape);
         }
+
+        // Shodná logika jako v TestNeuralNetwork: u klasifikace (softmax / apply-to-layer)
+        // se porovná argmax výstupu s argmaxem targetu, u regrese zaokrouhlené hodnoty.
+        // Sdílené, aby průběžná accuracy počítala stejně jako závěrečný TestNeuralNetwork.
+        private bool IsPredictionCorrect(double[] output, double[] target)
+        {
+            if (_model.Layers.Layers[_model.Layers.Layers.Count() - 1].Activation_Func.Apply_to_layer)
+            {
+                return output.ToList().IndexOf(output.Max()) == target.ToList().IndexOf(target.Max());
+            }
+
+            for (int k = 0; k < output.Length; k++)
+            {
+                if (Math.Abs(Math.Round(output[k]) - Math.Round(target[k])) > 0.1)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         private void TrainLoopControlFunc()
         {
-            Loss lossFunc = model.Context.Loss;
+            Loss lossFunc = _model.Context.Loss;
             double loss = lossFunc.GetResetAverageLossPerIteration();
-            if (model.Context.SequenceTrain)
+            // Non-null kontrakt zajišťujeme ZDE, ne v Loss: valid data přes guard + lokály,
+            // výstup bereme z návratové hodnoty GetResults (vždy non-null), ne z nullable
+            // property Layer_output. Do CalculateLoss se tak null nemá jak dostat.
+            if (ValidDataInputs == null || ValidDataCurrentOutput == null)
             {
-                for (int i = 0; i < ValidData_inputs.Shape[0]; i++)
+                throw new InvalidOperationException("Valid data nejsou nastavena (DividingDataIntoDatasets) — nelze spočítat valid loss.");
+            }
+
+            Tensor validInputs = ValidDataInputs;
+            Tensor validOutputs = ValidDataCurrentOutput;
+
+            // úspěšnost počítáme ve STEJNÉM průchodu jako loss (žádný forward navíc)
+            int correct = 0;
+            int total = 0;
+
+            if (_model.Context.SequenceTrain)
+            {
+                for (int i = 0; i < validInputs.Shape[0]; i++)
                 {
-                    model.ResetSequence();
-                    for (int j = 0; j < ValidData_inputs.Shape[1]; j++)
+                    _model.ResetSequence();
+                    for (int j = 0; j < validInputs.Shape[1]; j++)
                     {
-                        model.GetResults(ValidData_inputs.GetTensorValue(new int[] { i, j }));
-                        lossFunc.CalculateLoss(model.Layers.Layers[model.Layers.Layers.Count() - 1].Layer_output.Data, ValidData_current_output.GetTensorValue(new int[] { i, j }).Data);
+                        Tensor output = _model.GetResults(validInputs.GetTensorValue([i, j]));
+                        double[] target = validOutputs.GetTensorValue([i, j]).Data;
+                        lossFunc.CalculateLoss(output.Data, target);
+                        if (IsPredictionCorrect(output.Data, target)) correct++;
+                        total++;
                     }
                 }
             }
 
             else
             {
-                for (int i = 0; i < ValidData_inputs.Shape[0]; i++)
+                for (int i = 0; i < validInputs.Shape[0]; i++)
                 {
-                    model.GetResults(ValidData_inputs.GetTensorValue(new int[] { i }));
-                    lossFunc.CalculateLoss(model.Layers.Layers[model.Layers.Layers.Count() - 1].Layer_output.Data, ValidData_current_output.GetTensorValue(new int[] { i}).Data);
+                    Tensor output = _model.GetResults(validInputs.GetTensorValue([i]));
+                    double[] target = validOutputs.GetTensorValue([i]).Data;
+                    lossFunc.CalculateLoss(output.Data, target);
+                    if (IsPredictionCorrect(output.Data, target)) correct++;
+                    total++;
                 }
             }
 
+            double validAccuracy = total > 0 ? (double)correct / total * 100.0 : 0;
+
             ExtraControlFunc(loss);
-            ConsoleControler.ShowEpochInfo(model, loss);
+            ConsoleControler.ShowEpochInfo(_model, loss, validAccuracy: validAccuracy);
         }
 
         private async Task TrainLoopControlFuncAsync()
         {
-            Loss lossFunc = model.Context.Loss;
-            List<double> layerOutput = new List<double>();
+            Loss lossFunc = _model.Context.Loss;
+            List<double> layerOutput = [];
 
             double loss = lossFunc.GetResetAverageLossPerIteration();
-            if (model.Context.SequenceTrain)
+            // Stejný non-null kontrakt jako v synchronní verzi: guard + non-null lokály,
+            // výstup z návratové hodnoty GetResultsAsync (nikdy null).
+            if (ValidDataInputs == null || ValidDataCurrentOutput == null)
             {
-                for (int i = 0; i < ValidData_inputs.Shape[0]; i++)
+                throw new InvalidOperationException("Valid data nejsou nastavena (DividingDataIntoDatasets) — nelze spočítat valid loss.");
+            }
+
+            Tensor validInputs = ValidDataInputs;
+            Tensor validOutputs = ValidDataCurrentOutput;
+
+            if (_model.Context.SequenceTrain)
+            {
+                for (int i = 0; i < validInputs.Shape[0]; i++)
                 {
-                    model.ResetSequence();
-                    for (int j = 0; j < ValidData_inputs.Shape[1]; j++)
+                    _model.ResetSequence();
+                    for (int j = 0; j < validInputs.Shape[1]; j++)
                     {
-                        Tensor output = await model.GetResultsAsync(ValidData_inputs.GetTensorValue(new int[] { i, j }));
-                        lossFunc.CalculateLoss(output.Data, ValidData_current_output.GetTensorValue(new int[] { i, j }).Data);
+                        Tensor output = await _model.GetResultsAsync(validInputs.GetTensorValue([i, j]));
+                        lossFunc.CalculateLoss(output.Data, validOutputs.GetTensorValue([i, j]).Data);
                     }
                 }
             }
 
             else
             {
-                Task[] tasks = new Task[ValidData_inputs.Shape[0]];
+                Task[] tasks = new Task[validInputs.Shape[0]];
 
-                for (int i = 0; i < ValidData_inputs.Shape[0]; i++)
+                for (int i = 0; i < validInputs.Shape[0]; i++)
                 {
                     int index = i;
                     tasks[index] = Task.Run(async () =>
                     {
-                        Tensor output = await model.GetResultsAsync(ValidData_inputs.GetTensorValue(new int[] { index }));
-                        double lossOutput = lossFunc.CalculateAndGetLoss(output.Data, ValidData_current_output.GetTensorValue(new int[] { index }).Data);
+                        Tensor output = await _model.GetResultsAsync(validInputs.GetTensorValue([index]));
+                        double lossOutput = lossFunc.CalculateAndGetLoss(output.Data, validOutputs.GetTensorValue([index]).Data);
 
                         if (lossOutput is not double.NaN)
                         {
@@ -780,62 +929,80 @@ namespace My_DNN
 
 
             ExtraControlFunc(loss);
-            if (model.Context.SequenceTrain)
+            if (_model.Context.SequenceTrain)
             {
-                ConsoleControler.ShowEpochInfo(model, loss);
+                ConsoleControler.ShowEpochInfo(_model, loss);
             }
             else
             {
-                ConsoleControler.ShowEpochInfo(model, loss, layerOutput.Sum() / layerOutput.Count());
+                ConsoleControler.ShowEpochInfo(_model, loss, layerOutput.Sum() / layerOutput.Count());
             }
 
         }
 
         private void ExtraControlFunc(double loss)
         {
-            Loss lossFunc = model.Context.Loss;
+            Loss lossFunc = _model.Context.Loss;
 
             if (loss is double.NaN || lossFunc.GetAverageLossPerIteration() is double.NaN)
             {
-                GraphPlotter.ShowLossGraph(listOfepoch.ToArray(), listOfTrainLoss.ToArray(), listOfValidLoss.ToArray());
+                GraphPlotter.ShowLossGraph(_listOfepoch.ToArray(), _listOfTrainLoss.ToArray(), _listOfValidLoss.ToArray());
                 ConsoleControler.ErrorHandler("NaN value in output", "The output from the neural network is either too small or too large, hence the value of nan. Please try other values ​​in the training parameters (for example: learning rate or hyperammetry )", true);
                 return;
             }
 
-            if (epoch >= ((totalEpoch / Number_Of_Show_Epoch_In_Console) * Number_of_skip_frist_Epoch_in_plotter))
+            if (_epoch >= ((_totalEpoch / NumberOfShowEpochInConsole) * NumberOfSkipFristEpochInPlotter))
             {
-                listOfepoch.Add((int)epoch);
-                listOfTrainLoss.Add(loss);
-                listOfValidLoss.Add(lossFunc.GetAverageLossPerIteration());
+                _listOfepoch.Add((int)_epoch);
+                _listOfTrainLoss.Add(loss);
+                _listOfValidLoss.Add(lossFunc.GetAverageLossPerIteration());
             }
 
             double validLoss = lossFunc.GetAverageLossPerIteration();
 
-            if (AutoSaveInTrainLoop && (validLoss < lowestLoss))
+            // zlepšení = pokles valid loss o víc než minDelta. Jen tehdy aktualizujeme nejlepší:
+            // nejlepší model si držíme VŽDY (in-memory snapshot) — na konci se obnoví;
+            // na disk zapisujeme jen když AutoSave (crash/NaN recovery, reuse na příště).
+            if (validLoss < _lowestLoss - EarlyStoppingMinDelta)
             {
-                lowestLoss = validLoss;
-                model.SaveAsJson(AutoSaveInTrainLoopFileName);
+                _lowestLoss = validLoss;
+                _bestEpoch = _epoch;
+                _bestSnapshot = _model.SaveAsJsonString();
+                _reportsWithoutImprovement = 0;
+
+                if (AutoSaveInTrainLoop)
+                {
+                    _model.SaveAsJson(AutoSaveInTrainLoopFileName);
+                }
+            }
+            else
+            {
+                _reportsWithoutImprovement++;
+                if (EarlyStoppingEnabled && _reportsWithoutImprovement >= EarlyStoppingPatience)
+                {
+                    _stopEarly = true;
+                }
             }
         }
 
-        private void Propagation(Tensor[] layer_gradients)
+        private void Propagation(Tensor[] layerGradients)
         {
-            for (int i = 0; i < model.Layers.Layers.Count(); i++)
+            for (int i = 0; i < _model.Layers.Layers.Count(); i++)
             {
-                model.Layers.Layers[i].BackPropagation(layer_gradients[i]);
+                _model.Layers.Layers[i].BackPropagation(layerGradients[i]);
             }
         }
 
-        private async Task PropagationAsync(Tensor[] layer_gradients)
+        private async Task PropagationAsync(Tensor[] layerGradients)
         {
-            Task[] tasks = new Task[model.Layers.Layers.Count()];
+            Task[] tasks = new Task[_model.Layers.Layers.Count()];
 
-            for (int i = 0; i < model.Layers.Layers.Count(); i++)
+            for (int i = 0; i < _model.Layers.Layers.Count(); i++)
             {
                 int index = i;
                 tasks[index] = Task.Run(async () =>
                 {
-                    await model.Layers.Layers[index].BackPropagationAsync(layer_gradients[index]);
+                    await _model.Layers.Layers[index].BackPropagationAsync(layerGradients[index]);
                 });
             }
 
@@ -843,4 +1010,5 @@ namespace My_DNN
         }
 
     }
+    
 }

@@ -6,15 +6,15 @@ namespace My_DNN
 {
     public static class ConsoleControler
     {
-        private static DateTime time;
+        private static DateTime _time;
 
-        private static uint lastEpochInfo = 0;
+        private static uint _lastEpochInfo = 0;
 
         public static void ShowModelInfo(MDNN model)
         {
             int totalParams = 0;
 
-            if (model.Layers.Layers.Count() > 0)
+            if (model.Layers.Layers.Count != 0)
             {
                 Console.WriteLine($"Number of input : {string.Join(", ", model.Layers.Layers[0].Input_size_and_shape) }");
                 Console.WriteLine($"Number of output: {string.Join(", ", model.Layers.Layers[model.Layers.Layers.Count() - 1].Output_size_and_shape)}");
@@ -39,78 +39,78 @@ namespace My_DNN
             Console.WriteLine("|                                          | Schema layers |                                                       |");
             Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
 
-            int number_of_layer = 0;
+            int numberOfLayer = 0;
             bool isEmptyInput = false;
 
             foreach (Layer layer in model.Layers.Layers)
             {
 
                 string shapeString;
-                number_of_layer++;
+                numberOfLayer++;
                 switch (layer)
                 {
-                    case Dense:
-                        totalParams += ((Dense)layer).Neurons.Count * ((Dense)layer).Input_size_and_shape[0] + ((Dense)layer).Neurons.Count;
-                        if (((Dense)layer).Input_size_and_shape[0] == 0)
+                    case Dense dense:
+                        totalParams += dense.Neurons.Count * dense.Input_size_and_shape[0] + dense.Neurons.Count;
+                        if (dense.Input_size_and_shape[0] == 0)
                         {
                             shapeString = "unknow";
                             isEmptyInput = true;
                         }
                         else
                         {
-                            shapeString = ((Dense)layer).Input_size_and_shape[0].ToString();
+                            shapeString = dense.Input_size_and_shape[0].ToString();
                         }
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
-                        Console.WriteLine($"| {number_of_layer}. Name: {layer.Name} | Number of neurons: {((Dense)layer).Neurons.Count} | Number of inputs: {shapeString} | Activation func: {((Dense)layer).Activation_Func.Name} |");
+                        Console.WriteLine($"| {numberOfLayer}. Name: {dense.Name} | Number of neurons: {dense.Neurons.Count} | Number of inputs: {shapeString} | Activation func: {dense.Activation_Func.Name} |");
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
                         break;
-                    case RNN:
-                        totalParams += ((RNN)layer).Neurons.Count * (((RNN)layer).Input_size_and_shape[0] + 1) + ((RNN)layer).Neurons.Count;
-                        if (((RNN)layer).Input_size_and_shape[0] == 0)
+                    case RNN rnn:
+                        totalParams += rnn.Neurons.Count * (rnn.Input_size_and_shape[0] + 1) + rnn.Neurons.Count;
+                        if (rnn.Input_size_and_shape[0] == 0)
                         {
                             shapeString = "unknow";
                             isEmptyInput = true;
                         }
                         else
                         {
-                            shapeString = ((RNN)layer).Input_size_and_shape[0].ToString();
+                            shapeString = rnn.Input_size_and_shape[0].ToString();
                         }
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
-                        Console.WriteLine($"| {number_of_layer}. Name: {layer.Name} | Number of neurons: {((RNN)layer).Neurons.Count} | Number of inputs: {((RNN)layer).Input_size_and_shape[0]} (+ {((RNN)layer).Input_size_and_shape[0]} Recurrents inputs) | Activation func: {((RNN)layer).Activation_Func.Name} |");
+                        Console.WriteLine($"| {numberOfLayer}. Name: {rnn.Name} | Number of neurons: {rnn.Neurons.Count} | Number of inputs: {rnn.Input_size_and_shape[0]} (+ {rnn.Input_size_and_shape[0]} Recurrents inputs) | Activation func: {rnn.Activation_Func.Name} |");
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
                         break;
-                    case Conv:
-                        totalParams += (((Conv)layer).Kernel[0].Count() * ((Conv)layer).Kernel[0][0].Count() * ((Conv)layer).Kernel[0][0][0].Count()) + ((Conv)layer).Biases.Length;
+                    case Conv conv:
+                        totalParams += (conv.Kernel[0].Count() * conv.Kernel[0][0].Count() * conv.Kernel[0][0][0].Count()) + conv.Biases.Length;
 
-                        if (((Conv)layer).Output_size_and_shape.Length == 1)
+                        if (conv.Output_size_and_shape.Length == 1)
                         {
                             shapeString = "unknow";
                             isEmptyInput = true;
                         }
                         else
                         {
-                            shapeString = $"[{((Conv)layer).Output_size_and_shape[0]},{((Conv)layer).Output_size_and_shape[1]},{((Conv)layer).Output_size_and_shape[2]}]";
+                            shapeString = $"[{conv.Output_size_and_shape[0]},{conv.Output_size_and_shape[1]},{conv.Output_size_and_shape[2]}]";
                         }
 
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
-                        Console.WriteLine($"| {number_of_layer}. Name: {layer.Name} | Number of kernels: {((Conv)layer).Kernel.Count()} | Kernel size:{((Conv)layer).Kernel[0].Count()}*{((Conv)layer).Kernel[0][0].Count()} | Output shape: {shapeString} | Activation func: {((Conv)layer).Activation_Func.Name} |");
+                        Console.WriteLine($"| {numberOfLayer}. Name: {conv.Name} | Number of kernels: {conv.Kernel.Count()} | Kernel size:{conv.Kernel[0].Count()}*{conv.Kernel[0][0].Count()} | Output shape: {shapeString} | Activation func: {conv.Activation_Func.Name} |");
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
                         break;
-                    case MaxPool:
+                    case MaxPool pool:
 
 
-                        if (((MaxPool)layer).Output_size_and_shape.Length == 1)
+                        if (pool.Output_size_and_shape.Length == 1)
                         {
                             shapeString = "unknow";
                             isEmptyInput = true;
                         }
                         else
                         {
-                            shapeString = $"[{((MaxPool)layer).Output_size_and_shape[0]},{((MaxPool)layer).Output_size_and_shape[1]},{((MaxPool)layer).Output_size_and_shape[2]}]";
+                            shapeString = $"[{pool.Output_size_and_shape[0]},{pool.Output_size_and_shape[1]},{pool.Output_size_and_shape[2]}]";
                         }
 
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
-                        Console.WriteLine($"| {number_of_layer}. Name: {layer.Name} | PoolSize: {((MaxPool)layer).PoolSize} * {((MaxPool)layer).PoolSize} | stride: {((MaxPool)layer).PoolSize} | Output shape: {shapeString}  ");
+                        Console.WriteLine($"| {numberOfLayer}. Name: {pool.Name} | PoolSize: {pool.PoolSize} * {pool.PoolSize} | stride: {pool.PoolSize} | Output shape: {shapeString}  ");
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
                         break;
                     default:
@@ -130,52 +130,64 @@ namespace My_DNN
             else
             {
                 Console.WriteLine($"Total trainable params: {totalParams}");
-                Console.WriteLine($"Current epoch: {model.Train.Current_epoch}");
-                Console.WriteLine($"Target epoch: {model.Train.Total_epoch}");
-                Console.WriteLine($"Size of mini batch: {model.Train.Mini_batch}");
+                Console.WriteLine($"Current epoch: {model.Train.CurrentEpoch}");
+                Console.WriteLine($"Target epoch: {model.Train.TotalEpoch}");
+                Console.WriteLine($"Size of mini batch: {model.Train.MiniBatch}");
             }
 
             Console.WriteLine();
         }
 
 
-        public static void ShowEpochInfo(MDNN model,double? TrainLoss = null, double? ValidLoss = null)
+        public static void ShowEpochInfo(MDNN model,double? trainLoss = null, double? validLoss = null, double? validAccuracy = null)
         {
             DateTime timeNow = DateTime.Now;
 
             TimeSpan subTime; 
             TimeSpan estimatedCompletionTime;
 
-            uint pastEpochs = model.Train.Current_epoch - lastEpochInfo;
+            uint pastEpochs = model.Train.CurrentEpoch - _lastEpochInfo;
 
-            lastEpochInfo = model.Train.Current_epoch;
+            _lastEpochInfo = model.Train.CurrentEpoch;
 
-            if (time == DateTime.MinValue) 
+            if (_time == DateTime.MinValue) 
             {
                 subTime = TimeSpan.Zero;
                 estimatedCompletionTime = TimeSpan.Zero;
             }
             else
             {
-                subTime = timeNow - time;
-                estimatedCompletionTime = (subTime * (model.Train.Total_epoch - model.Train.Current_epoch)) / pastEpochs;
+                subTime = timeNow - _time;
+                estimatedCompletionTime = (subTime * (model.Train.TotalEpoch - model.Train.CurrentEpoch)) / pastEpochs;
             }
             Console.WriteLine("########################################################################");
-            Console.WriteLine($"Epoch: {model.Train.Current_epoch} / {model.Train.Total_epoch} {(model.Train.Current_epoch / (float)model.Train.Total_epoch) * 100} %");
+            Console.WriteLine($"Epoch: {model.Train.CurrentEpoch} / {model.Train.TotalEpoch} {(model.Train.CurrentEpoch / (float)model.Train.TotalEpoch) * 100} %");
             Console.WriteLine();
-            if(TrainLoss == null )
+            if(trainLoss == null )
             {
                 Console.WriteLine($"Loss:{model.Loss.GetResetAverageLossPerIteration()}");
             }
-            else if (ValidLoss == null)
+            else if (validLoss == null)
             {
+                Console.WriteLine($"Train Loss:{trainLoss}");
                 Console.WriteLine($"Valid Loss:{model.Loss.GetResetAverageLossPerIteration()}");
-                Console.WriteLine($"Train Loss:{TrainLoss}");
             }
             else
             {
-                Console.WriteLine($"Valid Loss:{ValidLoss}");
-                Console.WriteLine($"Train Loss:{TrainLoss}");
+                Console.WriteLine($"Train Loss:{trainLoss}");
+                Console.WriteLine($"Valid Loss:{validLoss}");
+                
+            }
+
+            if (validAccuracy != null)
+            {
+                Console.WriteLine($"Valid accuracy: {validAccuracy:0.00} %");
+            }
+
+            // nejlepší valid loss zatím + epocha, kde padl (vynech, dokud žádný report neproběhl)
+            if (model.Train.LowestValidLoss != double.MaxValue)
+            {
+                Console.WriteLine($"Best valid loss: {model.Train.LowestValidLoss} @ epoch {model.Train.BestEpoch}");
             }
 
             Console.WriteLine();
@@ -185,7 +197,7 @@ namespace My_DNN
             Console.WriteLine();
             
 
-            time = DateTime.Now;
+            _time = DateTime.Now;
         }
 
         public static void ShowScoreOfmodel(int score,int maxScore)
@@ -198,19 +210,37 @@ namespace My_DNN
             Console.WriteLine($"Number of mistyped samples tested: {maxScore - score}");
             Console.WriteLine();
         }
+        
+        public static void ShowComplexScoreOfmodel((int,int) test, (int,int) train,(int,int) valid)
+        {
+            Console.WriteLine();
+            Console.WriteLine("------------- Model Score ------------- ");
+            Console.WriteLine($"Precision on test dataset: {(float)((float)(test.Item1) / (float)(test.Item2)) * 100}%");
+            Console.WriteLine($"Total number of samples tested on test dataset: {test.Item2}");
+            Console.WriteLine($"Number of correctly guessed tested samples on test dataset: {test.Item1}");
+            Console.WriteLine($"Number of mistyped samples tested on test dataset: {test.Item2 - test.Item1}");
+            Console.WriteLine();
+            Console.WriteLine($"Precision on train dataset: {(float)((float)(train.Item1) / (float)(train.Item2)) * 100}%");
+            Console.WriteLine($"Precision on valid dataset: {(float)((float)(valid.Item1) / (float)(valid.Item2)) * 100}%");
+            Console.WriteLine();
+        }
+
+        public static void ShowEarlyStopping(uint epoch, uint patience, double bestLoss, uint bestEpoch)
+        {
+            Console.WriteLine();
+            Console.WriteLine("------------- Early stopping ------------- ");
+            Console.WriteLine($"Training stopped at epoch {epoch}: {patience} valid reports without improvement.");
+            Console.WriteLine($"Best valid loss: {bestLoss} @ epoch {bestEpoch}");
+            Console.WriteLine();
+        }
 
 
         public static void ErrorHandler(string name, string description, bool fatalError = false)
         {
             Console.WriteLine();
-            if (fatalError)
-            {
-                Console.WriteLine("----------------------  !Fatal Error!  ---------------------- ");
-            }
-            else
-            {
-                Console.WriteLine("----------------------   Error  ---------------------- ");
-            }
+            Console.WriteLine(fatalError
+                ? "----------------------  !Fatal Error!  ---------------------- "
+                : "----------------------   Error  ---------------------- ");
             Console.WriteLine($"Name: {name}");
             Console.WriteLine($"Description: {description} ");
 
@@ -220,7 +250,7 @@ namespace My_DNN
             }
         }
 
-        private static string writeSpace(int x, int y)
+        private static string WriteSpace(int x, int y)
         {
             string res = "";
             for (int j = x; j < y; j++)

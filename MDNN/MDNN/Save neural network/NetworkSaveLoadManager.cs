@@ -24,9 +24,9 @@ namespace My_DNN.Save_neural_network
         public NetworkSaveLoadManager(MDNN model)
         {
             Schema = model.Schema;
-            Current_epoch = model.Train.Current_epoch;
-            Target_epoch = model.Train.Total_epoch;
-            Mini_batch = model.Train.Mini_batch;
+            Current_epoch = model.Train.CurrentEpoch;
+            Target_epoch = model.Train.TotalEpoch;
+            Mini_batch = model.Train.MiniBatch;
             Loss_functions = model.Loss.Name;
             Valid_Loss = model.Loss.GetAverageLossPerIteration();
             Note = model.Note;
@@ -64,29 +64,30 @@ namespace My_DNN.Save_neural_network
         {
         }
 
-        public void Save(string fileName)
+        // jádro serializace (bez souboru) — reuse pro disk i pro in-memory snapshot
+        public string SaveToString()
         {
             var options = new JsonSerializerOptions
             {
                 WriteIndented = true,
                 Converters = { new LayerConverter() }  // Přidání konvertoru pro vrstvy
             };
-            string json = System.Text.Json.JsonSerializer.Serialize(this, options);
-            
-            File.WriteAllText(@$"{fileName}.json", json);
+            return System.Text.Json.JsonSerializer.Serialize(this, options);
         }
 
-        public static NetworkSaveLoadManager Load(string fullPath)
+        public void Save(string fileName)
         {
-            NetworkSaveLoadManager? model;
+            File.WriteAllText(@$"{fileName}.json", SaveToString());
+        }
 
-            string json = File.ReadAllText(fullPath);
+        public static NetworkSaveLoadManager LoadFromString(string json)
+        {
             JsonSerializerOptions options = new JsonSerializerOptions
             {
                 Converters = { new LayerConverter() }  // Přidání konvertoru pro vrstvy
             };
 
-            model = System.Text.Json.JsonSerializer.Deserialize<NetworkSaveLoadManager>(json, options);
+            NetworkSaveLoadManager? model = System.Text.Json.JsonSerializer.Deserialize<NetworkSaveLoadManager>(json, options);
 
             if (model != null)
             {
@@ -97,6 +98,11 @@ namespace My_DNN.Save_neural_network
             {
                 throw new ArgumentException("Bad format of file");
             }
+        }
+
+        public static NetworkSaveLoadManager Load(string fullPath)
+        {
+            return LoadFromString(File.ReadAllText(fullPath));
         }
 
 
