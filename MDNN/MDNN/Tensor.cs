@@ -136,22 +136,26 @@
                 isjagged = true;
             }
 
-            if (elementType?.Name == "Int" || elementType?.Name == "Float" || elementType?.Name == "Double")
+            // Porovnání na typ, ne na název: .NET jména jsou "Int32"/"Single"/"Double",
+            // takže dřívější test na "Int"/"Float" nikdy neprošel a int i float vstupy
+            // knihovna odmítala — přestože je vlastní chybová hláška slibuje.
+            if (elementType == typeof(double))
             {
-                if (isjagged)
-                {
-                    return new Tensor(ConvertJaggedToMulti(array));
-                }
-                else
-                {
-                    return new Tensor(array);
-                }
-                
+                return isjagged ? new Tensor(ConvertJaggedToMulti(array)) : new Tensor(array);
             }
-            else
+
+            if (elementType == typeof(int) || elementType == typeof(float))
             {
-                throw new Exception("invalid type on input array, it can be only `int`,`double`,`float`");
+                // int/float převedeme na double: tvar + plochá data (vnitřně počítáme v double,
+                // a Conv/MaxPool si přetypovávají GetOriginalData() na double[,,]).
+                int[] shape = isjagged
+                    ? GetJaggedShape(array)
+                    : Enumerable.Range(0, array.Rank).Select(array.GetLength).ToArray();
+
+                return new Tensor(FlattenArray(array), shape);
             }
+
+            throw new Exception("invalid type on input array, it can be only `int`,`double`,`float`");
         }
 
         private static int[] GetJaggedShape(Array array)
@@ -186,7 +190,9 @@
             }
         }
 
-        private double[] FlattenArray(Array array)
+        // static: používá i ConvertArrayToTensor při převodu int/float vstupů.
+        // foreach nad Array projde multidim pole v row-major pořadí, jagged se řeší rekurzí.
+        private static double[] FlattenArray(Array array)
         {
             List<double> flatList = new List<double>();
             foreach (var item in array)

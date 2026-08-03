@@ -25,6 +25,18 @@ namespace My_DNN
         public uint NumberOfSkipFristEpochInPlotter = 0;
         public uint NumberOfShowEpochInConsole = 100;
 
+        // Po kolika epochách reportovat. Dřív se počítalo inline jako
+        // `_totalEpoch / NumberOfShowEpochInConsole` a klamp se zapisoval PŘÍMO do veřejného
+        // NumberOfShowEpochInConsole → trénink si uživatelovo nastavení natrvalo přepsal
+        // (po 5 epochách zůstalo 5 i pro další trénink na 5000 epoch).
+        private uint _reportInterval = 1;
+
+        // Stav pro odhad zbývajícího času. DŘÍV to byly statiky v ConsoleControleru →
+        // druhý trénink v procesu viděl hodnoty z prvního, vyšlo pastEpochs == 0 a
+        // (subTime * n) / 0 hodilo OverflowException. Per-instance + reset na začátku běhu.
+        internal DateTime LastReportTime = DateTime.MinValue;
+        internal uint LastReportEpoch = 0;
+
         public bool ShowLossChartInTrainLoop = true;
         public bool TestNeuralNetworkAfterTraining = true;
         public bool ShowModelInfoIntrainLoop = true;
@@ -419,7 +431,7 @@ namespace My_DNN
 
                 UpdateParams();
 
-                if (epoch % (_totalEpoch/ NumberOfShowEpochInConsole) == 0)
+                if (epoch % _reportInterval == 0)
                 {
                     TrainLoopControlFunc();
                     if (_stopEarly)
@@ -498,7 +510,7 @@ namespace My_DNN
 
                 await UpdateParamsAsync();
 
-                if (epoch % (_totalEpoch / NumberOfShowEpochInConsole) == 0)
+                if (epoch % _reportInterval == 0)
                 {
                     await TrainLoopControlFuncAsync();
                     if (_stopEarly)
@@ -535,10 +547,7 @@ namespace My_DNN
             this._sizeOfMiniBatch = sizeOfMiniBatch;
             _totalEpoch = numberOfEpoch;
             
-            if (NumberOfShowEpochInConsole <= 0)
-                NumberOfShowEpochInConsole = 1;
-            else if (NumberOfShowEpochInConsole > _totalEpoch)
-                NumberOfShowEpochInConsole = _totalEpoch;
+            ResolveReportInterval();
 
 
             _model.Context.InputShape = [inputsValues[0].Length];
@@ -557,7 +566,7 @@ namespace My_DNN
 
                 UpdateParams();
 
-                if (epoch % (_totalEpoch / NumberOfShowEpochInConsole) == 0)
+                if (epoch % _reportInterval == 0)
                 {
                     double loss = _model.Context.Loss.GetAverageLossPerIteration();
                     if (loss is not double.NaN)
@@ -656,14 +665,29 @@ namespace My_DNN
             _reportsWithoutImprovement = 0;
             _stopEarly = false;
 
-            if (NumberOfShowEpochInConsole <= 0)
+            ResolveReportInterval();
+        }
+
+        // Přeloží uživatelské „kolikrát chci report" na „po kolika epochách reportovat".
+        // Klamp jde do privátního _reportInterval, veřejné nastavení zůstane nedotčené.
+        // Zároveň reset stavu ETA, aby druhý trénink nepočítal z časů toho prvního.
+        private void ResolveReportInterval()
+        {
+            uint reports = NumberOfShowEpochInConsole;
+
+            if (reports < 1)
             {
-                NumberOfShowEpochInConsole = 1;
+                reports = 1;
             }
-            else if (NumberOfShowEpochInConsole > _totalEpoch)
+            else if (reports > _totalEpoch)
             {
-                NumberOfShowEpochInConsole = _totalEpoch;
+                reports = _totalEpoch;
             }
+
+            _reportInterval = (_totalEpoch == 0 || reports == 0) ? 1 : Math.Max(1u, _totalEpoch / reports);
+
+            LastReportTime = DateTime.MinValue;
+            LastReportEpoch = 0;
         }
 
         private void CheckLayersAreNotEmpty()
@@ -995,7 +1019,7 @@ namespace My_DNN
                 return;
             }
 
-            if (_epoch >= ((_totalEpoch / NumberOfShowEpochInConsole) * NumberOfSkipFristEpochInPlotter))
+            if (_epoch >= (_reportInterval * NumberOfSkipFristEpochInPlotter))
             {
                 _listOfepoch.Add((int)_epoch);
                 _listOfTrainLoss.Add(loss);

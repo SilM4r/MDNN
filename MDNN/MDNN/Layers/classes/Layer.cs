@@ -18,6 +18,17 @@
         abstract public void UpdateParams();
         abstract public void LayerAdjustment(int? number_of_elements = null, int[]? number_of_input = null);
 
+        // Gradient shora pro VÝSTUPNÍ vrstvu. Prostřední vrstvy si vnitřní stav pro backward
+        // (Conv.dOutput, RNN.gImm) naplní v CalculateLayerGradients — jenže tu poslední vrstva
+        // nikdy nedostane (Gradient jede jen count-2..0), takže bez tohohle hooku zůstal její
+        // stav nulový a vrstva se TIŠE neučila.
+        //
+        // `dLossDOutput[i]` = ∂L/∂output_i, tedy BEZ derivace aktivace — každá vrstva si ji
+        // dodá podle své konvence (Conv ano, RNN ne, protože RTRL citlivosti ji už obsahují).
+        // Default je no-op: Dense i MaxPool tenhle stav nemají, Dense.BackPropagation pracuje
+        // rovnou se svým argumentem.
+        virtual public void SeedOutputGradient(double[] dLossDOutput) { }
+
         virtual public async Task<Tensor> FeedForwardAsync(Tensor input_values)
         {
             return FeedForward(input_values);

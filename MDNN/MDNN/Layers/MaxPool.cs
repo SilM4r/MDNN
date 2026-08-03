@@ -277,6 +277,15 @@ namespace My_DNN.Layers
 
         public override void LayerAdjustment(int? number_of_elements = null, int[]? input_Shape = null)
         {
+            // Stejná pojistka jako u Conv: tvar vstupu ještě není známý (placeholder z Insert/Add).
+            // Bez ní se počítalo (0 - poolSize)/poolSize + 1 → záporný rozměr → pád při alokaci.
+            if (input_Shape != null && input_Shape.Any(d => d <= 0))
+            {
+                inputsShape = new int[] { 0 };
+                outputShape = new int[] { 0 };
+                return;
+            }
+
             if (number_of_elements != null)
             {
                 poolSize = (int)number_of_elements;

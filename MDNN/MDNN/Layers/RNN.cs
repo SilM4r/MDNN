@@ -17,7 +17,11 @@ namespace My_DNN.Layers
         public override Activation_func Activation_Func
         {
             get { return activation_func; }
-            set { activation_func = value; }
+            set
+            {
+                activation_func = value;
+                CheckIsActivationFuncIsNotApplyToLayer();
+            }
         }
 
         private int[] input_size;
@@ -36,6 +40,7 @@ namespace My_DNN.Layers
         public RNN(ExportRnnLayer layer)
         {
             activation_func = Activation_func.inicialization_activation_func(layer.Name_of_activation_function);
+            CheckIsActivationFuncIsNotApplyToLayer();
             output = new double[layer.Neurons.Count()];
             raw_output = new double[layer.Neurons.Count()];
 
@@ -59,6 +64,7 @@ namespace My_DNN.Layers
 
             // aktivace: default když nezadaná; input size + neurony dopočítá LayerAdjustment (při připojení k modelu)
             this.activation_func = activation_func ?? GeneralNeuralNetworkSettings.default_hidden_layers_activation_func;
+            CheckIsActivationFuncIsNotApplyToLayer();
             input_size = new int[] { 0 };
 
             output = new double[number_of_neuron];
@@ -71,6 +77,21 @@ namespace My_DNN.Layers
                 neurons.Add(new Neuron(input_size[0] + 1, this.activation_func));   // placeholder, přepíše LayerAdjustment
             }
 
+        }
+
+        // Vrstvová aktivace (softmax) na RNN byla rozbitá: ApplyToLayer se aplikovalo na
+        // `output`, tedy na hodnoty, které UŽ prošly per-neuronovou aktivací (dvojitá
+        // aktivace), zatímco raw_output i RTRL citlivosti zůstaly z předsoftmaxové cesty.
+        // Než to dostane vlastní návrh, radši explicitní chyba než tichý nesmysl.
+        // Stejná politika jako u Conv (CheckIsActivationFuncIsNotApplyToLayer).
+        private void CheckIsActivationFuncIsNotApplyToLayer()
+        {
+            if (activation_func.Apply_to_layer)
+            {
+                throw new ArgumentException(
+                    "Na RNN vrstvu zatím nelze použít aktivaci působící na celou vrstvu (např. Softmax). " +
+                    "Použij např. Tanh() nebo ReLu(); softmax dej na navazující Dense vrstvu.");
+            }
         }
 
         public void ResetSequence()
@@ -167,24 +188,27 @@ namespace My_DNN.Layers
                 sB[i] = actD * (1.0 + r * sB[i]);                                     // ∂z/∂bias = 1
             }
 
-            if (activation_func.Apply_to_layer)
+            return new Tensor(output);
+        }
+
+        // RNN jako VÝSTUPNÍ vrstva: gImm se jinak nemá kde vzít (CalculateLayerGradients
+        // se pro poslední vrstvu nevolá). BEZ derivace aktivace — RTRL citlivosti sW/sB
+        // ji už obsahují (viz FeedForward: sW[i][k] = actD · (...)), takže by se aplikovala
+        // dvakrát. Stejná konvence jako gImm[j] v CalculateLayerGradients.
+        public override void SeedOutputGradient(double[] dLossDOutput)
+        {
+            EnsureSensitivities();
+
+            if (dLossDOutput.Length != neurons.Count)
             {
-                LayerActivationFunc? layerActivationFunc = activation_func as LayerActivationFunc;
-
-                if (layerActivationFunc == null)
-                {
-                    throw new ArgumentException("Bad activation func");
-                }
-
-                output = layerActivationFunc.ApplyToLayer(output);
-
-                for (int i = 0; i < neurons.Count(); i++)
-                {
-                    neurons[i].output = output[i];
-                }
+                throw new ArgumentException(
+                    $"Gradient shora má {dLossDOutput.Length} prvků, vrstva {neurons.Count} neuronů.");
             }
 
-            return new Tensor(output);
+            for (int i = 0; i < neurons.Count; i++)
+            {
+                gImm[i] = dLossDOutput[i];
+            }
         }
 
         public override void BackPropagation(Tensor tenosorDe)

@@ -123,6 +123,12 @@ namespace My_DNN
 
         public void Update_weights_bias()
         {
+            // Prázdná dávka je legitimní stav (UpdateParams bez předchozího backpropu).
+            // Bez tohohle se dělilo nulou → 0/0 = NaN → tiše celý model NaN.
+            if (mini_batch_size == 0)
+            {
+                return;
+            }
 
             for (int i = 0; i < Weights.Count(); i++)
             {

@@ -192,11 +192,18 @@ namespace My_DNN.Layers
         }
         public override Tensor CalculateLayerGradients(Tensor nextLayerE, Layer nextLayer)
         {
+            // Krok 1: gradient shora vůči VÝSTUPU této vrstvy (∂L/∂output), bez derivace aktivace.
+            double[] gradFromAbove = GradientFromAbove(nextLayerE.Data, nextLayer);
 
-            double[] next_layer_e = nextLayerE.Data;
+            // Krok 2: přes derivaci aktivace na ∂L/∂raw_output.
+            return new Tensor(ApplyActivationBackward(gradFromAbove));
+        }
 
-            double de = 0;
-            double[] e = new double[Neurons.Count()];
+        // ∂L/∂output_j. Když je další vrstva neuronová, projde se přes její váhy;
+        // jinak (Conv/MaxPool) přichází gradient rovnou po prvcích.
+        private double[] GradientFromAbove(double[] next_layer_e, Layer nextLayer)
+        {
+            double[] gradFromAbove = new double[Neurons.Count()];
 
             LayerBasedOnNeurons? nextlayer = nextLayer as LayerBasedOnNeurons;
 
@@ -204,27 +211,48 @@ namespace My_DNN.Layers
             {
                 for (int j = 0; j < Neurons.Count(); j++)
                 {
+                    double de = 0;
                     for (int k = 0; k < nextlayer.Neurons.Count(); k++)
                     {
                         de += next_layer_e[k] * nextlayer.Neurons[k].Weights[j];
                     }
-
-                    Neuron neuron = Neurons[j];
-
-                    de = de * neuron.activation_func.Derivative(neuron.raw_output);
-                    e[j] = de;
-                    de = 0;
+                    gradFromAbove[j] = de;
                 }
             }
             else
             {
-                for(int j = 0;j < Neurons.Count(); j++)
+                for (int j = 0; j < Neurons.Count(); j++)
                 {
-                    Neuron neuron = Neurons[j];
-                    e[j] = next_layer_e[j] * neuron.activation_func.Derivative(neuron.raw_output);
+                    gradFromAbove[j] = next_layer_e[j];
                 }
             }
-            return new Tensor(e);
+
+            return gradFromAbove;
+        }
+
+        // Aktivace působící na celou vrstvu (softmax) potřebuje CELÝ vektor gradientu —
+        // per-prvkové násobení Derivative() by použilo jen diagonálu Jacobiánu a bylo by špatně.
+        private double[] ApplyActivationBackward(double[] gradFromAbove)
+        {
+            if (activation_func.Apply_to_layer)
+            {
+                LayerActivationFunc? layerActivationFunc = activation_func as LayerActivationFunc;
+
+                if (layerActivationFunc == null)
+                {
+                    throw new ArgumentException("Bad activation func");
+                }
+
+                return layerActivationFunc.BackwardForLayer(raw_output, gradFromAbove);
+            }
+
+            double[] e = new double[Neurons.Count()];
+            for (int j = 0; j < Neurons.Count(); j++)
+            {
+                Neuron neuron = Neurons[j];
+                e[j] = gradFromAbove[j] * neuron.activation_func.Derivative(neuron.raw_output);
+            }
+            return e;
         }
         public override async Task<Tensor> CalculateLayerGradientsAsync(Tensor nextLayerE, Layer nextLayer)
         {
@@ -235,7 +263,7 @@ namespace My_DNN.Layers
             }
 
             double[] next_layer_e = nextLayerE.Data;
-            double[] e = new double[Neurons.Count()];
+            double[] gradFromAbove = new double[Neurons.Count()];
 
             LayerBasedOnNeurons? nextlayer = nextLayer as LayerBasedOnNeurons;
             if (nextlayer != null)
@@ -243,7 +271,7 @@ namespace My_DNN.Layers
                 Task[] tasks = new Task[Neurons.Count()];
                 for (int j = 0; j < Neurons.Count(); j++)
                 {
-                    int index = j; 
+                    int index = j;
                     tasks[index] = Task.Run(() =>
                     {
                         double de = 0;
@@ -251,29 +279,21 @@ namespace My_DNN.Layers
                         {
                             de += next_layer_e[k] * nextlayer.Neurons[k].Weights[index];
                         }
-                        Neuron neuron = Neurons[index];
-                        de = de * neuron.activation_func.Derivative(neuron.raw_output);
-                        e[index] = de;
+                        gradFromAbove[index] = de;
                     });
                 }
                 await Task.WhenAll(tasks);
             }
             else
             {
-                Task[] tasks = new Task[Neurons.Count()];
                 for (int j = 0; j < Neurons.Count(); j++)
                 {
-                    int index = j;
-                    tasks[index] = Task.Run(() =>
-                    {
-                        Neuron neuron = Neurons[index];
-                        e[index] = next_layer_e[index] * neuron.activation_func.Derivative(neuron.raw_output);
-                    });
+                    gradFromAbove[j] = next_layer_e[j];
                 }
-                await Task.WhenAll(tasks);
             }
 
-            return new Tensor(e);
+            // stejná konvence jako v synchronní verzi (vrstvová aktivace dostane celý vektor)
+            return new Tensor(ApplyActivationBackward(gradFromAbove));
         }
         public override void BackPropagation(Tensor TensorE)
         {

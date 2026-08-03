@@ -1048,3 +1048,347 @@
           Assert.Equal(160 + 4640 + 51264 + 650, ConsoleControler.CountTrainableParams(model));  // 56714
       }
   }
+
+  // ==========================================================================================
+  //  Fáze 1b — díry v coveragi (audit 2026-08-03)
+  // ------------------------------------------------------------------------------------------
+  //  Dosavadní sada je zelená i s chybami z Fáze 2c, protože systematicky nikdy neprojde
+  //  tyhle cesty:
+  //    1) poslední vrstva je ve VŠECH testech Dense (Conv/RNN testy volají
+  //       CalculateLayerGradients RUČNĚ, čímž simulují prostřední vrstvu),
+  //    2) softmax se testuje jen fúzovaný s CrossEntropy,
+  //    3) save/load nemá round-trip,
+  //    4) nikdo nepustil dva TrainLoopy za sebou v jednom procesu.
+  // ==========================================================================================
+
+  public class OutputLayerGradientTests : GradientCheckTestBase
+  {
+      // 2c-1: Gradient.GetGradients volá CalculateLayerGradients jen pro vrstvy count-2..0.
+      // Poslední vrstva ji nedostane — jenže právě ta plní Conv.dOutput / RNN.gImm, ze kterých
+      // Conv.BackPropagation / RNN.BackPropagation počítají (svůj argument ignorují).
+      // → Výstupní Conv/RNN se tiše NEUČÍ. Žádná výjimka, loss se počítá dál.
+
+      [Fact]
+      public void Conv_as_output_layer_kernel_grads_match_numeric()
+      {
+          var input = new double[3, 3, 1];
+          for (int i = 0; i < 3; i++)
+          for (int j = 0; j < 3; j++)
+              input[i, j, 0] = (i * 3 + j) * 0.1 + 0.05;
+
+          var conv = new Conv(1, 2, new Linear(), "valid");                 // 3×3×1 → 2×2×1
+          var model = new My_DNN.MDNN(conv, new SGD(0.0), new MSE());
+          model.Layers.SetInputSizeForFirstLayer(new int[] { 3, 3, 1 });
+
+          var x = new Tensor(input);
+          var target = new Tensor(new double[] { 0.2, -0.1, 0.4, 0.3 });
+
+          model.Train.Fit(x, target);                                       // POUZE přes veřejné API
+          var analytic = conv.dKernels[0].Select(r => r.Select(c => (double[])c.Clone()).ToArray()).ToArray();
+
+          var loss = model.Loss;
+          Func<double> lossAt = () => loss.CalculateAndGetLoss(model.GetResults(x).Data, target.Data);
+
+          double maxRel = 0;
+          for (int ki = 0; ki < 2; ki++)
+          for (int kj = 0; kj < 2; kj++)
+          {
+              double num = Numeric.ParamGrad(lossAt, ref conv.Kernel[0][ki][kj][0]);
+              maxRel = Math.Max(maxRel, Numeric.RelErr(analytic[ki][kj][0], num));
+          }
+
+          Assert.True(maxRel < 1e-5, $"maxRel={maxRel} — výstupní Conv nedostal gradient (2c-1)");
+      }
+
+      [Fact]
+      public void RNN_as_output_layer_weight_grads_match_numeric()
+      {
+          // sekvence délky 1 → h(0)=0, rekurentní váha má gradient triviálně 0 (0 == 0);
+          // testujeme vstupní váhy + bias, které se dnes vůbec nenaplní.
+          var model = new My_DNN.MDNN(new RNN(2, new Tanh()), new SGD(0.0), new MSE());
+          model.Layers.SetInputSizeForFirstLayer(new int[] { 2 });
+
+          var x = new Tensor(new double[] { 0.5, -0.3 });
+          var t = new Tensor(new double[] { 0.1, -0.2 });
+
+          model.ResetSequence();
+          model.Train.Fit(x, t);
+
+          var neurons = ((RNN)model.Layers.Layers[0]).Neurons;
+          var analytic = neurons.Select(n => (double[])n.gradientsW.Clone()).ToList();
+
+          var loss = model.Loss;
+          Func<double> lossAt = () =>
+          {
+              model.ResetSequence();
+              return loss.CalculateAndGetLoss(model.GetResults(x).Data, t.Data);
+          };
+
+          double maxRel = 0; int wi = -1, wj = -1;
+          for (int i = 0; i < neurons.Count; i++)
+          for (int j = 0; j < neurons[i].Weights.Length; j++)
+          {
+              double num = Numeric.ParamGrad(lossAt, ref neurons[i].Weights[j]);
+              double rel = Numeric.RelErr(analytic[i][j], num);
+              if (rel > maxRel) { maxRel = rel; wi = i; wj = j; }
+          }
+
+          Assert.True(maxRel < 1e-5,
+              $"maxRel={maxRel} u neuronu {wi} váhy {wj} — výstupní RNN nedostal gradient (2c-1)");
+      }
+
+      [Fact]
+      public void RNN_as_output_layer_actually_moves_weights()
+      {
+          // Hrubý, ale nezpochybnitelný důkaz stejné chyby: po 50 krocích a UpdateParams
+          // musí být váhy JINÉ. Dnes jsou bit-identické.
+          var model = new My_DNN.MDNN(new RNN(2, new Tanh()), new SGD(0.5), new MSE());
+          model.Layers.SetInputSizeForFirstLayer(new int[] { 2 });
+
+          var neurons = ((RNN)model.Layers.Layers[0]).Neurons;
+          double[] before = (double[])neurons[0].Weights.Clone();
+
+          for (int i = 0; i < 50; i++)
+              model.Train.Fit(new Tensor(new double[] { 1, 1 }), new Tensor(new double[] { 0.5, -0.5 }));
+          model.Train.UpdateParams();
+
+          Assert.NotEqual(before, neurons[0].Weights);
+      }
+  }
+
+  public class SoftmaxWithNonCrossEntropyTests : GradientCheckTestBase
+  {
+      // 2c-4: Softmax.Derivative vrací jen DIAGONÁLU Jacobiánu (přes stavový čítač `a`).
+      // Pro fúzovanou cestu softmax+CE se neuplatní, pro jinou loss je gradient špatně.
+      // Naměřeno: analytický / numerický ≈ 0,539.
+      [Fact]
+      public void Softmax_with_MSE_weight_grads_match_numeric()
+      {
+          var model = new My_DNN.MDNN(new Dense(3, new Softmax()), new SGD(0.0), new MSE());
+          model.Layers.SetInputSizeForFirstLayer(new int[] { 3 });
+
+          var x = new Tensor(new double[] { 0.5, -0.3, 0.8 });
+          var t = new Tensor(new double[] { 0.0, 1.0, 0.0 });
+
+          model.Train.Fit(x, t);
+
+          var neurons = ((Dense)model.Layers.Layers[0]).Neurons;
+          var analytic = neurons.Select(n => (double[])n.gradientsW.Clone()).ToList();
+
+          var loss = model.Loss;
+          Func<double> lossAt = () => loss.CalculateAndGetLoss(model.GetResults(x).Data, t.Data);
+
+          double maxRel = 0; int wi = -1, wj = -1;
+          for (int i = 0; i < neurons.Count; i++)
+          for (int j = 0; j < neurons[i].Weights.Length; j++)
+          {
+              double num = Numeric.ParamGrad(lossAt, ref neurons[i].Weights[j]);
+              double rel = Numeric.RelErr(analytic[i][j], num);
+              if (rel > maxRel) { maxRel = rel; wi = i; wj = j; }
+          }
+
+          Assert.True(maxRel < 1e-5,
+              $"maxRel={maxRel} u neuronu {wi} váhy {wj} — softmax mimo fúzi s CE (2c-4)");
+      }
+  }
+
+  public class SaveLoadRoundTripTests : GradientCheckTestBase
+  {
+      // 2c-2: save/load nemá round-trip test, proto neodhalen ExportCNNLayer používající
+      // Activation_Func.ToString() místo .Name → po načtení z ReLu tiše Linear.
+      private static string TempModelBase()
+          => System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mdnn_rt_" + Guid.NewGuid().ToString("N"));
+
+      private static void Cleanup(string basePath)
+      {
+          try { System.IO.File.Delete(basePath + ".json"); } catch { /* úklid nesmí shodit test */ }
+      }
+
+      [Fact]
+      public void Dense_roundtrip_preserves_activation_and_forward()
+      {
+          string path = TempModelBase();
+          try
+          {
+              var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE());
+              model.Layers.Add(new Dense(4, new ReLu()));
+              var x = new Tensor(new double[] { 0.5, -0.3, 0.8 });
+              double[] before = model.GetResults(x).Data;
+
+              model.SaveAsJson(path);
+              var loaded = My_DNN.MDNN.LoadModel(path + ".json");
+
+              Assert.Equal("ReLu", loaded.Layers.Layers[0].Activation_Func.Name);
+              Assert.Equal(before, loaded.GetResults(x).Data);
+          }
+          finally { Cleanup(path); }
+      }
+
+      [Fact]
+      public void Conv_roundtrip_preserves_activation_and_forward()
+      {
+          string path = TempModelBase();
+          try
+          {
+              var conv = new Conv(2, 2, new ReLu(), "valid");
+              var model = new My_DNN.MDNN(conv, new SGD(0.01), new MSE());
+              model.Layers.SetInputSizeForFirstLayer(new int[] { 4, 4, 1 });
+
+              var input = new double[4, 4, 1];
+              for (int i = 0; i < 4; i++)
+              for (int j = 0; j < 4; j++)
+                  input[i, j, 0] = ((i * 4 + j) - 7) * 0.2;      // záporné i kladné → ReLu ≠ Linear
+              var x = new Tensor(input);
+              double[] before = model.GetResults(x).Data;
+
+              model.SaveAsJson(path);
+              var loaded = My_DNN.MDNN.LoadModel(path + ".json");
+
+              Assert.Equal("ReLu", loaded.Layers.Layers[0].Activation_Func.Name);
+              Assert.Equal(before, loaded.GetResults(x).Data);
+          }
+          finally { Cleanup(path); }
+      }
+
+      [Fact]
+      public void RNN_roundtrip_preserves_activation_and_forward()
+      {
+          string path = TempModelBase();
+          try
+          {
+              var model = new My_DNN.MDNN(new RNN(3, new Tanh()), new SGD(0.01), new MSE());
+              model.Layers.SetInputSizeForFirstLayer(new int[] { 2 });
+
+              var x = new Tensor(new double[] { 0.5, -0.3 });
+              model.ResetSequence();
+              double[] before = model.GetResults(x).Data;
+
+              model.SaveAsJson(path);
+              var loaded = My_DNN.MDNN.LoadModel(path + ".json");
+
+              Assert.Equal("Tanh", loaded.Layers.Layers[0].Activation_Func.Name);
+              loaded.ResetSequence();                            // stejný počáteční skrytý stav
+              model.ResetSequence();
+              Assert.Equal(model.GetResults(x).Data, loaded.GetResults(x).Data);
+          }
+          finally { Cleanup(path); }
+      }
+  }
+
+  public class RepeatedTrainLoopTests : GradientCheckTestBase
+  {
+      // 2c-3: ConsoleControler drží static _time / _lastEpochInfo. Při druhém TrainLoopu
+      // vyjde pastEpochs == 0 → (subTime * n) / 0 → OverflowException.
+      // Jde přímo proti cíli Fáze 3 (víc modelů v procesu = předpoklad AutoML).
+      [Fact]
+      public void Two_train_loops_in_one_process_do_not_throw()
+      {
+          for (int run = 1; run <= 2; run++)
+          {
+              var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.05), new MSE());
+              model.Train.ShowLossChartInTrainLoop = false;
+              model.Train.ShowModelInfoIntrainLoop = false;
+              model.Train.AutoSaveInTrainLoop = false;
+              model.Train.TestNeuralNetworkAfterTraining = false;
+              model.Train.NumberOfShowEpochInConsole = 1;        // jeden report za běh
+
+              double[][] X = new double[20][];
+              double[][] Y = new double[20][];
+              for (int i = 0; i < 20; i++)
+              {
+                  X[i] = new double[] { i * 0.05 };
+                  Y[i] = new double[] { i * 0.10 };
+              }
+
+              var ex = Record.Exception(() => model.Train.TrainLoop(X, Y, 50, 4));
+              Assert.True(ex == null, $"běh {run} spadl: {ex?.GetType().Name}: {ex?.Message}");
+          }
+      }
+
+      // 2c-9: klamp v Train.PreparationForTrainLoop zapisuje do VEŘEJNÉHO pole,
+      // takže si uživatelovo nastavení natrvalo přepíše.
+      [Fact]
+      public void NumberOfShowEpochInConsole_survives_training()
+      {
+          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.05), new MSE());
+          model.Train.ShowLossChartInTrainLoop = false;
+          model.Train.ShowModelInfoIntrainLoop = false;
+          model.Train.AutoSaveInTrainLoop = false;
+          model.Train.TestNeuralNetworkAfterTraining = false;
+
+          uint before = model.Train.NumberOfShowEpochInConsole;   // default 100
+
+          double[][] X = new double[20][];
+          double[][] Y = new double[20][];
+          for (int i = 0; i < 20; i++)
+          {
+              X[i] = new double[] { i * 0.05 };
+              Y[i] = new double[] { i * 0.10 };
+          }
+          model.Train.TrainLoop(X, Y, 5);                         // 5 epoch < 100 → klamp
+
+          Assert.Equal(before, model.Train.NumberOfShowEpochInConsole);
+      }
+  }
+
+  public class TensorInputTypeTests : GradientCheckTestBase
+  {
+      // 2c-5: Tensor.ConvertArrayToTensor porovnává elementType.Name s "Int"/"Float"/"Double".
+      // Reálná .NET jména jsou Int32/Single/Double → projde jen double, ostatní vyhodí
+      // výjimku, jejíž vlastní text int i float slibuje.
+      [Fact]
+      public void ConvertArrayToTensor_accepts_double_jagged()
+          => Assert.Equal(new double[] { 1, 2 },
+                          Tensor.ConvertArrayToTensor(new double[][] { new double[] { 1, 2 } }).Data);
+
+      [Fact]
+      public void ConvertArrayToTensor_accepts_int_jagged()
+          => Assert.Equal(new double[] { 1, 2 },
+                          Tensor.ConvertArrayToTensor(new int[][] { new int[] { 1, 2 } }).Data);
+
+      [Fact]
+      public void ConvertArrayToTensor_accepts_float_jagged()
+          => Assert.Equal(new double[] { 1, 2 },
+                          Tensor.ConvertArrayToTensor(new float[][] { new float[] { 1f, 2f } }).Data);
+
+      [Fact]
+      public void ConvertArrayToTensor_accepts_int_multidim()
+          => Assert.Equal(new double[] { 1, 2 },
+                          Tensor.ConvertArrayToTensor(new int[,] { { 1, 2 } }).Data);
+  }
+
+  public class EmptyMiniBatchTests : GradientCheckTestBase
+  {
+      // 2c-6: Neuron.Update_weights_bias dělí mini_batch_size, které je 0 → 0/0 = NaN,
+      // tiše přes celý model.
+      [Fact]
+      public void UpdateParams_without_backprop_does_not_produce_NaN()
+      {
+          var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE());
+          model.Layers.SetInputSizeForFirstLayer(new int[] { 2 });
+
+          var x = new Tensor(new double[] { 1, 2 });
+          model.GetResults(x);
+          model.Train.UpdateParams();                             // žádný backprop před tím
+
+          Assert.All(model.GetResults(x).Data, v => Assert.False(double.IsNaN(v), "výstup je NaN"));
+      }
+  }
+
+  public class LayerInsertTests : GradientCheckTestBase
+  {
+      // 2c-7: Insert na pozici 0 předá Input_size_and_shape následující vrstvy = placeholder {0}
+      // → Conv.ConvertTo2D udělá rows = ceil(sqrt(0)) = 0 → DivideByZeroException.
+      [Fact]
+      public void Insert_conv_before_dense_does_not_crash()
+      {
+          var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE());
+
+          var ex = Record.Exception(() => model.Layers.Insert(0, new Conv(2, 2, new ReLu(), "valid")));
+
+          // Buď to projde, nebo to musí být SROZUMITELNÁ výjimka — ne DivideByZeroException
+          // z hloubi ConvertTo2D.
+          Assert.False(ex is DivideByZeroException,
+              $"Insert spadl na {ex?.GetType().Name} místo srozumitelné hlášky (2c-7)");
+      }
+  }

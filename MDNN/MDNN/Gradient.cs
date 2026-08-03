@@ -7,6 +7,39 @@ namespace My_DNN
 {
     static public class Gradient
     {
+        // ∂L/∂output → ∂L/∂raw_output pro VÝSTUPNÍ vrstvu. Sdílené sync i async cestou,
+        // ať se nemůžou rozejít.
+        private static double[] ApplyOutputActivationBackward(Layer lastLayer, double[] dLossDOutput, bool fusedSoftmaxCE)
+        {
+            // Fúze softmax+CE: loss vrací rovnou dL/dz = s − t, aktivace se přeskakuje
+            // (jinak by se softmax derivace aplikovala dvakrát).
+            if (fusedSoftmaxCE)
+            {
+                return dLossDOutput;
+            }
+
+            double[] raw = lastLayer.Layer_raw_output!.Data;
+
+            if (lastLayer.Activation_Func.Apply_to_layer)
+            {
+                LayerActivationFunc? layerActivationFunc = lastLayer.Activation_Func as LayerActivationFunc;
+
+                if (layerActivationFunc == null)
+                {
+                    throw new ArgumentException("Bad activation func");
+                }
+
+                return layerActivationFunc.BackwardForLayer(raw, dLossDOutput);
+            }
+
+            double[] de = new double[dLossDOutput.Length];
+            for (int i = 0; i < de.Length; i++)
+            {
+                de[i] = dLossDOutput[i] * lastLayer.Activation_Func.Derivative(raw[i]);
+            }
+            return de;
+        }
+
         public static Tensor[] GetGradients(Tensor target_values, MDNN model, Tensor? output_values_from_model = null)
         {
             List<Layer> layers = model.Layers.Layers;
@@ -42,35 +75,19 @@ namespace My_DNN
             bool fusedSoftmaxCE = model.Context.Loss.RequiresSoftmax
                                   && lastLayer.Activation_Func.Apply_to_layer;
 
-            if (lastLayer.Activation_Func.Apply_to_layer && !fusedSoftmaxCE)
-            {
-                LayerActivationFunc? layerActivationFunc = lastLayer.Activation_Func as LayerActivationFunc;
-
-                if (layerActivationFunc == null)
-                {
-                    throw new ArgumentException("Bad activation func");
-                }
-
-                layerActivationFunc.DerivativeForLayer(lastLayer.Layer_raw_output.Data);
-            }
-
-            double[] de = new double[outputTensor.Data.Length];
-
+            // ∂L/∂output BEZ derivace aktivace — vstup pro SeedOutputGradient i pro
+            // BackwardForLayer (vrstvy/aktivace si act' dodají podle své konvence).
+            double[] dLossDOutput = new double[outputTensor.Data.Length];
             for (int i = 0; i < outputTensor.Data.Length; i++)
             {
-                if (fusedSoftmaxCE)
-                {
-                    de[i] = model.Context.Loss.DerivativeOfLossFunction(outputTensor.Data[i], target_values.Data[i]);
-                }
-                else
-                {
-                    double Output = lastLayer.Layer_raw_output.Data[i];
-
-                    double derivateActivationOutputLayer = lastLayer.Activation_Func.Derivative(Output);
-
-                    de[i] = (model.Context.Loss.DerivativeOfLossFunction(outputTensor.Data[i], target_values.Data[i]) * derivateActivationOutputLayer);
-                }
+                dLossDOutput[i] = model.Context.Loss.DerivativeOfLossFunction(outputTensor.Data[i], target_values.Data[i]);
             }
+
+            double[] de = ApplyOutputActivationBackward(lastLayer, dLossDOutput, fusedSoftmaxCE);
+
+            // Bez tohohle se výstupní Conv/RNN tiše neučí (jejich BackPropagation čte vnitřní
+            // stav, ne argument). Dense/MaxPool mají no-op default.
+            lastLayer.SeedOutputGradient(dLossDOutput);
 
             e.Add(new Tensor(de));
 
@@ -80,17 +97,8 @@ namespace My_DNN
             {
                 e.Insert(0, null);
 
-                if (layers[i].Activation_Func.Apply_to_layer)
-                {
-                    LayerActivationFunc? layerActivationFunc = layers[i].Activation_Func as LayerActivationFunc;
-
-                    if (layerActivationFunc == null)
-                    {
-                        throw new ArgumentException("Bad activation func");
-                    }
-
-                    layerActivationFunc.DerivativeForLayer(layers[i].Layer_raw_output.Data);
-                }
+                // Žádná příprava aktivace tady — vrstvová aktivace (softmax) se řeší uvnitř
+                // CalculateLayerGradients přes BackwardForLayer, kde je k dispozici celý vektor.
 
                 e[0] = layers[i].CalculateLayerGradients(e[1], layers[i + 1]);
 
@@ -133,19 +141,7 @@ namespace My_DNN
             bool fusedSoftmaxCE = model.Context.Loss.RequiresSoftmax
                                   && lastLayer.Activation_Func.Apply_to_layer;
 
-            if (lastLayer.Activation_Func.Apply_to_layer && !fusedSoftmaxCE)
-            {
-                LayerActivationFunc? layerActivationFunc = lastLayer.Activation_Func as LayerActivationFunc;
-
-                if (layerActivationFunc == null)
-                {
-                    throw new ArgumentException("Bad activation func");
-                }
-
-                layerActivationFunc.DerivativeForLayer(lastLayer.Layer_raw_output.Data);
-            }
-
-            double[] de = new double[outputTensor.Data.Length];
+            double[] dLossDOutput = new double[outputTensor.Data.Length];
 
             Task[] tasks = new Task[outputTensor.Data.Length];
             for (int i = 0; i < outputTensor.Data.Length; i++)
@@ -153,22 +149,16 @@ namespace My_DNN
                 int index = i;
                 tasks[index] = Task.Run(() =>
                 {
-                    if (fusedSoftmaxCE)
-                    {
-                        de[index] = model.Context.Loss.DerivativeOfLossFunction(outputTensor.Data[index], target_values.Data[index]);
-                    }
-                    else
-                    {
-                        double Output = lastLayer.Layer_raw_output.Data[index];
-
-                        double derivateActivationOutputLayer = lastLayer.Activation_Func.Derivative(Output);
-
-                        de[index] = (model.Context.Loss.DerivativeOfLossFunction(outputTensor.Data[index], target_values.Data[index]) * derivateActivationOutputLayer);
-                    }
+                    dLossDOutput[index] = model.Context.Loss.DerivativeOfLossFunction(outputTensor.Data[index], target_values.Data[index]);
                 });
             }
 
             await Task.WhenAll(tasks);
+
+            double[] de = ApplyOutputActivationBackward(lastLayer, dLossDOutput, fusedSoftmaxCE);
+
+            // stejně jako v synchronní verzi — jinak se výstupní Conv/RNN tiše neučí
+            lastLayer.SeedOutputGradient(dLossDOutput);
 
             e.Add(new Tensor(de));
 
@@ -178,17 +168,8 @@ namespace My_DNN
             {
                 e.Insert(0, null);
 
-                if (layers[i].Activation_Func.Apply_to_layer)
-                {
-                    LayerActivationFunc? layerActivationFunc = layers[i].Activation_Func as LayerActivationFunc;
-
-                    if (layerActivationFunc == null)
-                    {
-                        throw new ArgumentException("Bad activation func");
-                    }
-
-                    layerActivationFunc.DerivativeForLayer(layers[i].Layer_raw_output.Data);
-                }
+                // Žádná příprava aktivace tady — vrstvová aktivace (softmax) se řeší uvnitř
+                // CalculateLayerGradients přes BackwardForLayer, kde je k dispozici celý vektor.
 
                 e[0] = await layers[i].CalculateLayerGradientsAsync(e[1], layers[i + 1]);
 

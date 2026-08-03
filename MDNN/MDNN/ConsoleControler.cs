@@ -6,10 +6,6 @@ namespace My_DNN
 {
     public static class ConsoleControler
     {
-        private static DateTime _time;
-
-        private static uint _lastEpochInfo = 0;
-
         public static void ShowModelInfo(MDNN model)
         {
             if (model.Layers.Layers.Count != 0)
@@ -162,22 +158,31 @@ namespace My_DNN
         {
             DateTime timeNow = DateTime.Now;
 
-            TimeSpan subTime; 
+            TimeSpan subTime;
             TimeSpan estimatedCompletionTime;
 
-            uint pastEpochs = model.Train.CurrentEpoch - _lastEpochInfo;
+            // Stav je per-Train instance (dřív statiky) → druhý trénink v procesu už nepočítá
+            // z časů toho prvního. pastEpochs == 0 se navíc explicitně ošetří: dělení nulou
+            // dávalo TimeSpan z Infinity ticků → OverflowException.
+            uint pastEpochs = model.Train.CurrentEpoch >= model.Train.LastReportEpoch
+                ? model.Train.CurrentEpoch - model.Train.LastReportEpoch
+                : 0;
 
-            _lastEpochInfo = model.Train.CurrentEpoch;
+            model.Train.LastReportEpoch = model.Train.CurrentEpoch;
 
-            if (_time == DateTime.MinValue) 
+            uint remainingEpochs = model.Train.TotalEpoch > model.Train.CurrentEpoch
+                ? model.Train.TotalEpoch - model.Train.CurrentEpoch
+                : 0;
+
+            if (model.Train.LastReportTime == DateTime.MinValue || pastEpochs == 0)
             {
                 subTime = TimeSpan.Zero;
                 estimatedCompletionTime = TimeSpan.Zero;
             }
             else
             {
-                subTime = timeNow - _time;
-                estimatedCompletionTime = (subTime * (model.Train.TotalEpoch - model.Train.CurrentEpoch)) / pastEpochs;
+                subTime = timeNow - model.Train.LastReportTime;
+                estimatedCompletionTime = (subTime * remainingEpochs) / pastEpochs;
             }
             Console.WriteLine("########################################################################");
             Console.WriteLine($"Epoch: {model.Train.CurrentEpoch} / {model.Train.TotalEpoch} {(model.Train.CurrentEpoch / (float)model.Train.TotalEpoch) * 100} %");
@@ -214,9 +219,9 @@ namespace My_DNN
             Console.WriteLine($"Estimate of completion time: {estimatedCompletionTime}");
             Console.WriteLine($"Estimated end of learning at: {DateTime.Now + estimatedCompletionTime}");
             Console.WriteLine();
-            
 
-            _time = DateTime.Now;
+
+            model.Train.LastReportTime = DateTime.Now;
         }
 
         public static void ShowScoreOfmodel(int score,int maxScore)

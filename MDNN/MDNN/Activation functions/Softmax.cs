@@ -3,12 +3,6 @@ namespace My_DNN.Activation_functions
 {
     public class Softmax : LayerActivationFunc
     {
-        private double expSum = 0;
-        private List<double> expValues = new List<double>();
-
-        private double[,] jacobian;
-        private int a = -1;
-
         public override string Name
         {
             get { return "Softmax"; }
@@ -19,10 +13,44 @@ namespace My_DNN.Activation_functions
             return value;
         }
 
+        // Softmax nemá per-prvkovou derivaci — výstup s_i závisí na VŠECH vstupech.
+        // Dřív se tady vracela diagonála Jacobiánu přes stavový čítač, který se posouval
+        // s každým voláním: špatná matematika, závislost na pořadí volání a race při
+        // paralelním backwardu. Backward pro softmax jde výhradně přes BackwardForLayer.
         public override double Derivative(double value)
         {
-            a++;
-            return jacobian[a, a];
+            throw new NotSupportedException(
+                "Softmax nemá per-prvkovou derivaci (výstup závisí na všech vstupech). " +
+                "Použij BackwardForLayer(rawOutput, gradFromAbove).");
+        }
+
+        // ∂L/∂z_i = Σ_j g_j · J[j,i],  kde J[j,i] = s_j·(δ_ji − s_i)
+        //         = s_i · (g_i − Σ_j g_j·s_j)
+        // Jacobián se nikdy nematerializuje — stačí jeden skalární součin, takže je to
+        // O(n) místo O(n²) a bez alokace matice.
+        public override double[] BackwardForLayer(double[] rawOutput, double[] gradFromAbove)
+        {
+            if (rawOutput.Length != gradFromAbove.Length)
+            {
+                throw new ArgumentException(
+                    $"rawOutput má {rawOutput.Length} prvků, gradient shora {gradFromAbove.Length}.");
+            }
+
+            double[] s = ApplyToLayer(rawOutput);
+
+            double dot = 0;
+            for (int j = 0; j < s.Length; j++)
+            {
+                dot += gradFromAbove[j] * s[j];
+            }
+
+            double[] result = new double[s.Length];
+            for (int i = 0; i < s.Length; i++)
+            {
+                result[i] = s[i] * (gradFromAbove[i] - dot);
+            }
+
+            return result;
         }
 
         public override double[] ApplyToLayer(double[] values)
@@ -46,35 +74,5 @@ namespace My_DNN.Activation_functions
             return result;
         }
 
-        public override double[] DerivativeForLayer(double[] values)
-        {
-            int length = values.Length;
-            double[] derivatives = new double[length];
-            a = -1;
-
-            double[] softmaxValues = ApplyToLayer(values);
-
-            jacobian = new double[length, length];
-            for (int i = 0; i < length; i++)
-            {
-                for (int j = 0; j < length; j++)
-                {
-                    if (i == j)
-                    {
-                        jacobian[i, j] = softmaxValues[i] * (1.0 - softmaxValues[i]);
-                    }
-                    else
-                    {
-                        jacobian[i, j] = -softmaxValues[i] * softmaxValues[j];
-                    }
-                }
-            }
-            for (int i = 0; i < length; i++)
-            {
-                derivatives[i] = jacobian[i, i];
-            }
-
-            return derivatives;
-        }
     }
 }

@@ -59,7 +59,10 @@ namespace My_DNN.Save_neural_network
             LayerType = "Conv";
             Kernel = layer.Kernel;
             Biases = layer.Biases;
-            Name_of_activation_function = layer.Activation_Func.ToString();
+            // .Name, ne .ToString() — ToString() dá název typu ("My_DNN.Activation_functions.ReLu"),
+            // který inicialization_activation_func nezná a spadne do default → Linear.
+            // Natrénovaná CNN se tak po načtení tiše chovala jako lineární síť.
+            Name_of_activation_function = layer.Activation_Func.Name;
             Padding = layer.Padding;
             InputShape = layer.Input_size_and_shape;
         }

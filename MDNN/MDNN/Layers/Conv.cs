@@ -143,6 +143,17 @@ namespace My_DNN.Layers
 
         public override void LayerAdjustment(int? number_of_kernels = null, int[]? input_Shape = null)
         {
+            // Tvar vstupu ještě není známý (Insert/Add před SetInputSizeForFirstLayer předá
+            // placeholder {0}). Dřív se to protlačilo do ConvertTo2D → rows = ceil(sqrt(0)) = 0
+            // → DivideByZeroException z hloubi knihovny. Necháme vrstvu placeholderem;
+            // SetInputSizeForFirstLayer ji doplní, až tvar bude znám.
+            if (input_Shape != null && input_Shape.Any(d => d <= 0))
+            {
+                inputsShape = new int[] { 0 };
+                outputShape = new int[] { 0 };
+                return;
+            }
+
             if (input_Shape != null)
             {
                 if (input_Shape.Length == 1)
@@ -296,6 +307,32 @@ namespace My_DNN.Layers
 
             return new Tensor(Tensor.ConvertJaggedToMulti(output));
         }
+        // Conv jako VÝSTUPNÍ vrstva: dOutput se jinak nemá kde vzít (CalculateLayerGradients
+        // se pro poslední vrstvu nevolá). Derivaci aktivace si aplikujeme sami — stejná
+        // konvence jako v CalculateLayerGradients. Pořadí flatten = row-major [i][j][f],
+        // shodné s Layer_output.Data.
+        public override void SeedOutputGradient(double[] dLossDOutput)
+        {
+            int expected = outputShape[0] * outputShape[1] * outputShape[2];
+            if (dLossDOutput.Length != expected)
+            {
+                throw new ArgumentException(
+                    $"Gradient shora má {dLossDOutput.Length} prvků, výstup vrstvy {expected}.");
+            }
+
+            int n = 0;
+            for (int i = 0; i < outputShape[0]; i++)
+            {
+                for (int j = 0; j < outputShape[1]; j++)
+                {
+                    for (int f = 0; f < outputShape[2]; f++)
+                    {
+                        dOutput[i][j][f] = dLossDOutput[n++] * activation_func.Derivative(raw_output[i][j][f]);
+                    }
+                }
+            }
+        }
+
         public override void BackPropagation(Tensor TensordOutput)
         {
             mini_batch_size++;
@@ -356,6 +393,12 @@ namespace My_DNN.Layers
 
         public override void UpdateParams()
         {
+            // stejná pojistka jako u Neuron.Update_weights_bias — prázdná dávka → NaN kernely
+            if (mini_batch_size == 0)
+            {
+                return;
+            }
+
             int numFilters = kernels.Length;
             int idx = 0;
             for (int f = 0; f < numFilters; f++)
