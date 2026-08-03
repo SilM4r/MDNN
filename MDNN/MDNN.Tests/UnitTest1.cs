@@ -1024,3 +1024,27 @@
               $"CurrentEpoch = {model.Train.CurrentEpoch}, early stopping mělo zastavit brzy");
       }
   }
+
+  public class ModelInfoTests : GradientCheckTestBase
+  {
+      [Fact]
+      public void CountTrainableParams_includes_all_conv_filters()
+      {
+          // Stejný CNN jako v mdnn_test: Conv16 → MaxPool → Conv32 → MaxPool → Dense64 → Dense10.
+          // Regrese: conv se dřív podpočítával (chybělo × počet filtrů) → 52115 místo 56714.
+          var model = new My_DNN.MDNN(new Dense(10, new Softmax()), new Adam(0.001), new CrossEntropy());
+          model.Layers.Add(new Conv(16, 3, new ReLu(), "valid"));   // 28×28×1 → 26×26×16
+          model.Layers.Add(new MaxPool(2));                         // → 13×13×16
+          model.Layers.Add(new Conv(32, 3, new ReLu(), "valid"));   // → 11×11×32
+          model.Layers.Add(new MaxPool(2));                         // → 5×5×32
+          model.Layers.Add(new Dense(64, new ReLu()));             // flatten 800 → 64
+
+          model.GetResults(new Tensor(new double[784]));           // spustí wiring (nastaví tvary/kanály)
+
+          // Conv1:  16·(3·3·1)+16  = 160
+          // Conv2:  32·(3·3·16)+32 = 4640
+          // Dense64: 64·800+64     = 51264
+          // Dense10: 10·64+10      = 650
+          Assert.Equal(160 + 4640 + 51264 + 650, ConsoleControler.CountTrainableParams(model));  // 56714
+      }
+  }

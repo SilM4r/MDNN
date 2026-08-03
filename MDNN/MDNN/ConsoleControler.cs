@@ -12,8 +12,6 @@ namespace My_DNN
 
         public static void ShowModelInfo(MDNN model)
         {
-            int totalParams = 0;
-
             if (model.Layers.Layers.Count != 0)
             {
                 Console.WriteLine($"Number of input : {string.Join(", ", model.Layers.Layers[0].Input_size_and_shape) }");
@@ -50,7 +48,6 @@ namespace My_DNN
                 switch (layer)
                 {
                     case Dense dense:
-                        totalParams += dense.Neurons.Count * dense.Input_size_and_shape[0] + dense.Neurons.Count;
                         if (dense.Input_size_and_shape[0] == 0)
                         {
                             shapeString = "unknow";
@@ -65,7 +62,6 @@ namespace My_DNN
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
                         break;
                     case RNN rnn:
-                        totalParams += rnn.Neurons.Count * (rnn.Input_size_and_shape[0] + 1) + rnn.Neurons.Count;
                         if (rnn.Input_size_and_shape[0] == 0)
                         {
                             shapeString = "unknow";
@@ -80,8 +76,6 @@ namespace My_DNN
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
                         break;
                     case Conv conv:
-                        totalParams += (conv.Kernel[0].Count() * conv.Kernel[0][0].Count() * conv.Kernel[0][0][0].Count()) + conv.Biases.Length;
-
                         if (conv.Output_size_and_shape.Length == 1)
                         {
                             shapeString = "unknow";
@@ -129,7 +123,7 @@ namespace My_DNN
             }   
             else
             {
-                Console.WriteLine($"Total trainable params: {totalParams}");
+                Console.WriteLine($"Total trainable params: {CountTrainableParams(model)}");
                 Console.WriteLine($"Current epoch: {model.Train.CurrentEpoch}");
                 Console.WriteLine($"Target epoch: {model.Train.TotalEpoch}");
                 Console.WriteLine($"Size of mini batch: {model.Train.MiniBatch}");
@@ -138,6 +132,31 @@ namespace My_DNN
             Console.WriteLine();
         }
 
+        // Počet trénovatelných parametrů modelu.
+        // Conv = numFilters × (kH × kW × inChannels) + biasy; dřív chybělo × numFilters
+        // (Kernel.Length) → conv se drasticky podpočítával. MaxPool a spol. = 0 parametrů.
+        public static int CountTrainableParams(MDNN model)
+        {
+            int total = 0;
+            foreach (Layer layer in model.Layers.Layers)
+            {
+                switch (layer)
+                {
+                    case Dense dense:
+                        total += dense.Neurons.Count * dense.Input_size_and_shape[0] + dense.Neurons.Count;
+                        break;
+                    case RNN rnn:
+                        total += rnn.Neurons.Count * (rnn.Input_size_and_shape[0] + 1) + rnn.Neurons.Count;
+                        break;
+                    case Conv conv:
+                        total += conv.Kernel.Length
+                                 * (conv.Kernel[0].Count() * conv.Kernel[0][0].Count() * conv.Kernel[0][0][0].Count())
+                                 + conv.Biases.Length;
+                        break;
+                }
+            }
+            return total;
+        }
 
         public static void ShowEpochInfo(MDNN model,double? trainLoss = null, double? validLoss = null, double? validAccuracy = null)
         {
