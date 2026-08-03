@@ -5,3 +5,11 @@ secret/
 .idea/
 *.user
 *.DotSettings.user
+
+# výstupy testů (CI je uploaduje jako artifakt, do gitu nepatří)
+TestResults/
+*.trx
+
+# soubory, které si knihovna sama zapisuje do CWD při běhu
+loss.png
+AutoSave.json
