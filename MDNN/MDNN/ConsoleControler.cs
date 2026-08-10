@@ -259,6 +259,10 @@ namespace My_DNN
         }
 
 
+        // POUZE vypíše chybu. Dřív tu na `fatalError: true` bylo `Environment.Exit(0)` —
+        // knihovna zabila hostitelský proces, a ještě s kódem 0 = „úspěch". Řízení toku
+        // teď patří volajícímu: kdo chybu hlásí, ať si taky vyhodí výjimku
+        // (viz TrainingDivergedException). `fatalError` už jen mění hlavičku výpisu.
         public static void ErrorHandler(string name, string description, bool fatalError = false)
         {
             Console.WriteLine();
@@ -267,11 +271,6 @@ namespace My_DNN
                 : "----------------------   Error  ---------------------- ");
             Console.WriteLine($"Name: {name}");
             Console.WriteLine($"Description: {description} ");
-
-            if (fatalError)
-            {
-                Environment.Exit(0);
-            }
         }
 
         private static string WriteSpace(int x, int y)

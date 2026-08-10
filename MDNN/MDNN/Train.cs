@@ -64,26 +64,40 @@ namespace My_DNN
         private Tensor? _trainDataCurrentOutput;
         private Tensor? _testDataCurrentOutput;
         private Tensor? _validDataCurrentOutput;
+        // Co dodal UŽIVATEL (na rozdíl od toho, co si dopočítalo dělení datasetu).
+        // Bez tohohle rozlišení druhý TrainLoop na stejném modelu viděl valid/test z prvního
+        // běhu, spadl do jiné větve DividingDataIntoDatasets a natrénoval na CELÉM datasetu
+        // včetně testovací části — tiše, bez varování.
+        private Tensor? _userValidInputs;
+        private Tensor? _userValidOutputs;
+        private Tensor? _userTestInputs;
+        private Tensor? _userTestOutputs;
+
         public Tensor? TestDataInputs
-        { 
-            get => _testDataInputs; 
-            set => _testDataInputs = value; 
+        {
+            get => _testDataInputs;
+            set { _testDataInputs = value; _userTestInputs = value; }
         }
         public Tensor? ValidDataInputs
         {
             get => _validDataInputs;
-            set => _validDataInputs = value;
+            set { _validDataInputs = value; _userValidInputs = value; }
         }
         public Tensor? TestDataCurrentOutput
         {
             get => _testDataCurrentOutput;
-            set => _testDataCurrentOutput = value;
+            set { _testDataCurrentOutput = value; _userTestOutputs = value; }
         }
         public Tensor? ValidDataCurrentOutput
         {
             get => _validDataCurrentOutput;
-            set => _validDataCurrentOutput = value;
+            set { _validDataCurrentOutput = value; _userValidOutputs = value; }
         }
+
+        // Read-only protějšky k valid/test — ať jde zvenčí zjistit, na čem se doopravdy
+        // trénovalo (a ať je vidět, když se dělení rozjede).
+        public Tensor? TrainDataInputs => _trainDataInputs;
+        public Tensor? TrainDataCurrentOutput => _trainDataCurrentOutput;
 
         public uint CurrentEpoch
         {
@@ -573,24 +587,27 @@ namespace My_DNN
                 if (epoch % _reportInterval == 0)
                 {
                     double loss = _model.Context.Loss.GetAverageLossPerIteration();
-                    if (loss is not double.NaN)
+
+                    // Stejná politika jako v TrainLoop (ExtraControlFunc): divergence =
+                    // výjimka, ne tichý `return`. Dřív se tady jen vypsalo „Error: Nan number"
+                    // a metoda skončila jakoby úspěšně — volající neměl jak poznat rozdíl
+                    // mezi „dotrénováno" a „rozpadlo se to hned v první epoše".
+                    if (!double.IsFinite(loss))
                     {
-                        if (loss < minLoss)
+                        ConsoleControler.ErrorHandler("NaN value in output", "The output from the neural network is either too small or too large, hence the value of nan. Please try other values ​​in the training parameters (for example: learning rate or hyperammetry )", true);
+                        throw new TrainingDivergedException(_epoch, loss);
+                    }
+
+                    if (loss < minLoss)
+                    {
+                        minLoss = loss;
+                        _model.Note = minLoss.ToString(CultureInfo.InvariantCulture);
+                        if (AutoSaveInTrainLoop)
                         {
-                            minLoss = loss;
-                            _model.Note = minLoss.ToString(CultureInfo.InvariantCulture);
-                            if (AutoSaveInTrainLoop)
-                            {
-                                _model.SaveAsJson(AutoSaveInTrainLoopFileName);
-                            }
-                            
+                            _model.SaveAsJson(AutoSaveInTrainLoopFileName);
                         }
                     }
-                    else
-                    {
-                        Console.WriteLine("Error: Nan number");
-                        return;
-                    }
+
                     ConsoleControler.ShowEpochInfo(_model);
                 }
             }
@@ -654,6 +671,7 @@ namespace My_DNN
 
             CheckLayersAreNotEmpty();
 
+            ResetDerivedDatasets();
             DividingDataIntoDatasets(inputsValues, currentOutputValues);
 
             _listOfepoch = [];
@@ -775,6 +793,22 @@ namespace My_DNN
             double each = nullCount > 0 ? (1.0 - setSum) / nullCount : 0.0;
 
             return (TrainSplitRatio ?? each, ValidSplitRatio ?? each, TestSplitRatio ?? each);
+        }
+
+        // Každý běh musí startovat ze stejného výchozího stavu: buď z toho, co uživatel
+        // explicitně dodal, nebo z prázdna. Odvozené (nasliceované) datasety z minulého
+        // běhu se zahodí — jinak by DividingDataIntoDatasets vzalo slice předchozího valid
+        // setu za „uživatelův valid set" a rozdělení by se s každým během posouvalo.
+        private void ResetDerivedDatasets()
+        {
+            _validDataInputs = _userValidInputs;
+            _validDataCurrentOutput = _userValidOutputs;
+
+            _testDataInputs = _userTestInputs;
+            _testDataCurrentOutput = _userTestOutputs;
+
+            _trainDataInputs = null;
+            _trainDataCurrentOutput = null;
         }
 
         public void DividingDataIntoDatasets(Tensor inputsValues, Tensor currentOutputValues)
@@ -1016,11 +1050,22 @@ namespace My_DNN
         {
             Loss lossFunc = _model.Context.Loss;
 
-            if (loss is double.NaN || lossFunc.GetAverageLossPerIteration() is double.NaN)
+            // Kromě NaN hlídáme i nekonečno — zdivergovaný trénink projde typicky přes ±∞
+            // dřív, než se dostane k NaN, a v obou případech jsou váhy stejně nepoužitelné.
+            double validLossNow = lossFunc.GetAverageLossPerIteration();
+
+            if (!double.IsFinite(loss) || !double.IsFinite(validLossNow))
             {
-                GraphPlotter.ShowLossGraph(_listOfepoch.ToArray(), _listOfTrainLoss.ToArray(), _listOfValidLoss.ToArray());
+                // graf jen když si ho uživatel přeje — jinak by každý zdivergovaný běh
+                // (a v AutoML jich budou desítky) tiše zapsal loss.png do pracovního adresáře
+                if (ShowLossChartInTrainLoop)
+                {
+                    GraphPlotter.ShowLossGraph(_listOfepoch.ToArray(), _listOfTrainLoss.ToArray(), _listOfValidLoss.ToArray());
+                }
+
                 ConsoleControler.ErrorHandler("NaN value in output", "The output from the neural network is either too small or too large, hence the value of nan. Please try other values ​​in the training parameters (for example: learning rate or hyperammetry )", true);
-                return;
+
+                throw new TrainingDivergedException(_epoch, double.IsFinite(loss) ? validLossNow : loss);
             }
 
             if (_epoch >= (_reportInterval * NumberOfSkipFristEpochInPlotter))

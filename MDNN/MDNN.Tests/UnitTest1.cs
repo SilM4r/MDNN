@@ -1537,3 +1537,158 @@
           Assert.Contains(".json", ex.Message);      // hláška ukáže obě zkoušené cesty
       }
   }
+
+  // ==========================================================================================
+  //  Fáze 2c — dávka 2 (2c-8, 2c-14)
+  // ==========================================================================================
+
+  public class DivergenceTests : GradientCheckTestBase
+  {
+      // 2c-8: při NaN loss se volalo Environment.Exit(0) — knihovna zabila hostitelský
+      // proces, a ještě s kódem 0 = „úspěch". Volající neměl šanci zareagovat.
+      // (Tenhle test by se ve staré verzi ani nedal napsat: Exit by shodil test runner.)
+      private static (double[][] X, double[][] Y) Data()
+      {
+          var X = new double[20][];
+          var Y = new double[20][];
+          for (int i = 0; i < 20; i++)
+          {
+              X[i] = new double[] { i * 0.5 + 1 };
+              Y[i] = new double[] { i * 1.5 + 1 };
+          }
+          return (X, Y);
+      }
+
+      private static My_DNN.MDNN DivergingModel()
+      {
+          // absurdní learning rate → váhy vystřelí do ±∞ a pak NaN
+          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(1e12), new MSE());
+          model.Train.ShowLossChartInTrainLoop = false;
+          model.Train.ShowModelInfoIntrainLoop = false;
+          model.Train.AutoSaveInTrainLoop = false;
+          model.Train.TestNeuralNetworkAfterTraining = false;
+          return model;
+      }
+
+      [Fact]
+      public void TrainLoop_on_divergence_throws_instead_of_killing_process()
+      {
+          var (X, Y) = Data();
+          var model = DivergingModel();
+
+          var ex = Assert.Throws<TrainingDivergedException>(() => model.Train.TrainLoop(X, Y, 50, 4));
+
+          Assert.False(double.IsFinite(ex.Loss), "výjimka má nést tu neplatnou loss");
+          Assert.Contains("learning rate", ex.Message);   // hláška má radit, co s tím
+      }
+
+      [Fact]
+      public void SimpleTrainLoop_on_divergence_throws_too()
+      {
+          // dřív tu byl jen Console.WriteLine + return → volající nepoznal rozdíl mezi
+          // „dotrénováno" a „rozpadlo se to v první epoše"
+          var (X, Y) = Data();
+          var model = DivergingModel();
+
+          Assert.Throws<TrainingDivergedException>(() => model.Train.SimpleTrainLoop(X, Y, 50, 4));
+      }
+
+      [Fact]
+      public void Divergence_is_catchable_and_process_survives()
+      {
+          // přesně scénář AutoML runneru: kandidát zdivergoval, chytím to a jedu dál
+          var (X, Y) = Data();
+          bool caught = false;
+
+          try { DivergingModel().Train.TrainLoop(X, Y, 50, 4); }
+          catch (TrainingDivergedException) { caught = true; }
+
+          Assert.True(caught);
+
+          // po chycení musí jít normálně natrénovat další model
+          var healthy = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          healthy.Train.ShowLossChartInTrainLoop = false;
+          healthy.Train.ShowModelInfoIntrainLoop = false;
+          healthy.Train.AutoSaveInTrainLoop = false;
+          healthy.Train.TestNeuralNetworkAfterTraining = false;
+          healthy.Train.TrainLoop(X, Y, 10, 2);
+
+          Assert.True(double.IsFinite(healthy.GetResults(new Tensor(new double[] { 1.0 })).Data[0]));
+      }
+  }
+
+  public class DatasetSplitLeakTests : GradientCheckTestBase
+  {
+      // 2c-14: druhý TrainLoop na stejném modelu viděl valid/test z prvního běhu, spadl do
+      // větve „uživatel dodal valid i test" a nastavil _trainDataInputs = CELÝ dataset —
+      // takže druhý běh trénoval i na testovacích datech. Tiše.
+      private static (double[][] X, double[][] Y) Data(int n)
+      {
+          var X = new double[n][];
+          var Y = new double[n][];
+          for (int i = 0; i < n; i++)
+          {
+              X[i] = new double[] { i * 0.05 };
+              Y[i] = new double[] { i * 0.10 };
+          }
+          return (X, Y);
+      }
+
+      private static My_DNN.MDNN QuietModel()
+      {
+          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          model.Train.ShowLossChartInTrainLoop = false;
+          model.Train.ShowModelInfoIntrainLoop = false;
+          model.Train.AutoSaveInTrainLoop = false;
+          model.Train.TestNeuralNetworkAfterTraining = false;
+          return model;
+      }
+
+      [Fact]
+      public void Second_train_loop_splits_dataset_the_same_way()
+      {
+          var (X, Y) = Data(20);
+          var model = QuietModel();
+
+          model.Train.TrainLoop(X, Y, 5);
+          int train1 = model.Train.TrainDataInputs!.Shape[0];
+          int valid1 = model.Train.ValidDataInputs!.Shape[0];
+          int test1  = model.Train.TestDataInputs!.Shape[0];
+
+          model.Train.TrainLoop(X, Y, 5);
+          int train2 = model.Train.TrainDataInputs!.Shape[0];
+          int valid2 = model.Train.ValidDataInputs!.Shape[0];
+          int test2  = model.Train.TestDataInputs!.Shape[0];
+
+          Assert.Equal(14, train1);                       // 0.7 z 20
+          Assert.Equal((train1, valid1, test1), (train2, valid2, test2));
+          Assert.Equal(20, train2 + valid2 + test2);      // nic se neztratilo ani nezdvojilo
+      }
+
+      // POZNÁMKA: tenhle test bug 2c-14 NECHYTÁ (ověřeno — bez fixu procházel). Když uživatel
+      // dodá vlastní valid set, vyjdou obě cesty shodně: nefixnutá spadne do větve „mám valid
+      // i test" a nechá je být, fixnutá je přeřízne znovu ze stejného originálu. Drží se tu
+      // jako popis zamýšlené sémantiky (uživatelův vstup se nesmí s každým během dál
+      // ukrajovat), ne jako důkaz opravy — tím je test výš, kde train set ujel 14 → 20.
+      [Fact]
+      public void User_supplied_valid_set_survives_repeated_runs()
+      {
+          var (X, Y) = Data(20);
+          var model = QuietModel();
+
+          // uživatel dodá vlastní valid set → z něj se ukrojí i test
+          model.Train.ValidDataInputs = new Tensor(new double[] { 1, 2, 3, 4 }, new int[] { 4, 1 });
+          model.Train.ValidDataCurrentOutput = new Tensor(new double[] { 2, 4, 6, 8 }, new int[] { 4, 1 });
+
+          model.Train.TrainLoop(X, Y, 5);
+          int valid1 = model.Train.ValidDataInputs!.Shape[0];
+          int test1  = model.Train.TestDataInputs!.Shape[0];
+
+          model.Train.TrainLoop(X, Y, 5);
+
+          // uživatelův vstup se nesmí s každým během dál ukrajovat
+          Assert.Equal(valid1, model.Train.ValidDataInputs!.Shape[0]);
+          Assert.Equal(test1,  model.Train.TestDataInputs!.Shape[0]);
+          Assert.Equal(4, valid1 + test1);                // pořád jeho 4 vzorky, jen rozdělené
+      }
+  }
