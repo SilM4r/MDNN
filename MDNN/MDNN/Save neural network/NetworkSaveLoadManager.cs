@@ -75,9 +75,20 @@ namespace My_DNN.Save_neural_network
             return System.Text.Json.JsonSerializer.Serialize(this, options);
         }
 
+        // Přípona .json se doplní, jen když tam ještě není. Dřív se přidávala vždycky,
+        // takže Save("model.json") vyrobil "model.json.json".
+        private const string JsonExtension = ".json";
+
+        public static string EnsureJsonExtension(string path)
+        {
+            return path.EndsWith(JsonExtension, StringComparison.OrdinalIgnoreCase)
+                ? path
+                : path + JsonExtension;
+        }
+
         public void Save(string fileName)
         {
-            File.WriteAllText(@$"{fileName}.json", SaveToString());
+            File.WriteAllText(EnsureJsonExtension(fileName), SaveToString());
         }
 
         public static NetworkSaveLoadManager LoadFromString(string json)
@@ -100,9 +111,21 @@ namespace My_DNN.Save_neural_network
             }
         }
 
+        // Tolerantní protějšek k Save: `SaveAsJson("model")` zapíše "model.json", takže
+        // `LoadModel("model")` musí fungovat taky. Cesta se bere přednostně tak, jak ji
+        // uživatel zadal; teprve když takový soubor není, zkusí se s doplněnou příponou.
         public static NetworkSaveLoadManager Load(string fullPath)
         {
-            return LoadFromString(File.ReadAllText(fullPath));
+            string path = File.Exists(fullPath) ? fullPath : EnsureJsonExtension(fullPath);
+
+            if (!File.Exists(path))
+            {
+                throw new FileNotFoundException(
+                    $"Model se nepodařilo najít ani jako '{fullPath}', ani jako '{EnsureJsonExtension(fullPath)}'.",
+                    fullPath);
+            }
+
+            return LoadFromString(File.ReadAllText(path));
         }
 
 

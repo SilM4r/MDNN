@@ -559,6 +559,7 @@
       [InlineData(4, 4, 1, 2, 3, "valid", "tanh")]      // multi-filter
       [InlineData(5, 5, 2, 3, 2, "valid", "tanh")]      // channel+filter+kernel3
       [InlineData(5, 5, 1, 3, 2, "same",  "tanh")]      // same padding (lichý kernel!)
+      [InlineData(5, 5, 1, 2, 2, "same",  "tanh")]      // same padding SUDÝ kernel (asymetrický pad)
       public void Conv_input_gradient_matches_numeric(
           int h, int w, int c, int k, int f, string pad, string actName)
       {
@@ -587,6 +588,7 @@
       [InlineData(4, 4, 1, 2, 3, "valid", "tanh")]      // multi-filter
       [InlineData(5, 5, 2, 3, 2, "valid", "tanh")]      // channel+filter+kernel3
       [InlineData(5, 5, 1, 3, 2, "same",  "tanh")]      // same padding (lichý kernel!)
+      [InlineData(5, 5, 1, 2, 2, "same",  "tanh")]      // same padding SUDÝ kernel (asymetrický pad)
       public void Conv_kernel_gradient_matches_numeric(int h, int w, int c, int k, int f, string pad, string actName)
       {
           var (input, conv, gFlat, gTensor) = ConvSetup(h, w, c,k, f, pad, actName);
@@ -618,6 +620,7 @@
       [InlineData(4, 4, 1, 2, 3, "valid", "tanh")]      // multi-filter
       [InlineData(5, 5, 2, 3, 2, "valid", "tanh")]      // channel+filter+kernel3
       [InlineData(5, 5, 1, 3, 2, "same",  "tanh")]      // same padding (lichý kernel!)
+      [InlineData(5, 5, 1, 2, 2, "same",  "tanh")]      // same padding SUDÝ kernel (asymetrický pad)
       public void Conv_bias_gradient_matches_numeric(int h, int w, int c, int k, int f, string pad, string actName)
       {
           var (input, conv, gFlat, gTensor) = ConvSetup(h, w, c,k, f, pad, actName);
@@ -1390,5 +1393,147 @@
           // z hloubi ConvertTo2D.
           Assert.False(ex is DivideByZeroException,
               $"Insert spadl na {ex?.GetType().Name} místo srozumitelné hlášky (2c-7)");
+      }
+  }
+
+  // ==========================================================================================
+  //  Fáze 2c — dávka 1 (2c-11, 2c-12, 2c-13)
+  // ==========================================================================================
+
+  public class ConvSamePaddingTests : GradientCheckTestBase
+  {
+      // 2c-12: `same` se SUDÝM kernelem paddoval symetricky k/2 na každou stranu, takže
+      // padded rozměr byl in+k a konvoluce měla dát in+1 řádků — smyčka ale jela jen do
+      // outputShape[0] = in, takže poslední řádek a sloupec tiše zmizely.
+      //
+      // POZOR: gradient check tohle NECHYTÍ. Forward i backward používaly stejný (špatný)
+      // padding, takže spolu konzistentně souhlasily. Musí se testovat SÉMANTIKA forwardu
+      // proti ručně spočítané referenci.
+      [Fact]
+      public void Same_padding_with_even_kernel_matches_hand_computed_reference()
+      {
+          // vstup 2×2×1 = [[1,2],[3,4]], kernel 2×2 samé jedničky, bias 0, Linear
+          var conv = new Conv(1, 2, new Linear(), "same");
+          conv.LayerAdjustment(null, new int[] { 2, 2, 1 });
+
+          for (int i = 0; i < 2; i++)
+          for (int j = 0; j < 2; j++)
+              conv.Kernel[0][i][j][0] = 1.0;
+          conv.Biases[0] = 0.0;
+
+          var input = new double[2, 2, 1];
+          input[0, 0, 0] = 1; input[0, 1, 0] = 2;
+          input[1, 0, 0] = 3; input[1, 1, 0] = 4;
+
+          double[] output = conv.FeedForward(new Tensor(input)).Data;
+
+          // Keras konvence pro k=2: pad celkem k-1 = 1 → 0 před, 1 za. Padded 3×3:
+          //   1 2 0
+          //   3 4 0
+          //   0 0 0
+          // okna 2×2 se součtem jedniček:
+          //   [0,0] = 1+2+3+4 = 10     [0,1] = 2+0+4+0 = 6
+          //   [1,0] = 3+4+0+0 = 7      [1,1] = 4+0+0+0 = 4
+          Assert.Equal(new double[] { 10, 6, 7, 4 }, output);
+
+          // (Se starým symetrickým paddingem vycházelo [1, 3, 4, 10] — posunuté okno.)
+      }
+
+      // POZNÁMKA: tenhle test bug 2c-12 NECHYTÁ (ověřeno — na starém kódu procházel).
+      // Tvar byl „správný" i předtím, jen obsah posunutý o pixel. Drží se tu jako guard
+      // proti budoucí regresi v geometrii, ne jako důkaz opravy — tím je test výš.
+      [Fact]
+      public void Same_padding_preserves_spatial_shape_for_even_and_odd_kernels()
+      {
+          foreach (int k in new[] { 2, 3, 4, 5 })
+          {
+              var conv = new Conv(2, k, new Linear(), "same");
+              conv.LayerAdjustment(null, new int[] { 6, 6, 1 });
+
+              Assert.Equal(new int[] { 6, 6, 2 }, conv.Output_size_and_shape);
+
+              // a hlavně: forward ten tvar opravdu vyplní (6·6·2 hodnot)
+              double[] output = conv.FeedForward(new Tensor(new double[6, 6, 1])).Data;
+              Assert.Equal(6 * 6 * 2, output.Length);
+          }
+      }
+  }
+
+  public class SequenceScoreTests : GradientCheckTestBase
+  {
+      // 2c-11: v sekvenční větvi se maxScore zvyšovalo o počet výstupních NEURONŮ, zatímco
+      // score o 1 za časový krok → poměr score/maxScore byl nesmysl. Nesekvenční větev
+      // to měla správně.
+      [Fact]
+      public void Sequential_test_counts_timesteps_not_output_neurons()
+      {
+          var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE());
+          model.Context.SequenceTrain = true;
+
+          // 2 sekvence × 3 kroky × 2 featury, výstup 2 neurony
+          var inputs  = new Tensor(new double[2 * 3 * 2], new int[] { 2, 3, 2 });
+          var targets = new Tensor(new double[2 * 3 * 2], new int[] { 2, 3, 2 });
+
+          (int score, int maxScore) = model.Train.TestNeuralNetwork(inputs, targets, showInConsole: false);
+
+          Assert.Equal(6, maxScore);          // 2 sekvence × 3 kroky; dřív 12 (× 2 neurony)
+          Assert.InRange(score, 0, maxScore); // skóre nesmí přelézt maximum
+      }
+  }
+
+  public class SaveLoadPathTests : GradientCheckTestBase
+  {
+      // 2c-13: Save vždycky přilepil ".json", Load ne → SaveAsJson("model") zapsalo
+      // "model.json", ale LoadModel("model") selhalo. A SaveAsJson("model.json")
+      // vyrobilo "model.json.json".
+      private static string TempBase()
+          => System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mdnn_path_" + Guid.NewGuid().ToString("N"));
+
+      private static My_DNN.MDNN SmallModel()
+      {
+          var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE());
+          model.GetResults(new Tensor(new double[] { 0.5, -0.3 }));
+          return model;
+      }
+
+      [Fact]
+      public void LoadModel_finds_file_saved_without_extension()
+      {
+          string basePath = TempBase();
+          try
+          {
+              SmallModel().SaveAsJson(basePath);                       // zapíše basePath.json
+              Assert.True(System.IO.File.Exists(basePath + ".json"));
+
+              var loaded = My_DNN.MDNN.LoadModel(basePath);            // BEZ přípony
+              Assert.NotNull(loaded);
+          }
+          finally { try { System.IO.File.Delete(basePath + ".json"); } catch { } }
+      }
+
+      [Fact]
+      public void SaveAsJson_does_not_double_the_extension()
+      {
+          string path = TempBase() + ".json";
+          try
+          {
+              SmallModel().SaveAsJson(path);
+
+              Assert.True(System.IO.File.Exists(path), "očekáván soubor s jednou příponou");
+              Assert.False(System.IO.File.Exists(path + ".json"), "vznikla dvojitá přípona .json.json");
+
+              Assert.NotNull(My_DNN.MDNN.LoadModel(path));
+          }
+          finally { try { System.IO.File.Delete(path); System.IO.File.Delete(path + ".json"); } catch { } }
+      }
+
+      [Fact]
+      public void LoadModel_missing_file_throws_clear_error()
+      {
+          string missing = TempBase();
+          var ex = Record.Exception(() => My_DNN.MDNN.LoadModel(missing));
+
+          Assert.IsType<System.IO.FileNotFoundException>(ex);
+          Assert.Contains(".json", ex.Message);      // hláška ukáže obě zkoušené cesty
       }
   }

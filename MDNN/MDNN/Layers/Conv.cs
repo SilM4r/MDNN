@@ -266,17 +266,7 @@ namespace My_DNN.Layers
                 throw new ArgumentException("Počet kanálů vstupu a kernelu se musí shodovat.");
             }
 
-            double[][][] paddedInput;
-            if (padding.ToLower() == "same")
-            {
-                int padRows = kernelRows / 2;
-                int padCols = kernelCols / 2;
-                paddedInput = Pad3D(inputs, padRows, padCols);
-            }
-            else
-            {
-                paddedInput = inputs;
-            }
+            double[][][] paddedInput = PadForSame(inputs);
             
 
             // Pro každý filtr (výstupní kanál)
@@ -345,15 +335,7 @@ namespace My_DNN.Layers
             int kW = kernels[0][0].Length;
 
             // Padding – pokud je režim "same", padujeme vstup stejně jako ve forward propagaci
-            double[][][] paddedInput;
-            if (padding.ToLower() == "same")
-            {
-                paddedInput = Pad3D(inputs,kH/2,kW/2);
-            }
-            else
-            {
-                paddedInput = inputs;
-            }
+            double[][][] paddedInput = PadForSame(inputs);
 
             // 1. Výpočet dBiases: pro každý filtr se sečtou všechny hodnoty z dOutput
             for (int f = 0; f < numFilters; f++)
@@ -494,19 +476,11 @@ namespace My_DNN.Layers
             int kH = kernels[0].Length;
             int kW = kernels[0][0].Length;
 
-            // Padding – pokud je režim "same", padujeme vstup stejně jako ve forward propagaci
-            int padRows = 0, padCols = 0;
-            double[][][] paddedInput;
-            if (padding.ToLower() == "same")
-            {
-                padRows = kH / 2;
-                padCols = kW / 2;
-                paddedInput = Pad3D(inputs, padRows, padCols);
-            }
-            else
-            {
-                paddedInput = inputs;
-            }
+            // Padding – pokud je režim "same", padujeme vstup stejně jako ve forward propagaci.
+            // Un-pad níž se řídí padTop/padLeft (ne totalem/2) — u sudého kernelu je padding
+            // asymetrický, takže by symetrický offset ukázal na špatné pixely.
+            (int padTop, int padBottom, int padLeft, int padRight) = SamePaddingAmounts();
+            double[][][] paddedInput = PadForSame(inputs);
 
             int paddedH = paddedInput.Length;
             int paddedW = paddedInput[0].Length;
@@ -562,7 +536,7 @@ namespace My_DNN.Layers
                         dInput[i][j] = new double[inChannels];
                         for (int c = 0; c < inChannels; c++)
                         {
-                            dInput[i][j][c] = dInputPadded[i + padRows][j + padCols][c];
+                            dInput[i][j][c] = dInputPadded[i + padTop][j + padLeft][c];
                         }
                     }
                 }
@@ -583,13 +557,47 @@ namespace My_DNN.Layers
                 throw new ArgumentException("unfortunately it is not possible to apply an activation function to a convulsion layer that is applied to the whole layer like softmax() instead use for example ReLu() or Tanh().");
             }
         }
-        private double[][][] Pad3D(double[][][] input, int padRows, int padCols)
+        // Kolik nulových řádků/sloupců přidat pro režim "same".
+        //
+        // Dřív se počítalo symetricky jako k/2 na každou stranu. Pro LICHÝ kernel to sedí,
+        // pro SUDÝ ne: padded rozměr vyšel in + 2·(k/2) = in + k, takže konvoluce měla dát
+        // in + 1 řádků — jenže smyčka jela jen do outputShape[0] = in, takže poslední řádek
+        // a sloupec tiše zmizely (žádná výjimka, jen chybějící data).
+        //
+        // Nově celkem k-1 (to je přesně tolik, aby výstup vyšel na velikost vstupu),
+        // rozdělené před/za. U lichého k to vyjde symetricky jako dřív, u sudého asymetricky
+        // — stejná konvence jako TensorFlow/Keras/PyTorch.
+        private (int top, int bottom, int left, int right) SamePaddingAmounts()
+        {
+            int totalRows = kernels[0].Length - 1;
+            int totalCols = kernels[0][0].Length - 1;
+
+            int top = totalRows / 2;
+            int left = totalCols / 2;
+
+            return (top, totalRows - top, left, totalCols - left);
+        }
+
+        // Vrátí vstup opadovaný podle režimu; pro "valid" vrací původní pole beze změny.
+        // Sdílené forwardem i oběma backward cestami, aby se nemohly rozejít.
+        private double[][][] PadForSame(double[][][] input)
+        {
+            if (padding.ToLower() != "same")
+            {
+                return input;
+            }
+
+            (int top, int bottom, int left, int right) = SamePaddingAmounts();
+            return Pad3D(input, top, bottom, left, right);
+        }
+
+        private double[][][] Pad3D(double[][][] input, int padTop, int padBottom, int padLeft, int padRight)
         {
             int originalRows = input.Length;
             int originalCols = input[0].Length;
             int channels = input[0][0].Length;
-            int newRows = originalRows + 2 * padRows;
-            int newCols = originalCols + 2 * padCols;
+            int newRows = originalRows + padTop + padBottom;
+            int newCols = originalCols + padLeft + padRight;
 
             double[][][] padded = new double[newRows][][];
             for (int i = 0; i < newRows; i++)
@@ -607,7 +615,7 @@ namespace My_DNN.Layers
                 {
                     for (int c = 0; c < channels; c++)
                     {
-                        padded[i + padRows][j + padCols][c] = input[i][j][c];
+                        padded[i + padTop][j + padLeft][c] = input[i][j][c];
                     }
                 }
             }

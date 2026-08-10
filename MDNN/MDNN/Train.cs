@@ -287,7 +287,11 @@ namespace My_DNN
 
                         double[] output = outputTensor.Data;
 
-                        maxScore += output.Length;
+                        // Počítáme ČASOVÉ KROKY, ne výstupní neurony. Dřív tu bylo
+                        // `maxScore += output.Length`, zatímco score se zvyšovalo o 1 za krok
+                        // → poměr score/maxScore byl v sekvenčním režimu nesmyslné číslo
+                        // (dělilo se počtem neuronů). Nesekvenční větev to měla správně.
+                        maxScore++;
 
                         bool zeroError = true;
 
