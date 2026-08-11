@@ -897,10 +897,10 @@
       }
 
       [Fact]
-      public void Test_dataset_is_optional()
+      public void Missing_test_is_carved_from_valid()
       {
-          // Bez testovací sady se prostě žádná neuvede. Domýšlet si ji z validační
-          // (jako to dělala zrušená větev) by bylo horší než ji neukázat.
+          // Chybějící sada se ukrojí ze SVÉ SOUROZENKYNĚ, ne z trainu. Poměr valid:test
+          // je defaultně 0.15:0.15, takže z 8 validních vzorků vyjde 4 valid / 4 test.
           var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
 
           var (trainX, trainY) = MakeSamples(30);
@@ -909,8 +909,118 @@
           model.Train.SetDatasets(new LabeledData(trainX, trainY), new LabeledData(validX, validY));
           model.Train.DividingDataIntoDatasets(trainX, trainY);
 
-          Assert.Equal(8, model.Train.ValidDataInputs!.Shape[0]);
+          Assert.Equal(30, model.Train.TrainDataInputs!.Shape[0]);   // train NEDOTČENÝ
+          Assert.Equal(4, model.Train.ValidDataInputs!.Shape[0]);
+          Assert.Equal(4, model.Train.TestDataInputs!.Shape[0]);
+      }
+
+      [Fact]
+      public void Missing_valid_is_carved_from_test()
+      {
+          // Typicky MNIST: dodán train a test, validační sada chybí.
+          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+
+          var (trainX, trainY) = MakeSamples(30);
+          var (testX, testY) = MakeSamples(10);
+
+          model.Train.SetDatasets(new LabeledData(trainX, trainY), valid: null, test: new LabeledData(testX, testY));
+          model.Train.DividingDataIntoDatasets(trainX, trainY);
+
+          Assert.Equal(30, model.Train.TrainDataInputs!.Shape[0]);   // train NEDOTČENÝ
+          Assert.Equal(5, model.Train.TestDataInputs!.Shape[0]);
+          Assert.Equal(5, model.Train.ValidDataInputs!.Shape[0]);
+      }
+
+      [Fact]
+      public void Carving_can_be_turned_off()
+      {
+          // Uživatel si chce nechat validační sadu celou a otestovat si model potom sám.
+          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+
+          var (trainX, trainY) = MakeSamples(30);
+          var (validX, validY) = MakeSamples(8);
+
+          model.Train.SetDatasets(
+              new LabeledData(trainX, trainY),
+              new LabeledData(validX, validY),
+              carveMissing: false);
+          model.Train.DividingDataIntoDatasets(trainX, trainY);
+
+          Assert.Equal(8, model.Train.ValidDataInputs!.Shape[0]);   // celá, neukrojená
           Assert.Null(model.Train.TestDataInputs);
+      }
+
+      [Fact]
+      public void Carving_off_still_requires_valid()
+      {
+          // bez validační sady se nedá trénovat (valid loss pro AutoSave a early stopping)
+          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          var (trainX, trainY) = MakeSamples(30);
+          var (testX, testY) = MakeSamples(10);
+
+          var ex = Assert.Throws<ArgumentException>(() => model.Train.SetDatasets(
+              new LabeledData(trainX, trainY), valid: null, test: new LabeledData(testX, testY), carveMissing: false));
+          Assert.Contains("valid", ex.Message.ToLower());
+      }
+
+      [Fact]
+      public void SetDatasets_needs_valid_or_test()
+      {
+          // Kdyby chyběly obě, nezbylo by než ukrojit z trainu — a právě tomu se vyhýbáme.
+          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          var (trainX, trainY) = MakeSamples(30);
+
+          var ex = Assert.Throws<ArgumentException>(
+              () => model.Train.SetDatasets(new LabeledData(trainX, trainY)));
+          Assert.Contains("SetDatasetAndSplit", ex.Message);
+      }
+
+      [Fact]
+      public void Carving_needs_at_least_two_samples()
+      {
+          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          var (trainX, trainY) = MakeSamples(30);
+          var (validX, validY) = MakeSamples(1);
+
+          model.Train.SetDatasets(new LabeledData(trainX, trainY), new LabeledData(validX, validY));
+
+          var ex = Assert.Throws<ArgumentException>(() => model.Train.DividingDataIntoDatasets(trainX, trainY));
+          Assert.Contains("carveMissing", ex.Message);
+      }
+
+      [Fact]
+      public void TrainLoop_with_data_is_a_shortcut_for_split_plus_loop()
+      {
+          // TrainLoop(X, Y, ...) musí dělat PŘESNĚ totéž co SetDatasetAndSplit + TrainLoop(...)
+          var (X, Y) = MakeArrays(40);
+          var probe = new Tensor(new double[] { 0.3 });
+
+          var shortcut = Quiet(seed: 3);
+          shortcut.Train.TrainLoop(X, Y, 4, 2);
+
+          var explicitForm = Quiet(seed: 3);
+          explicitForm.Train.SetDatasetAndSplit(new LabeledData(X, Y));
+          explicitForm.Train.TrainLoop(4, 2);
+
+          Assert.Equal(shortcut.GetResults(probe).Data[0], explicitForm.GetResults(probe).Data[0]);
+      }
+
+      private static My_DNN.MDNN Quiet(int? seed = null)
+      {
+          var m = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE(), seed);
+          m.Train.ShowLossChartInTrainLoop = false;
+          m.Train.ShowModelInfoIntrainLoop = false;
+          m.Train.AutoSaveInTrainLoop = false;
+          m.Train.TestNeuralNetworkAfterTraining = false;
+          return m;
+      }
+
+      private static (double[][] X, double[][] Y) MakeArrays(int n)
+      {
+          var xs = new double[n][];
+          var ys = new double[n][];
+          for (int i = 0; i < n; i++) { xs[i] = new double[] { i * 0.03 }; ys[i] = new double[] { i * 0.05 }; }
+          return (xs, ys);
       }
 
       [Fact]
@@ -1705,13 +1815,17 @@
           model.Train.TrainLoop(5);
           int train1 = model.Train.TrainDataInputs!.Shape[0];
           int valid1 = model.Train.ValidDataInputs!.Shape[0];
+          int test1 = model.Train.TestDataInputs!.Shape[0];
 
           model.Train.TrainLoop(5);
 
+          // opakovaný běh musí dát stejné rozdělení — krájí se vždycky z PŮVODNÍ zadané
+          // sady, ne z té už zmenšené (tam byl kdysi "Invalid slice range!")
           Assert.Equal(train1, model.Train.TrainDataInputs!.Shape[0]);
           Assert.Equal(valid1, model.Train.ValidDataInputs!.Shape[0]);
-          Assert.Equal(20, train1);                       // celý dodaný train set, nic se neukrojilo
-          Assert.Equal(4, valid1);
+          Assert.Equal(test1, model.Train.TestDataInputs!.Shape[0]);
+          Assert.Equal(20, train1);                       // celý dodaný train set, nedotčený
+          Assert.Equal(4, valid1 + test1);                // jeho 4 valid vzorky, rozdělené 2/2
       }
   }
 

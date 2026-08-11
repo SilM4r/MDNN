@@ -77,6 +77,13 @@ namespace My_DNN
         private LabeledData? _explicitValid;
         private LabeledData? _explicitTest;
 
+        // Jeden balík, ze kterého se má ukrojit všechno (train i valid i test) podle poměrů.
+        // Vzájemně se vylučuje s _explicit* — nastavení jednoho druhé zahodí.
+        private LabeledData? _splitSource;
+
+        // Má se chybějící valid/test ukrojit ze sourozenkyně? (viz SetDatasets)
+        private bool _carveMissingDataset = true;
+
         // VŠECHNO jen ke čtení. Dřív šly valid/test nastavovat čtyřmi nezávislými settery,
         // což dovolovalo dodat vstupy bez cílů a nafukovalo DividingDataIntoDatasets na
         // čtyři větve podle toho, co uživatel zrovna vyplnil. Jediná cesta dovnitř je
@@ -91,19 +98,62 @@ namespace My_DNN
         // Má model datasety zadané ručně (na rozdíl od odvození z poměrů)?
         public bool HasExplicitDatasets => _explicitTrain != null;
 
-        // Dodej datasety napřímo, když už máš vlastní rozdělení (typicky předrozdělený
-        // dataset jako MNIST). `test` je volitelný — bez něj se závěrečný přehled omezí
-        // na train a valid, místo aby si test někde domýšlel.
+        // Dodej vlastní datasety. Chybějící třetí sada se ukrojí ze SVÉ SOUROZENKYNĚ
+        // (test z validu, nebo valid z testu) podle poměrů valid:test.
+        // Na `train` se NIKDY nesahá — když ho dodáš, natrénuje se přesně na něm.
+        //
+        //   SetDatasets(train, valid)        → test se ukrojí z validu
+        //   SetDatasets(train, null, test)   → valid se ukrojí z testu   (typicky MNIST)
+        //   SetDatasets(train, valid, test)  → nic se nekrájí
+        //
+        // Aspoň jedna z valid/test musí být zadaná: kdyby chyběly obě, nezbylo by než
+        // ukrojit z trainu, a to je právě to, čemu se tady vyhýbáme. Případ „mám jeden
+        // balík, rozděl mi to" má vlastní metodu SetDatasetAndSplit().
+        //
+        // `carveMissing: false` krájení vypne — chybějící sada prostě nebude. Hodí se, když
+        // si chceš validační sadu nechat celou a otestovat model potom sám nad vlastními
+        // daty (TestNeuralNetwork(...)). Závěrečný přehled pak testovací řádek vynechá.
         //
         // Poté se trénuje bezdatovým přetížením: TrainLoop(numberOfEpoch, sizeOfMiniBatch).
-        public void SetDatasets(LabeledData train, LabeledData valid, LabeledData? test = null)
+        public void SetDatasets(LabeledData train, LabeledData? valid = null, LabeledData? test = null, bool carveMissing = true)
         {
             ArgumentNullException.ThrowIfNull(train);
-            ArgumentNullException.ThrowIfNull(valid);
+
+            if (valid == null && test == null)
+            {
+                throw new ArgumentException(
+                    "Zadej aspoň validační nebo testovací sadu — ta chybějící se ukrojí z té druhé. " +
+                    "Na train se nesahá. Když chceš rozdělit jeden balík na všechno, použij " +
+                    "SetDatasetAndSplit(data).");
+            }
+
+            // Bez validační sady se nedá trénovat (počítá se z ní valid loss pro AutoSave
+            // i early stopping), takže tuhle kombinaci je potřeba odmítnout hned tady,
+            // ne až uprostřed tréninku.
+            if (!carveMissing && valid == null)
+            {
+                throw new ArgumentException(
+                    "S carveMissing: false musí být validační sada zadaná — trénink ji potřebuje " +
+                    "pro valid loss (AutoSave, early stopping). Vynechat jde jen testovací sada.");
+            }
 
             _explicitTrain = train;
             _explicitValid = valid;
             _explicitTest = test;
+            _carveMissingDataset = carveMissing;
+            _splitSource = null;
+        }
+
+        // Jeden balík dat → rozdělí se na train/valid/test podle poměrů
+        // (default 0.7 / 0.15 / 0.15, viz TrainSplitRatio a spol.).
+        public void SetDatasetAndSplit(LabeledData all)
+        {
+            ArgumentNullException.ThrowIfNull(all);
+
+            _splitSource = all;
+            _explicitTrain = null;
+            _explicitValid = null;
+            _explicitTest = null;
         }
 
         // Počet DOKONČENÝCH epoch, tedy plných průchodů trénovacím setem.
@@ -426,22 +476,36 @@ namespace My_DNN
         // předávat je podruhé, když je model zná, by si protiřečilo.
         public void TrainLoop(uint numberOfEpoch, uint sizeOfMiniBatch = 1, bool isSequence = false)
         {
-            if (_explicitTrain == null || _explicitValid == null)
-            {
-                throw new InvalidOperationException(
-                    "Nejdřív zavolej SetDatasets(train, valid, test), nebo použij " +
-                    "TrainLoop(inputs, targets, ...) a datasety se odvodí z poměrů.");
-            }
-
-            RunTrainLoop(_explicitTrain.Inputs, _explicitTrain.Targets, numberOfEpoch, sizeOfMiniBatch, isSequence);
+            LabeledData source = CurrentDataSource();
+            RunTrainLoop(source.Inputs, source.Targets, numberOfEpoch, sizeOfMiniBatch, isSequence);
         }
 
+        // Zkratka: rozdělí předaný balík podle poměrů a rovnou trénuje. Dělá přesně totéž co
+        //     SetDatasetAndSplit(new LabeledData(inputsValues, currentOutputValues));
+        //     TrainLoop(numberOfEpoch, sizeOfMiniBatch, isSequence);
+        // Uvnitř je tedy jen jedna cesta; tohle je pohodlí, ne druhý mechanismus.
         public void TrainLoop(Array inputsValues, Array currentOutputValues, uint numberOfEpoch, uint sizeOfMiniBatch = 1, bool isSequence = false)
         {
-            RunTrainLoop(
-                Tensor.ConvertArrayToTensor(inputsValues),
-                Tensor.ConvertArrayToTensor(currentOutputValues),
-                numberOfEpoch, sizeOfMiniBatch, isSequence);
+            SetDatasetAndSplit(new LabeledData(inputsValues, currentOutputValues));
+            TrainLoop(numberOfEpoch, sizeOfMiniBatch, isSequence);
+        }
+
+        // Odkud se berou data pro tenhle běh — buď uživatelův train set, nebo balík k rozdělení.
+        private LabeledData CurrentDataSource()
+        {
+            if (_explicitTrain != null)
+            {
+                return _explicitTrain;
+            }
+
+            if (_splitSource != null)
+            {
+                return _splitSource;
+            }
+
+            throw new InvalidOperationException(
+                "Nejsou zadaná žádná data. Použij SetDatasets(train, valid, test), " +
+                "SetDatasetAndSplit(data), nebo zkratku TrainLoop(inputs, targets, ...).");
         }
 
         private void RunTrainLoop(Tensor tensorInputsValues, Tensor tensorCurrentOutputValues, uint numberOfEpoch, uint sizeOfMiniBatch = 1, bool isSequence = false)
@@ -870,17 +934,9 @@ namespace My_DNN
         // na celém datasetu včetně testu.
         public void DividingDataIntoDatasets(Tensor inputsValues, Tensor currentOutputValues)
         {
-            if (_explicitTrain != null && _explicitValid != null)
+            if (_explicitTrain != null)
             {
-                _trainDataInputs = _explicitTrain.Inputs;
-                _trainDataCurrentOutput = _explicitTrain.Targets;
-
-                _validDataInputs = _explicitValid.Inputs;
-                _validDataCurrentOutput = _explicitValid.Targets;
-
-                _testDataInputs = _explicitTest?.Inputs;
-                _testDataCurrentOutput = _explicitTest?.Targets;
-
+                ApplyExplicitDatasets();
                 return;
             }
 
@@ -962,6 +1018,97 @@ namespace My_DNN
                 Fit(inputs.GetTensorValue([index, step]), targets.GetTensorValue([index, step]));
             }
             _model.ResetSequence();
+        }
+
+        // Uživatelem zadané datasety → pracovní pole. Chybějící valid/test se ukrojí ze
+        // SVÉ SOUROZENKYNĚ, nikdy z trainu: když uživatel řekl „tohle je můj trénovací set",
+        // zmenšovat mu ho pod rukama by bylo překvapivé.
+        //
+        // Krájí se vždycky z PŮVODNÍ zadané sady (_explicitValid / _explicitTest), ne
+        // z pracovního pole. Právě tady byl kdysi bug: test se řezal z už zmenšeného validu,
+        // takže offset padl mimo rozsah („Invalid slice range!"). Se zdrojem, který se
+        // nikdy nepřepisuje, to nemůže nastat.
+        private void ApplyExplicitDatasets()
+        {
+            _trainDataInputs = _explicitTrain!.Inputs;
+            _trainDataCurrentOutput = _explicitTrain.Targets;
+
+            if (_explicitValid != null && _explicitTest != null)
+            {
+                SetValid(_explicitValid);
+                SetTest(_explicitTest);
+                return;
+            }
+
+            if (!_carveMissingDataset)
+            {
+                // uživatel si krájení nepřeje — co nedodal, nebude
+                if (_explicitValid != null) SetValid(_explicitValid); else ClearValid();
+                if (_explicitTest != null) SetTest(_explicitTest); else ClearTest();
+                return;
+            }
+
+            var (_, validRatio, testRatio) = ResolveSplitRatios();
+            double ratioSum = validRatio + testRatio;
+
+            if (_explicitValid != null)
+            {
+                // ukroj TEST z validu
+                var (keep, carved) = CarveInTwo(_explicitValid, validRatio / ratioSum, "validační");
+                SetValid(keep);
+                SetTest(carved);
+            }
+            else
+            {
+                // ukroj VALID z testu
+                var (keep, carved) = CarveInTwo(_explicitTest!, testRatio / ratioSum, "testovací");
+                SetTest(keep);
+                SetValid(carved);
+            }
+        }
+
+        // Rozdělí sadu na dva kusy v daném poměru. Oba musí mít aspoň jeden vzorek —
+        // jinak by trénink spadl někde dál na prázdném datasetu.
+        private static (LabeledData first, LabeledData second) CarveInTwo(LabeledData source, double firstShare, string name)
+        {
+            int total = source.Count;
+
+            if (total < 2)
+            {
+                throw new ArgumentException(
+                    $"Z {name} sady o {total} vzorku/vzorcích nejde ukrojit chybějící sadu — " +
+                    "potřebuje aspoň 2. Dodej obě sady, nebo použij carveMissing: false.");
+            }
+
+            int firstSize = Math.Clamp((int)(total * firstShare), 1, total - 1);
+
+            return (
+                new LabeledData(source.Inputs.Slice(0, firstSize), source.Targets.Slice(0, firstSize)),
+                new LabeledData(source.Inputs.Slice(firstSize, total - firstSize), source.Targets.Slice(firstSize, total - firstSize)));
+        }
+
+        private void SetValid(LabeledData data)
+        {
+            _validDataInputs = data.Inputs;
+            _validDataCurrentOutput = data.Targets;
+        }
+
+        private void SetTest(LabeledData data)
+        {
+            _testDataInputs = data.Inputs;
+            _testDataCurrentOutput = data.Targets;
+        }
+
+        private void ClearValid()
+        {
+            _validDataInputs = null;
+            _validDataCurrentOutput = null;
+        }
+
+        private void ClearTest()
+        {
+            _testDataInputs = null;
+            _testDataCurrentOutput = null;
         }
 
         public void ShuffleTensor(Tensor tensorA, Tensor tensorB, out Tensor shuffledA, out Tensor shuffledB)
