@@ -219,7 +219,18 @@ namespace My_DNN.Layers
             {
                 number_of_kernels = Kernel.Length;
             }
-            inicializationK_B_dK_dB(number_of_kernels, new int[] { Kernel[0].Count(), Kernel[0][0].Count(), inputsShape[2] }, true);
+
+            // Kernely znovu inicializovat JEN když se mění jejich tvar (počet filtrů nebo
+            // počet vstupních kanálů). Dřív se předávalo natvrdo ChangeKernel: true, takže
+            // i volání, které nic nemění, přepsalo natrénované kernely náhodnými čísly.
+            // ChangeKernel: false jen vynuluje dKernels/dBiases a kernely+biasy nechá být.
+            bool kernelShapeMatches = kernels.Length == number_of_kernels
+                                      && kernels[0][0][0].Length == inputsShape[2];
+
+            inicializationK_B_dK_dB(
+                number_of_kernels,
+                new int[] { Kernel[0].Count(), Kernel[0][0].Count(), inputsShape[2] },
+                !kernelShapeMatches);
 
             // per-model optimizer (nezávislost modelů)
             if (Context != null)

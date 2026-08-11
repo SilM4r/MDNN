@@ -145,17 +145,29 @@ namespace My_DNN.Layers
                 raw_output = new double[(int)number_of_elements];
             }
 
-            neurons = new List<Neuron>();
-
-            for (int i = 0; i < output.Length; i++)
+            // Stejná idempotence jako u Dense — bez ní i volání, které nic nemění, smazalo
+            // natrénované váhy. Pozor: RNN neuron má o jednu váhu navíc (rekurentní vstup).
+            if (!NeuronsMatchShape(output.Length, input_size[0] + 1))
             {
-                neurons.Add(new Neuron(input_size[0] + 1, activation_func));
+                neurons = new List<Neuron>();
+
+                for (int i = 0; i < output.Length; i++)
+                {
+                    neurons.Add(new Neuron(input_size[0] + 1, activation_func));
+                }
             }
 
             // per-model optimizer (nezávislost modelů)
             if (Context != null)
                 foreach (Neuron n in neurons)
                     n.optimizer = Optimizer.Clone_optimizer(Context.Optimizer);
+        }
+
+        private bool NeuronsMatchShape(int neuronCount, int weightsPerNeuron)
+        {
+            return neurons.Count == neuronCount
+                   && neurons.Count > 0
+                   && neurons[0].Weights.Length == weightsPerNeuron;
         }
 
         public override Tensor FeedForward(Tensor TensorValues)

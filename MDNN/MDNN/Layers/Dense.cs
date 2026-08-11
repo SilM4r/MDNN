@@ -97,17 +97,37 @@ namespace My_DNN.Layers
                 raw_output = new double[(int)number_of_elements];
             }
 
-            neurons = new List<Neuron>();
-
-            for (int i = 0; i < output.Length; i++)
+            // Přestavuj JEN když se tvar opravdu mění. Dřív se `neurons` vždycky zahodily a
+            // postavily znovu s náhodnou inicializací — takže i volání, které nic nemění
+            // (druhé SetInputSizeForFirstLayer se stejným tvarem, nebo Add() vrstvy se
+            // stejným počtem neuronů), tiše smazalo natrénované váhy.
+            //
+            // Když se tvar MĚNÍ (jiný počet neuronů nebo jiná velikost vstupu), je přestavba
+            // nevyhnutelná — mění se délka vektoru vah a staré hodnoty nemají kam sednout.
+            if (!NeuronsMatchShape(output.Length, input_size[0]))
             {
-                neurons.Add(new Neuron(input_size[0], activation_func));
+                neurons = new List<Neuron>();
+
+                for (int i = 0; i < output.Length; i++)
+                {
+                    neurons.Add(new Neuron(input_size[0], activation_func));
+                }
             }
 
-            // per-model optimizer: každý neuron dostane klon optimizeru z Contextu (nezávislost modelů)
+            // per-model optimizer: každý neuron dostane klon optimizeru z Contextu (nezávislost modelů).
+            // Děje se i při zachovaných vahách — LayerAdjustment znamená přepojení architektury
+            // a stav optimizeru (momenty Adamu) se k nové topologii stejně nevztahuje.
             if (Context != null)
                 foreach (Neuron n in neurons)
                     n.optimizer = Optimizer.Clone_optimizer(Context.Optimizer);
+        }
+
+        // Sedí už postavené neurony přesně na požadovaný tvar?
+        private bool NeuronsMatchShape(int neuronCount, int inputSize)
+        {
+            return neurons.Count == neuronCount
+                   && neurons.Count > 0
+                   && neurons[0].Weights.Length == inputSize;
         }
         public override Tensor FeedForward(Tensor input_values)
         {

@@ -1692,3 +1692,113 @@
           Assert.Equal(4, valid1 + test1);                // pořád jeho 4 vzorky, jen rozdělené
       }
   }
+
+  // ==========================================================================================
+  //  Fáze 2c — dávka 3 (2c-10)
+  // ==========================================================================================
+
+  public class LayerAdjustmentIdempotenceTests : GradientCheckTestBase
+  {
+      // 2c-10: LayerAdjustment vždycky zahodilo neurony a postavilo je znovu s náhodnou
+      // inicializací — i když se tvar vůbec neměnil. Natrénované váhy tak mizely při
+      // volání, které nemá co změnit.
+      //
+      // POZOR na správné vymezení: když se dimenze MĚNÍ (jiný počet neuronů předchozí
+      // vrstvy → jiná délka vektoru vah), je přestavba nevyhnutelná a je to korektní
+      // chování, ne chyba. Testujeme tedy oba směry.
+      private static My_DNN.MDNN TrainedModel(out Dense outputLayer, int hiddenNeurons)
+      {
+          outputLayer = new Dense(2, new Linear());
+          var model = new My_DNN.MDNN(outputLayer, new SGD(0.3), new MSE());
+          model.Layers.Add(new Dense(hiddenNeurons, new ReLu()));
+          model.Layers.SetInputSizeForFirstLayer(new int[] { 2 });
+
+          for (int i = 0; i < 30; i++)
+              model.Train.Fit(new Tensor(new double[] { 1, 0.5 }), new Tensor(new double[] { 0.5, -0.5 }));
+          model.Train.UpdateParams();
+
+          return model;
+      }
+
+      [Fact]
+      public void Repeated_SetInputSizeForFirstLayer_keeps_trained_weights()
+      {
+          var model = TrainedModel(out Dense outputLayer, 3);
+          double[] before = (double[])outputLayer.Neurons[0].Weights.Clone();
+
+          model.Layers.SetInputSizeForFirstLayer(new int[] { 2 });   // stejný tvar → nic měnit netřeba
+
+          Assert.Equal(before, outputLayer.Neurons[0].Weights);
+      }
+
+      [Fact]
+      public void Adding_layer_with_same_width_keeps_neighbour_weights()
+      {
+          var model = TrainedModel(out Dense outputLayer, 3);
+          double[] before = (double[])outputLayer.Neurons[0].Weights.Clone();
+
+          model.Layers.Add(new Dense(3, new ReLu()));   // 3 == předchozí šířka → vstup výstupní vrstvy se nemění
+
+          Assert.Equal(before, outputLayer.Neurons[0].Weights);
+      }
+
+      [Fact]
+      public void Adding_layer_with_different_width_must_rebuild()
+      {
+          // opačný směr: tady se přestavět MUSÍ, jinak by váhy nesouhlasily s novým vstupem
+          var model = TrainedModel(out Dense outputLayer, 3);
+          Assert.Equal(3, outputLayer.Neurons[0].Weights.Length);
+
+          model.Layers.Add(new Dense(5, new ReLu()));
+
+          Assert.Equal(5, outputLayer.Neurons[0].Weights.Length);
+      }
+
+      [Fact]
+      public void Loaded_model_survives_layer_adjustment()
+      {
+          // nejtišší varianta téhož: načtu natrénovaný model a cokoli, co spustí
+          // LayerAdjustment se stejným tvarem, ho dřív přepsalo náhodnými vahami
+          var model = TrainedModel(out Dense _, 3);
+          string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mdnn_adj_" + Guid.NewGuid().ToString("N"));
+          try
+          {
+              model.SaveAsJson(path);
+              var loaded = My_DNN.MDNN.LoadModel(path);
+              var loadedOutput = (Dense)loaded.Layers.Layers[loaded.Layers.Layers.Count - 1];
+              double[] before = (double[])loadedOutput.Neurons[0].Weights.Clone();
+
+              loaded.Layers.SetInputSizeForFirstLayer(new int[] { 2 });
+
+              Assert.Equal(before, loadedOutput.Neurons[0].Weights);
+          }
+          finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
+      }
+
+      [Fact]
+      public void Conv_kernels_survive_adjustment_with_same_shape()
+      {
+          var conv = new Conv(2, 3, new ReLu(), "valid");
+          conv.LayerAdjustment(null, new int[] { 8, 8, 1 });
+
+          conv.Kernel[0][0][0][0] = 42.0;                       // rozpoznatelná hodnota
+          double[][][][] before = conv.Kernel;
+          double firstBefore = before[0][0][0][0];
+
+          conv.LayerAdjustment(null, new int[] { 8, 8, 1 });     // stejný tvar
+
+          Assert.Equal(firstBefore, conv.Kernel[0][0][0][0]);
+      }
+
+      [Fact]
+      public void Conv_kernels_rebuild_when_channel_count_changes()
+      {
+          var conv = new Conv(2, 3, new ReLu(), "valid");
+          conv.LayerAdjustment(null, new int[] { 8, 8, 1 });
+          Assert.Single(conv.Kernel[0][0][0]);                   // zatím 1 vstupní kanál
+
+          conv.LayerAdjustment(null, new int[] { 8, 8, 3 });     // 1 → 3 kanály
+
+          Assert.Equal(3, conv.Kernel[0][0][0].Length);
+      }
+  }
