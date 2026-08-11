@@ -75,9 +75,9 @@ model.SaveAsJson("save");
 
 ## Examples
 
-Full, runnable examples for each task type — classification, regression, sequential data (RNN), and image data (Conv + MaxPool) — live in a separate repository:
-
-[github.com/SilM4r/MDNN_examples](https://github.com/SilM4r/MDNN_examples)
+The Quick start above is a complete, working example. A larger one — MNIST with a LeNet-style
+CNN, IDX loaders, a held-out test set, and early stopping — lives in the `mdnn_test` project
+next to this repository.
 
 ## Model configuration
 
@@ -145,6 +145,11 @@ The most complete training procedure. It provides:
 - Detection of `NaN` values
 - Automatic plotting of the loss over epochs
 
+**One epoch = one full pass over the training set.** Each epoch the sample order is
+reshuffled and the data is processed in minibatches, with one optimizer step per batch.
+So `number_of_epoch` counts passes over the data, not optimizer steps — for the latter see
+`Train.OptimizerSteps`.
+
 Parameters:
 
 - `Array inputs_values` (required) — input dataset. Each row is one training sample.
@@ -152,6 +157,31 @@ Parameters:
 - `uint number_of_epoch` (required) — number of training epochs.
 - `uint size_of_mini_batch` (optional, default `1`) — minibatch size.
 - `bool isSequence` (optional, default `false`) — set to `true` for sequential input data (for example time series).
+
+This overload is a shortcut: it splits the given data by ratio and trains. When you already
+have your own split, hand the sets over explicitly and call the data-less overload instead:
+
+```csharp
+model.Train.SetDatasets(
+    train: new LabeledData(trainX, trainY),
+    valid: new LabeledData(validX, validY),
+    test:  new LabeledData(testX, testY));   // test is optional
+
+model.Train.TrainLoop(numberOfEpoch: 50, sizeOfMiniBatch: 32);
+```
+
+Whatever you leave out is carved out for you:
+
+| Call | Behaviour |
+|---|---|
+| `SetDatasets(train)` | valid and test are carved from train (0.7 / 0.15 / 0.15) |
+| `SetDatasets(train, valid)` | test is carved from valid; train stays whole |
+| `SetDatasets(train, null, test)` | valid is carved from train; the test set is never touched |
+| `SetDatasets(train, valid, test)` | nothing is carved |
+
+The test set is never carved from — it is the final unbiased estimate. Setting
+`TestNeuralNetworkAfterTraining = false` also stops a test set from being carved out of your
+validation set, so the validation set stays whole.
 
 ### `SimpleTrainLoop()`
 
@@ -169,26 +199,44 @@ Parameters:
 An intermediate approach that lets you write your own training loop. `Fit()` runs the forward pass and backpropagation but accumulates gradients instead of applying them; `UpdateParams()` applies the accumulated gradients. Calling them one after another is equivalent to single-sample training; accumulating several `Fit()` calls before one `UpdateParams()` is equivalent to minibatch training.
 
 ```csharp
-Random rnd = new Random();
 double[][] inputsDataset = { /* input data */ };
 double[][] currentOutputDataset = { /* targets */ };
 
-MDNN model = new MDNN(new Dense(3), new Adam(0.001));
+MDNN model = new MDNN(new Dense(3), new Adam(0.001), seed: 42);
+// Dense(3) has three output neurons, so each target must hold three values — the number of targets has to match the number of neurons in the output layer.
 
-int numberOfEpochs = 5000;
+int numberOfEpochs = 50;
 int miniBatchSize = 16;
 
-for (int i = 0; i < numberOfEpochs; i++)
+Random rnd = new Random(42);
+int[] order = Enumerable.Range(0, inputsDataset.Length).ToArray();
+
+for (int epoch = 0; epoch < numberOfEpochs; epoch++)
 {
-    for (int j = 0; j < miniBatchSize; j++)
+    // reshuffle once per epoch, then walk the whole set — the same thing TrainLoop does
+    for (int i = order.Length - 1; i > 0; i--)
     {
-        int num = rnd.Next(inputsDataset.Length);
-        model.Train.Fit(new Tensor(inputsDataset[num]), new Tensor(currentOutputDataset[num]));
+        int j = rnd.Next(i + 1);
+        (order[i], order[j]) = (order[j], order[i]);
     }
 
-    model.Train.UpdateParams();
+    for (int start = 0; start < order.Length; start += miniBatchSize)
+    {
+        int end = Math.Min(start + miniBatchSize, order.Length);
+
+        for (int k = start; k < end; k++)
+        {
+            int num = order[k];
+            model.Train.Fit(new Tensor(inputsDataset[num]), new Tensor(currentOutputDataset[num]));
+        }
+
+        model.Train.UpdateParams();   // one optimizer step per batch
+    }
 }
 ```
+
+Note that a hand-written loop has no epochs of its own: `Train.CurrentEpoch` stays `0` and
+only `Train.OptimizerSteps` advances.
 
 ### `FeedForward()` and `BackPropagation()`
 
@@ -227,10 +275,29 @@ After training, a model can be saved to JSON and later loaded for inference. No 
 ```csharp
 model.SaveAsJson("save"); // writes save.json
 
-MDNN loaded = MDNN.LoadModel("save.json");
+MDNN loaded = MDNN.LoadModel("save.json");   // "save" works too — the extension is optional
 Tensor input = new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset));
 Tensor result = loaded.GetResults(input);
 ```
+
+The file carries a `FormatVersion`, the seed the model was created with, the time it was
+saved, and a SHA-256 checksum of the model data:
+
+```json
+{
+  "FormatVersion": 1,
+  "Checksum": "sha256:7a54f121...",
+  "Model": { "Seed": 42, "SavedAtUtc": "2026-08-11T11:08:52Z", ... }
+}
+```
+
+A mismatched checksum raises `ModelFileCorruptedException`. Note what that does and does not
+prove: it detects a **damaged or accidentally edited** file, not a deliberately altered one —
+anyone who edits the file can recompute the hash. Files written by older versions (no
+`FormatVersion`) still load, without verification.
+
+`LoadModel(path, seed)` lets you set the seed for continued training; without it the seed
+stored in the file is restored.
 
 ## Supporting utilities
 

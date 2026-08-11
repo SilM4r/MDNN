@@ -75,6 +75,16 @@ namespace My_DNN
             bool fusedSoftmaxCE = model.Context.Loss.RequiresSoftmax
                                   && lastLayer.Activation_Func.Apply_to_layer;
 
+            // Nesedící počet cílů je běžná uživatelská chyba (výstupní vrstva má N neuronů,
+            // ale cíl je skalár). Bez téhle kontroly z toho padal IndexOutOfRangeException
+            // z útrob knihovny, ze kterého se příčina nepozná.
+            if (target_values.Data.Length != outputTensor.Data.Length)
+            {
+                throw new ArgumentException(
+                    $"Výstupní vrstva má {outputTensor.Data.Length} hodnot, ale cíl jich má " +
+                    $"{target_values.Data.Length}. Počet cílů musí odpovídat počtu neuronů výstupní vrstvy.");
+            }
+
             // ∂L/∂output BEZ derivace aktivace — vstup pro SeedOutputGradient i pro
             // BackwardForLayer (vrstvy/aktivace si act' dodají podle své konvence).
             double[] dLossDOutput = new double[outputTensor.Data.Length];
@@ -140,6 +150,13 @@ namespace My_DNN
             // nevolá Derivative() → odpadá i race na stavovém čítači 'a' v Softmaxu.
             bool fusedSoftmaxCE = model.Context.Loss.RequiresSoftmax
                                   && lastLayer.Activation_Func.Apply_to_layer;
+
+            if (target_values.Data.Length != outputTensor.Data.Length)
+            {
+                throw new ArgumentException(
+                    $"Výstupní vrstva má {outputTensor.Data.Length} hodnot, ale cíl jich má " +
+                    $"{target_values.Data.Length}. Počet cílů musí odpovídat počtu neuronů výstupní vrstvy.");
+            }
 
             double[] dLossDOutput = new double[outputTensor.Data.Length];
 

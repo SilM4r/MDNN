@@ -898,10 +898,22 @@ namespace My_DNN
 
             int totalSize = inputsValues.Shape[0];
 
+            // Každá ze tří částí musí dostat aspoň jeden vzorek, jinak Slice() vyhodí
+            // "Invalid slice range!". Bez tohohle spadl KAŽDÝ dataset menší než 7 vzorků:
+            // 15 % ze 4 je po zaokrouhlení dolů nula, takže validační sada vyšla prázdná.
+            if (totalSize < 3)
+            {
+                throw new ArgumentException(
+                    $"Na rozdělení na train/valid/test jsou potřeba aspoň 3 vzorky, dostal jsem {totalSize}. " +
+                    "U menšího datasetu si sady dodej sám přes SetDatasets(...).");
+            }
+
             var (trainRatio, validRatio, _) = ResolveSplitRatios();
 
-            int trainDataSize = (int)(totalSize * trainRatio);
-            int validDataSize = (int)(totalSize * validRatio);
+            // Clamp drží každou část na aspoň jednom vzorku a zároveň nechá místo těm zbylým.
+            // U rozumně velkých datasetů se neuplatní a rozdělení zůstává čistě podle poměrů.
+            int trainDataSize = Math.Clamp((int)(totalSize * trainRatio), 1, totalSize - 2);
+            int validDataSize = Math.Clamp((int)(totalSize * validRatio), 1, totalSize - trainDataSize - 1);
             int testDataSize = totalSize - trainDataSize - validDataSize;   // zbytek → žádný vzorek se neztratí
 
             _trainDataInputs = inputsValues.Slice(0, trainDataSize);

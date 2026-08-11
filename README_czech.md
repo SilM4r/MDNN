@@ -75,9 +75,9 @@ model.SaveAsJson("save");
 
 ## Příklady
 
-Kompletní spustitelné příklady pro každý typ úlohy — klasifikace, regrese, sekvenční data (RNN) a obrazová data (Conv + MaxPool) — najdete v samostatném repozitáři:
-
-[github.com/SilM4r/MDNN_examples](https://github.com/SilM4r/MDNN_examples)
+Rychlý start výše je kompletní funkční příklad. Rozsáhlejší — MNIST s CNN v LeNet stylu,
+IDX loadery, held-out testovací sadou a early stoppingem — je v projektu `mdnn_test`
+vedle tohoto repozitáře.
 
 ## Konfigurace modelu
 
@@ -145,6 +145,11 @@ Nejúplnější trénovací procedura. Poskytuje:
 - Detekci hodnot `NaN`
 - Automatické vykreslení grafu ztráty napříč epochami
 
+**Jedna epocha = jeden plný průchod trénovacím setem.** Každou epochu se pořadí vzorků
+znovu zamíchá a data se projdou po minibatchích, s jedním krokem optimizeru na dávku.
+`number_of_epoch` tedy počítá průchody daty, ne kroky optimizeru — ty najdete
+v `Train.OptimizerSteps`.
+
 Parametry:
 
 - `Array inputs_values` (povinný) – vstupní dataset. Každý řádek je jeden trénovací vzorek.
@@ -152,6 +157,31 @@ Parametry:
 - `uint number_of_epoch` (povinný) – počet trénovacích epoch.
 - `uint size_of_mini_batch` (volitelný, výchozí `1`) – velikost minibatche.
 - `bool isSequence` (volitelný, výchozí `false`) – nastavte na `true` pro sekvenční data (například časové řady).
+
+Tohle přetížení je zkratka: rozdělí předaná data podle poměrů a natrénuje. Když už máte
+vlastní rozdělení, předejte sady napřímo a použijte bezdatové přetížení:
+
+```csharp
+model.Train.SetDatasets(
+    train: new LabeledData(trainX, trainY),
+    valid: new LabeledData(validX, validY),
+    test:  new LabeledData(testX, testY));   // test je volitelný
+
+model.Train.TrainLoop(numberOfEpoch: 50, sizeOfMiniBatch: 32);
+```
+
+Co nedodáte, to se ukrojí:
+
+| Volání | Chování |
+|---|---|
+| `SetDatasets(train)` | valid i test se ukrojí z trainu (0,7 / 0,15 / 0,15) |
+| `SetDatasets(train, valid)` | test se ukrojí z validu; train zůstane celý |
+| `SetDatasets(train, null, test)` | valid se ukrojí z trainu; testovací sada se nikdy nedotkne |
+| `SetDatasets(train, valid, test)` | nic se nekrájí |
+
+Z testovací sady se nekrájí nikdy — je to finální nezaujatý odhad. Nastavením
+`TestNeuralNetworkAfterTraining = false` navíc zabráníte i tomu, aby se testovací sada
+ukrajovala z vaší validační; ta pak zůstane celá.
 
 ### `SimpleTrainLoop()`
 
@@ -169,26 +199,44 @@ Parametry:
 Středně pokročilý přístup, který umožňuje napsat vlastní trénovací smyčku. `Fit()` provede dopředný výpočet i zpětnou propagaci, ale gradienty pouze akumuluje; `UpdateParams()` akumulované gradienty aplikuje. Volání obou funkcí bezprostředně po sobě odpovídá trénování po jednom vzorku; akumulace více `Fit()` před jedním `UpdateParams()` odpovídá trénování s minibatchem.
 
 ```csharp
-Random rnd = new Random();
 double[][] inputsDataset = { /* vstupní data */ };
 double[][] currentOutputDataset = { /* cíle */ };
 
-MDNN model = new MDNN(new Dense(3), new Adam(0.001));
+MDNN model = new MDNN(new Dense(3), new Adam(0.001), seed: 42);
+// Dense(3) má tři výstupní neurony, takže každý cíl musí mít tři hodnoty — počet cílů musí odpovídat počtu neuronů výstupní vrstvy.
 
-int numberOfEpochs = 5000;
+int numberOfEpochs = 50;
 int miniBatchSize = 16;
 
-for (int i = 0; i < numberOfEpochs; i++)
+Random rnd = new Random(42);
+int[] order = Enumerable.Range(0, inputsDataset.Length).ToArray();
+
+for (int epoch = 0; epoch < numberOfEpochs; epoch++)
 {
-    for (int j = 0; j < miniBatchSize; j++)
+    // jednou za epochu zamíchat a projít CELÝ set — přesně to dělá TrainLoop
+    for (int i = order.Length - 1; i > 0; i--)
     {
-        int num = rnd.Next(inputsDataset.Length);
-        model.Train.Fit(new Tensor(inputsDataset[num]), new Tensor(currentOutputDataset[num]));
+        int j = rnd.Next(i + 1);
+        (order[i], order[j]) = (order[j], order[i]);
     }
 
-    model.Train.UpdateParams();
+    for (int start = 0; start < order.Length; start += miniBatchSize)
+    {
+        int end = Math.Min(start + miniBatchSize, order.Length);
+
+        for (int k = start; k < end; k++)
+        {
+            int num = order[k];
+            model.Train.Fit(new Tensor(inputsDataset[num]), new Tensor(currentOutputDataset[num]));
+        }
+
+        model.Train.UpdateParams();   // jeden krok optimizeru na dávku
+    }
 }
 ```
+
+Pozor: ruční smyčka žádné epochy nemá — `Train.CurrentEpoch` zůstane `0` a posouvá se
+jen `Train.OptimizerSteps`.
 
 ### `FeedForward()` a `BackPropagation()`
 
@@ -227,10 +275,29 @@ Po natrénování lze model uložit do JSON a později načíst pro inference. K
 ```csharp
 model.SaveAsJson("save"); // zapíše save.json
 
-MDNN loaded = MDNN.LoadModel("save.json");
+MDNN loaded = MDNN.LoadModel("save.json");   // "save" funguje taky — přípona je volitelná
 Tensor input = new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset));
 Tensor result = loaded.GetResults(input);
 ```
+
+Soubor nese `FormatVersion`, seed, se kterým model vznikl, čas uložení a SHA-256 kontrolní
+součet dat modelu:
+
+```json
+{
+  "FormatVersion": 1,
+  "Checksum": "sha256:7a54f121...",
+  "Model": { "Seed": 42, "SavedAtUtc": "2026-08-11T11:08:52Z", ... }
+}
+```
+
+Nesouhlasný součet vyhodí `ModelFileCorruptedException`. Pozor na to, co dokazuje a co ne:
+detekuje **poškozený nebo omylem upravený** soubor, ne cíleně pozměněný — kdo soubor upraví,
+přepočítá si i hash. Soubory ze starších verzí (bez `FormatVersion`) se načtou dál, jen bez
+ověření.
+
+`LoadModel(path, seed)` umožní nastavit seed pro další trénování; bez něj se obnoví seed
+uložený v souboru.
 
 ## Podpůrné nástroje
 

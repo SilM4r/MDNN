@@ -2672,3 +2672,90 @@
           Assert.Equal(Run(), Run());
       }
   }
+
+  // ==========================================================================================
+  //  Nálezy z procházení příkladů (2026-08-11) — obojí byly starší chyby, ne regrese
+  // ==========================================================================================
+
+  public class SmallDatasetTests : GradientCheckTestBase
+  {
+      // Rozdělení počítalo (int)(n * 0.15), což je pro n < 7 NULA → Slice(x, 0) hodilo
+      // "Invalid slice range!". Každý dataset menší než 7 vzorků tedy TrainLoop shodil.
+      // Vylezlo to při ověřování ukázky z README, která má 4 vzorky.
+      [Theory]
+      [InlineData(3)]
+      [InlineData(4)]
+      [InlineData(5)]
+      [InlineData(6)]
+      [InlineData(7)]
+      [InlineData(20)]
+      public void Tiny_dataset_still_splits_into_three_nonempty_sets(int sampleCount)
+      {
+          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+
+          var xs = new double[sampleCount, 1];
+          var ys = new double[sampleCount, 1];
+          for (int i = 0; i < sampleCount; i++) { xs[i, 0] = i; ys[i, 0] = i * 2; }
+
+          model.Train.DividingDataIntoDatasets(new Tensor(xs), new Tensor(ys));
+
+          Assert.True(model.Train.TrainDataInputs!.Shape[0] >= 1, "train je prázdný");
+          Assert.True(model.Train.ValidDataInputs!.Shape[0] >= 1, "valid je prázdný");
+          Assert.True(model.Train.TestDataInputs!.Shape[0] >= 1, "test je prázdný");
+
+          Assert.Equal(sampleCount,
+              model.Train.TrainDataInputs.Shape[0]
+              + model.Train.ValidDataInputs.Shape[0]
+              + model.Train.TestDataInputs.Shape[0]);
+      }
+
+      [Fact]
+      public void Two_samples_are_rejected_with_a_clear_message()
+      {
+          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          var xs = new double[2, 1];
+          var ys = new double[2, 1];
+
+          var ex = Assert.Throws<ArgumentException>(
+              () => model.Train.DividingDataIntoDatasets(new Tensor(xs), new Tensor(ys)));
+          Assert.Contains("SetDatasets", ex.Message);
+      }
+
+      [Fact]
+      public void Readme_quick_start_with_four_samples_trains()
+      {
+          // přesně ukázka z README (4 vzorky) — dřív spadla na "Invalid slice range!"
+          double[][] X = { new double[] { 0 }, new double[] { 1 }, new double[] { 2 }, new double[] { 3 } };
+          double[][] Y = { new double[] { 0 }, new double[] { 2 }, new double[] { 4 }, new double[] { 6 } };
+
+          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          model.Layers.Add(new Dense(8, new ReLu()));
+          model.Train.ShowLossChartInTrainLoop = false;
+          model.Train.ShowModelInfoIntrainLoop = false;
+          model.Train.AutoSaveInTrainLoop = false;
+          model.Train.TestNeuralNetworkAfterTraining = false;
+
+          model.Train.TrainLoop(X, Y, 5, 1);
+
+          Assert.Equal(5u, model.Train.CurrentEpoch);
+      }
+  }
+
+  public class TargetSizeMismatchTests : GradientCheckTestBase
+  {
+      // Když cíl nemá tolik hodnot, kolik má výstupní vrstva neuronů, padal
+      // IndexOutOfRangeException z útrob Gradient.GetGradients — z toho se příčina nepozná.
+      // Taky nález z ukázek: README má `new Dense(3)` a čtenář snadno dá skalární cíl.
+      [Fact]
+      public void Mismatched_target_size_gives_a_clear_error()
+      {
+          var model = new My_DNN.MDNN(new Dense(3, new Linear()), new SGD(0.01), new MSE());
+          model.Layers.SetInputSizeForFirstLayer(new int[] { 1 });
+
+          var ex = Assert.Throws<ArgumentException>(() =>
+              model.Train.Fit(new Tensor(new double[] { 1 }), new Tensor(new double[] { 0 })));
+
+          Assert.Contains("3", ex.Message);
+          Assert.Contains("1", ex.Message);
+      }
+  }
