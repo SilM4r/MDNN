@@ -2367,3 +2367,154 @@
           finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
       }
   }
+
+  // ==========================================================================================
+  //  Fáze 4 — konvenční epochy (plný průchod po dávkách místo náhodných tahů s opakováním)
+  // ==========================================================================================
+
+  public class ConventionalEpochTests : GradientCheckTestBase
+  {
+      private static (double[][] X, double[][] Y) Data(int n)
+      {
+          var X = new double[n][];
+          var Y = new double[n][];
+          for (int i = 0; i < n; i++)
+          {
+              X[i] = new double[] { i * 0.07 - 0.5 };
+              Y[i] = new double[] { i * 0.11 - 0.3 };
+          }
+          return (X, Y);
+      }
+
+      private static My_DNN.MDNN Quiet(int? seed = null)
+      {
+          var m = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE(), seed);
+          m.Train.ShowLossChartInTrainLoop = false;
+          m.Train.ShowModelInfoIntrainLoop = false;
+          m.Train.AutoSaveInTrainLoop = false;
+          m.Train.TestNeuralNetworkAfterTraining = false;
+          return m;
+      }
+
+      [Theory]
+      [InlineData(1)]     // 14 vzorků / dávka 1  → 14 kroků na epochu
+      [InlineData(4)]     // 14 / 4 = 3.5         → 4 kroky (poslední dávka neúplná)
+      [InlineData(7)]     // 14 / 7               → 2 kroky
+      [InlineData(14)]    // celý set v jedné dávce → 1 krok
+      [InlineData(50)]    // dávka větší než set   → pořád 1 krok
+      public void One_epoch_runs_one_optimizer_step_per_batch(int batchSize)
+      {
+          var (X, Y) = Data(20);
+          var model = Quiet();
+
+          model.Train.TrainLoop(X, Y, 1, (uint)batchSize);
+
+          int trainCount = model.Train.TrainDataInputs!.Shape[0];      // 0.7 z 20 = 14
+          ulong expected = (ulong)((trainCount + batchSize - 1) / batchSize);
+
+          Assert.Equal(14, trainCount);
+          Assert.Equal(expected, model.Train.OptimizerSteps);
+      }
+
+      [Fact]
+      public void Epoch_counter_counts_epochs_not_optimizer_steps()
+      {
+          // Dřív UpdateParams() inkrementoval čítač epoch a vycházelo to nastejno, protože
+          // na „epochu" připadal jeden krok. Teď se to musí rozejít.
+          var (X, Y) = Data(20);
+          var model = Quiet();
+
+          model.Train.TrainLoop(X, Y, 3, 1);
+
+          Assert.Equal(3u, model.Train.CurrentEpoch);          // 3 průchody daty
+          Assert.Equal(42ul, model.Train.OptimizerSteps);      // 3 × 14 dávek
+      }
+
+      [Fact]
+      public void Manual_training_counts_steps_but_no_epochs()
+      {
+          // Ruční Fit + UpdateParams žádné epochy nemá — hlásit je jako epochy by lhalo.
+          var model = Quiet();
+          model.Layers.SetInputSizeForFirstLayer(new int[] { 1 });
+
+          for (int i = 0; i < 5; i++)
+          {
+              model.Train.Fit(new Tensor(new double[] { 1 }), new Tensor(new double[] { 0.5 }));
+              model.Train.UpdateParams();
+          }
+
+          Assert.Equal(0u, model.Train.CurrentEpoch);
+          Assert.Equal(5ul, model.Train.OptimizerSteps);
+      }
+
+      // Jádro celé změny: za epochu musí model vidět KAŽDÝ trénovací vzorek PRÁVĚ JEDNOU.
+      // Dřív se losovalo s opakováním, takže některé vzorky nikdy a jiné víckrát.
+      //
+      // Důkaz bez ručního počítání gradientů: jedna epocha s dávkou = celý train set
+      // (tedy jeden krok optimizeru) se musí rovnat ručnímu Fit přes všechny vzorky
+      // právě jednou + jeden UpdateParams. Gradienty se v dávce SČÍTAJÍ, takže na pořadí
+      // uvnitř dávky nezáleží. Kdyby smyčka nějaký vzorek vynechala nebo zdvojila,
+      // součet by nesouhlasil.
+      [Fact]
+      public void One_epoch_equals_seeing_every_sample_exactly_once()
+      {
+          var (X, Y) = Data(20);
+
+          // referenční model: 0 epoch → jen se rozdělí dataset, váhy zůstanou počáteční
+          var reference = Quiet(seed: 5);
+          reference.Train.TrainLoop(X, Y, 0);
+
+          Tensor trainX = reference.Train.TrainDataInputs!;
+          Tensor trainY = reference.Train.TrainDataCurrentOutput!;
+          int n = trainX.Shape[0];
+
+          // model pod testem: jedna epocha, celý train set v jedné dávce
+          var underTest = Quiet(seed: 5);
+          underTest.Train.TrainLoop(X, Y, 1, (uint)n);
+
+          // reference: ručně každý vzorek právě jednou, pak jeden krok
+          for (int i = 0; i < n; i++)
+          {
+              reference.Train.Fit(trainX.GetTensorValue([i]), trainY.GetTensorValue([i]));
+          }
+          reference.Train.UpdateParams();
+
+          double[] expected = ((Dense)reference.Layers.Layers[0]).Neurons[0].Weights;
+          double[] actual = ((Dense)underTest.Layers.Layers[0]).Neurons[0].Weights;
+
+          // ne bit-identické: sčítání floatů není asociativní a dávka se prochází
+          // v zamíchaném pořadí, takže se poslední bity můžou lišit
+          Assert.Equal(expected.Length, actual.Length);
+          for (int i = 0; i < expected.Length; i++)
+          {
+              Assert.True(Math.Abs(expected[i] - actual[i]) < 1e-12,
+                  $"váha {i}: očekáváno {expected[i]}, dostal {actual[i]}");
+          }
+      }
+
+      [Fact]
+      public void Zero_batch_size_is_rejected()
+      {
+          // dřív se s nulou tiše netrénovalo; nově by "start += 0" byla nekonečná smyčka
+          var (X, Y) = Data(20);
+
+          Assert.Throws<ArgumentException>(() => Quiet().Train.TrainLoop(X, Y, 5, 0));
+      }
+
+      [Fact]
+      public void Epochs_are_reproducible_with_a_seed()
+      {
+          // míchání pořadí každou epochu čerpá z Context.Random → se seedem musí vyjít stejně
+          var (X, Y) = Data(20);
+          var probe = new Tensor(new double[] { 0.25 });
+
+          double Run()
+          {
+              var m = Quiet(seed: 11);
+              m.Train.TrainLoop(X, Y, 5, 3);
+              return m.GetResults(probe).Data[0];
+          }
+
+          Assert.Equal(Run(), Run());
+      }
+  }

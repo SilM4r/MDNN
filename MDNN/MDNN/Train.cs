@@ -9,6 +9,7 @@ namespace My_DNN
         private readonly MDNN _model;
 
         private uint _epoch;
+        private ulong _optimizerSteps;
         private uint _totalEpoch;
         private uint _sizeOfMiniBatch;
         private double _lowestLoss;
@@ -103,9 +104,21 @@ namespace My_DNN
         public Tensor? TrainDataInputs => _trainDataInputs;
         public Tensor? TrainDataCurrentOutput => _trainDataCurrentOutput;
 
+        // Počet DOKONČENÝCH epoch, tedy plných průchodů trénovacím setem.
+        // POZOR na změnu významu: dřív `UpdateParams()` inkrementoval tenhle čítač, a protože
+        // se volal jednou za „epochu", vycházelo to nastejno. Po převodu na konvenční epochy
+        // připadá na jednu epochu tolik kroků optimizeru, kolik je dávek — čítače se rozešly.
+        // Ruční trénink (Fit + UpdateParams ve vlastní smyčce) žádné epochy nemá, takže
+        // CurrentEpoch zůstane 0 a počítá se jen OptimizerSteps.
         public uint CurrentEpoch
         {
             get { return _epoch; }
+        }
+
+        // Kolik kroků optimizeru (volání UpdateParams) proběhlo za život modelu.
+        public ulong OptimizerSteps
+        {
+            get { return _optimizerSteps; }
         }
 
         // nejnižší valid loss dosud a epocha, ve které padl (early-stopping indikátor).
@@ -227,7 +240,7 @@ namespace My_DNN
         {
             CheckLayersAreNotEmpty();
 
-            _epoch++;
+            _optimizerSteps++;
             foreach (Layer layer in _model.Layers.Layers)
             {
                 layer.UpdateParams();
@@ -238,7 +251,7 @@ namespace My_DNN
         {
             CheckLayersAreNotEmpty();
 
-            _epoch++;
+            _optimizerSteps++;
             int index = -1;
             Task[] tasks = new Task[_model.Layers.Layers.Count()];
             foreach (Layer layer in _model.Layers.Layers)
@@ -419,39 +432,17 @@ namespace My_DNN
             {
                 _model.Context.Loss.ResetAverageLossPerIteration();
 
-                for (uint miniBatch = 0; miniBatch < sizeOfMiniBatch; miniBatch++)
+                if (_trainDataInputs == null || _trainDataCurrentOutput == null)
                 {
-                    if (_trainDataInputs != null)
-                    {
-                        int num = Rnd.Next(_trainDataInputs.Shape[0]);
-                        if (!_model.Context.SequenceTrain)
-                        {
-                            Fit(_trainDataInputs.GetTensorValue([num]), _trainDataCurrentOutput?.GetTensorValue([num]) ?? throw new InvalidOperationException("_trainDataCurrentOutput je null — trénovací data nebyla rozdělena (DividingDataIntoDatasets)."));
-                        }
-
-                        else
-                        {
-                            _model.ResetSequence();
-                            for (int i = 0; i < _trainDataInputs.Shape[1]; i++)
-                            {
-                                Fit(_trainDataInputs.GetTensorValue([num,i]), _trainDataCurrentOutput?.GetTensorValue([
-                                    num, i
-                                ]) ?? throw new InvalidOperationException("_trainDataCurrentOutput je null — trénovací data nebyla rozdělena (DividingDataIntoDatasets)."));
-                            }
-                        }
-                    }
-                    else
-                    {
-                        throw new Exception("_trainDataInputs is Empty");
-                    }
+                    throw new InvalidOperationException(
+                        "_trainDataInputs/_trainDataCurrentOutput je null — trénovací data nebyla rozdělena (DividingDataIntoDatasets).");
                 }
 
-                if (_model.Context.SequenceTrain)
-                {
-                    _model.ResetSequence();
-                }
+                RunOneEpoch(_trainDataInputs, _trainDataCurrentOutput);
 
-                UpdateParams();
+                // Epochy počítáme tady; UpdateParams() teď inkrementuje kroky optimizeru,
+                // kterých je na epochu tolik, kolik je dávek.
+                _epoch = epoch + 1;
 
                 if (epoch % _reportInterval == 0)
                 {
@@ -495,42 +486,45 @@ namespace My_DNN
             for (uint epoch = this._epoch; epoch < _totalEpoch; epoch++)
             {
                 _model.Context.Loss.ResetAverageLossPerIteration();
-                for (uint miniBatch = 0; miniBatch < sizeOfMiniBatch; miniBatch++)
+
+                if (_trainDataInputs == null || _trainDataCurrentOutput == null)
                 {
-                    // Skutečný runtime guard (ne Debug.Assert — ten se v Release vykompiluje pryč,
-                    // takže by async cesta neměla ochranu, na rozdíl od synchronního TrainLoop).
-                    // Lokální kopie navíc udrží non-null null-state i přes await.
-                    if (_trainDataInputs == null || _trainDataCurrentOutput == null)
-                    {
-                        throw new InvalidOperationException(
-                            "_trainDataInputs/_trainDataCurrentOutput je null — trénovací data nebyla rozdělena (DividingDataIntoDatasets).");
-                    }
+                    throw new InvalidOperationException(
+                        "_trainDataInputs/_trainDataCurrentOutput je null — trénovací data nebyla rozdělena (DividingDataIntoDatasets).");
+                }
 
-                    Tensor trainInputs = _trainDataInputs;
-                    Tensor trainOutputs = _trainDataCurrentOutput;
+                Tensor trainInputs = _trainDataInputs;
+                Tensor trainOutputs = _trainDataCurrentOutput;
 
-                    int num = Rnd.Next(trainInputs.Shape[0]);
-                    if (!_model.Context.SequenceTrain)
-                    {
-                        await FitAsync(trainInputs.GetTensorValue([num]), trainOutputs.GetTensorValue([num]));
-                    }
+                int[] order = ShuffledIndices(trainInputs.Shape[0]);
+                int batchSize = (int)_sizeOfMiniBatch;
 
-                    else
+                for (int start = 0; start < order.Length; start += batchSize)
+                {
+                    int end = Math.Min(start + batchSize, order.Length);
+
+                    for (int k = start; k < end; k++)
                     {
-                        _model.ResetSequence();
-                        for (int i = 0; i < trainInputs.Shape[1]; i++)
+                        int num = order[k];
+                        if (!_model.Context.SequenceTrain)
                         {
-                            await FitAsync(trainInputs.GetTensorValue([num, i]), trainOutputs.GetTensorValue([num, i]));
+                            await FitAsync(trainInputs.GetTensorValue([num]), trainOutputs.GetTensorValue([num]));
+                        }
+                        else
+                        {
+                            _model.ResetSequence();
+                            for (int i = 0; i < trainInputs.Shape[1]; i++)
+                            {
+                                await FitAsync(trainInputs.GetTensorValue([num, i]), trainOutputs.GetTensorValue([num, i]));
+                            }
+                            _model.ResetSequence();
                         }
                     }
+
+                    await UpdateParamsAsync();
                 }
 
-                if (_model.Context.SequenceTrain)
-                {
-                    _model.ResetSequence();
-                }
-
-                await UpdateParamsAsync();
+                _epoch = epoch + 1;
 
                 if (epoch % _reportInterval == 0)
                 {
@@ -566,6 +560,11 @@ namespace My_DNN
             uint epoch = this._epoch;
             double minLoss = 100;
 
+            if (sizeOfMiniBatch < 1)
+            {
+                throw new ArgumentException("Velikost minibatche musí být aspoň 1.", nameof(sizeOfMiniBatch));
+            }
+
             this._sizeOfMiniBatch = sizeOfMiniBatch;
             _totalEpoch = numberOfEpoch;
             
@@ -579,14 +578,24 @@ namespace My_DNN
 
             for (; epoch < _totalEpoch; epoch++)
             {
-                for (uint miniBatch = 0; miniBatch < sizeOfMiniBatch; miniBatch++)
-                {
-                    int num = Rnd.Next(inputsValues.Count());
+                // stejná sémantika jako TrainLoop: plný průchod po dávkách, ne náhodné tahy
+                int[] order = ShuffledIndices(inputsValues.Length);
+                int batchSize = (int)sizeOfMiniBatch;
 
-                    Fit(new Tensor(inputsValues[num]), new Tensor(currentOutputValues[num]));
+                for (int start = 0; start < order.Length; start += batchSize)
+                {
+                    int end = Math.Min(start + batchSize, order.Length);
+
+                    for (int k = start; k < end; k++)
+                    {
+                        int num = order[k];
+                        Fit(new Tensor(inputsValues[num]), new Tensor(currentOutputValues[num]));
+                    }
+
+                    UpdateParams();
                 }
 
-                UpdateParams();
+                _epoch = epoch + 1;
 
                 if (epoch % _reportInterval == 0)
                 {
@@ -681,6 +690,13 @@ namespace My_DNN
             _listOfepoch = [];
             _listOfValidLoss = [];
             _listOfTrainLoss = [];
+
+            // Velikost dávky musí být aspoň 1 — `start += batchSize` s nulou by byla
+            // nekonečná smyčka. (Dřív se s nulou prostě netrénovalo, tiše.)
+            if (sizeOfMiniBatch < 1)
+            {
+                throw new ArgumentException("Velikost minibatche musí být aspoň 1.", nameof(sizeOfMiniBatch));
+            }
 
             this._sizeOfMiniBatch = sizeOfMiniBatch;
             _totalEpoch = numberOfEpoch;
@@ -881,6 +897,68 @@ namespace My_DNN
                 _trainDataInputs = inputsValues;
                 _trainDataCurrentOutput = currentOutputValues;
             }
+        }
+
+        // JEDNA EPOCHA = jeden plný průchod trénovacím setem.
+        //
+        // Dřív se za „epochu" považovalo `size_of_mini_batch` náhodných tahů S OPAKOVÁNÍM,
+        // po kterých přišel jeden krok optimizeru. Důsledky: některé vzorky model za celý
+        // trénink neviděl, jiné dostal několikrát, pokrytí dat bylo náhodné a `number_of_epoch`
+        // byl fakticky počet kroků optimizeru, ne průchodů daty.
+        //
+        // Nově: každou epochu se zamíchá pořadí VŠECH trénovacích vzorků a projde se po
+        // dávkách velikosti `size_of_mini_batch`, s jedním `UpdateParams()` na dávku.
+        // Poslední dávka může být menší — `Neuron.Update_weights_bias` dělí skutečným
+        // počtem nasčítaných vzorků, takže průměr gradientu vyjde správně i tak.
+        private void RunOneEpoch(Tensor inputs, Tensor targets)
+        {
+            int[] order = ShuffledIndices(inputs.Shape[0]);
+            int batchSize = (int)_sizeOfMiniBatch;
+
+            for (int start = 0; start < order.Length; start += batchSize)
+            {
+                int end = Math.Min(start + batchSize, order.Length);
+
+                for (int k = start; k < end; k++)
+                {
+                    FitSample(inputs, targets, order[k]);
+                }
+
+                UpdateParams();   // jeden krok optimizeru na dávku
+            }
+        }
+
+        // Zamíchané pořadí indexů pro jednu epochu. Fisher–Yates z Contextu, takže je to
+        // se seedem reprodukovatelné. Míchají se INDEXY, ne data — u velkého datasetu by
+        // kopírovat tenzory každou epochu bylo zbytečně drahé.
+        private int[] ShuffledIndices(int count)
+        {
+            int[] indices = Enumerable.Range(0, count).ToArray();
+
+            for (int i = count - 1; i > 0; i--)
+            {
+                int j = Rnd.Next(i + 1);
+                (indices[i], indices[j]) = (indices[j], indices[i]);
+            }
+
+            return indices;
+        }
+
+        // Jeden trénovací vzorek (nebo celá sekvence) podle indexu.
+        private void FitSample(Tensor inputs, Tensor targets, int index)
+        {
+            if (!_model.Context.SequenceTrain)
+            {
+                Fit(inputs.GetTensorValue([index]), targets.GetTensorValue([index]));
+                return;
+            }
+
+            _model.ResetSequence();
+            for (int step = 0; step < inputs.Shape[1]; step++)
+            {
+                Fit(inputs.GetTensorValue([index, step]), targets.GetTensorValue([index, step]));
+            }
+            _model.ResetSequence();
         }
 
         public void ShuffleTensor(Tensor tensorA, Tensor tensorB, out Tensor shuffledA, out Tensor shuffledB)
