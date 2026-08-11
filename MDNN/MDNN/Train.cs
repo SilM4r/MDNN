@@ -16,7 +16,11 @@ namespace My_DNN
         private string? _bestSnapshot;   // nejlepší model v paměti (JSON snapshot), obnovuje se na konci
         private uint _reportsWithoutImprovement;   // early stopping: počet valid reportů bez zlepšení
         private bool _stopEarly;                    // early stopping: flag k ukončení smyčky
-        private readonly Random _rnd = new Random();
+
+        // Jeden zdroj náhody pro celý model (výběr vzorků i míchání datasetu). Dřív tu byl
+        // vlastní `new Random()` a ShuffleTensor sahal na Random.Shared — tři nezávislé
+        // zdroje dohromady znamenaly, že stejný experiment nešlo zopakovat.
+        private Random Rnd => _model.Context.Random;
 
         private List<int> _listOfepoch = [];
         private List<double> _listOfValidLoss = [];
@@ -419,7 +423,7 @@ namespace My_DNN
                 {
                     if (_trainDataInputs != null)
                     {
-                        int num = _rnd.Next(_trainDataInputs.Shape[0]);
+                        int num = Rnd.Next(_trainDataInputs.Shape[0]);
                         if (!_model.Context.SequenceTrain)
                         {
                             Fit(_trainDataInputs.GetTensorValue([num]), _trainDataCurrentOutput?.GetTensorValue([num]) ?? throw new InvalidOperationException("_trainDataCurrentOutput je null — trénovací data nebyla rozdělena (DividingDataIntoDatasets)."));
@@ -505,7 +509,7 @@ namespace My_DNN
                     Tensor trainInputs = _trainDataInputs;
                     Tensor trainOutputs = _trainDataCurrentOutput;
 
-                    int num = _rnd.Next(trainInputs.Shape[0]);
+                    int num = Rnd.Next(trainInputs.Shape[0]);
                     if (!_model.Context.SequenceTrain)
                     {
                         await FitAsync(trainInputs.GetTensorValue([num]), trainOutputs.GetTensorValue([num]));
@@ -577,7 +581,7 @@ namespace My_DNN
             {
                 for (uint miniBatch = 0; miniBatch < sizeOfMiniBatch; miniBatch++)
                 {
-                    int num = _rnd.Next(inputsValues.Count());
+                    int num = Rnd.Next(inputsValues.Count());
 
                     Fit(new Tensor(inputsValues[num]), new Tensor(currentOutputValues[num]));
                 }
@@ -885,7 +889,7 @@ namespace My_DNN
                 throw new ArgumentException("Oba tensory musí mít stejný počet vzorků");
 
             int batchSize = tensorA.Shape[0];
-            int[] indices = Enumerable.Range(0, batchSize).OrderBy(_ => Random.Shared.Next()).ToArray();
+            int[] indices = Enumerable.Range(0, batchSize).OrderBy(_ => Rnd.Next()).ToArray();
 
 
             double[] shuffledDataA = new double[tensorA.Data.Length];

@@ -153,7 +153,7 @@ namespace My_DNN.Layers
 
                 for (int i = 0; i < output.Length; i++)
                 {
-                    neurons.Add(new Neuron(input_size[0] + 1, activation_func));
+                    neurons.Add(new Neuron(input_size[0] + 1, activation_func, Context?.Random));
                 }
             }
 

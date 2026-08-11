@@ -31,9 +31,12 @@ namespace My_DNN
 
         private int mini_batch_size = 0;
 
-        public Neuron(int Number_of_input, Activation_func activation_function)
+        // `random` = zdroj náhody pro inicializaci vah. Předává ho vrstva ze svého
+        // NetworkContextu (kvůli reprodukovatelnosti přes seed); null = samostatný neuron
+        // bez modelu, spadne se na sdílený globální generátor jako dřív.
+        public Neuron(int Number_of_input, Activation_func activation_function, Random? random = null)
         {
-           
+            Random rnd = random ?? GeneralNeuralNetworkSettings.rnd;
 
             weights = new double[Number_of_input];
             inputs = new double[Number_of_input];
@@ -41,10 +44,12 @@ namespace My_DNN
 
             output = 0;
 
+            // limit je pro všechny váhy stejný → počítat ho ve smyčce bylo zbytečné
+            double limit = Number_of_input > 0 ? Math.Sqrt(6.0 / Number_of_input) : 0;
+
             for (int i = 0; i < Number_of_input; i++)
             {
-                double limit = Math.Sqrt(6.0 / Number_of_input);
-                Weights[i] = (GeneralNeuralNetworkSettings.rnd.NextDouble() * 2 - 1) * limit;
+                Weights[i] = (rnd.NextDouble() * 2 - 1) * limit;
             }
 
             bias = 0;
@@ -141,14 +146,18 @@ namespace My_DNN
             inicializationGradients();
         }
 
-        public void Mutate_params(int chance_of_mutation, int percent_mutation)
+        // `randomSource`: stejná logika jako v konstruktoru — když ho volající nedodá,
+        // použije se globální generátor. (Neuron sám Context nevidí, takže si ho musí
+        // podat ten, kdo mutaci spouští.)
+        public void Mutate_params(int chance_of_mutation, int percent_mutation, Random? randomSource = null)
         {
+            Random random = randomSource ?? GeneralNeuralNetworkSettings.rnd;
+
             for (int i = 0; i < Weights.Count(); i++)
             {
-                int randomValueBetween0And100 = GeneralNeuralNetworkSettings.rnd.Next(101);
+                int randomValueBetween0And100 = random.Next(101);
                 if (randomValueBetween0And100 < chance_of_mutation)
                 {
-                    Random random = GeneralNeuralNetworkSettings.rnd;
                     // Rozmezí je -percentage/2 až +percentage/2
                     double minPercentage = -percent_mutation / 100.0 / 2.0;
                     double maxPercentage = percent_mutation / 100.0 / 2.0;

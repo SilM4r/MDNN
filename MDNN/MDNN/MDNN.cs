@@ -47,7 +47,11 @@ namespace My_DNN
             context.Loss = Loss.inicialization_Loss_func(loadModel.Loss_functions);
             Note = loadModel.Note;
         }
-        public MDNN(Layer Output_Layer, Optimizer? optimizer = null, Loss? loss = null)
+        // `seed` = reprodukovatelnost. Ovlivní inicializaci vah, míchání datasetu i výběr
+        // vzorků — tedy všechno náhodné, co model dělá. Dva modely se stejným seedem,
+        // stejnou architekturou a stejnými daty dají bit-identický výsledek.
+        // Bez seedu se chová jako dosud (sdílený globální generátor).
+        public MDNN(Layer Output_Layer, Optimizer? optimizer = null, Loss? loss = null, int? seed = null)
         {
             if (optimizer != null)
             {
@@ -57,6 +61,11 @@ namespace My_DNN
             if (loss != null)
             {
                 context.Loss = loss;
+            }
+
+            if (seed != null)
+            {
+                context.Random = new Random(seed.Value);
             }
 
             layerManager = new LayerManager(Output_Layer, context);

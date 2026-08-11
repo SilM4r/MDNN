@@ -697,6 +697,10 @@ namespace My_DNN.Layers
                     }
                 }
 
+                // zdroj náhody z modelu (reprodukovatelnost přes seed); samostatná vrstva
+                // bez modelu spadne na globální generátor
+                Random kernelRandom = Context?.Random ?? GeneralNeuralNetworkSettings.rnd;
+
                 for (int l = 0; l < nkernels; l++)
                 {
                     biases[l] = 0;
@@ -709,7 +713,7 @@ namespace My_DNN.Layers
                             {
                                 double fanIn = kernel_Shape[0] * kernel_Shape[1] * kernel_Shape[2];
                                 double limit = Math.Sqrt(6.0 / fanIn);
-                                kernels[l][i][j][k] = (GeneralNeuralNetworkSettings.rnd.NextDouble() * 2 - 1) * limit;
+                                kernels[l][i][j][k] = (kernelRandom.NextDouble() * 2 - 1) * limit;
                                 dKernels[l][i][j][k] = 0;
                             }
                         }

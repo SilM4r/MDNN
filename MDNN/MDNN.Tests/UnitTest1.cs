@@ -1802,3 +1802,135 @@
           Assert.Equal(3, conv.Kernel[0][0][0].Length);
       }
   }
+
+  // ==========================================================================================
+  //  Fáze 4 — seed / reprodukovatelnost (odemyká díru 1b-5)
+  // ==========================================================================================
+
+  public class SeedReproducibilityTests : GradientCheckTestBase
+  {
+      // Dřív existovaly TŘI nezávislé zdroje náhody a žádný nešel nastavit:
+      // GeneralNeuralNetworkSettings.rnd (váhy), Train._rnd (výběr vzorků),
+      // Random.Shared (ShuffleTensor). Stejný experiment tedy nešlo spustit dvakrát —
+      // což je předpoklad pro férové porovnání dvou kandidátů v AutoML.
+      private static (double[][] X, double[][] Y) Data(int n)
+      {
+          var X = new double[n][];
+          var Y = new double[n][];
+          for (int i = 0; i < n; i++)
+          {
+              X[i] = new double[] { i * 0.05, 1 - i * 0.03 };
+              Y[i] = new double[] { i * 0.10 };
+          }
+          return (X, Y);
+      }
+
+      private static My_DNN.MDNN Build(int? seed)
+      {
+          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE(), seed);
+          model.Layers.Add(new Dense(4, new ReLu()));
+          model.Train.ShowLossChartInTrainLoop = false;
+          model.Train.ShowModelInfoIntrainLoop = false;
+          model.Train.AutoSaveInTrainLoop = false;
+          model.Train.TestNeuralNetworkAfterTraining = false;
+          return model;
+      }
+
+      [Fact]
+      public void Same_seed_gives_identical_initial_weights()
+      {
+          var a = Build(42);
+          var b = Build(42);
+
+          a.GetResults(new Tensor(new double[] { 1, 1 }));   // spustí wiring = inicializaci vah
+          b.GetResults(new Tensor(new double[] { 1, 1 }));
+
+          var na = ((Dense)a.Layers.Layers[0]).Neurons;
+          var nb = ((Dense)b.Layers.Layers[0]).Neurons;
+
+          for (int i = 0; i < na.Count; i++)
+              Assert.Equal(na[i].Weights, nb[i].Weights);
+      }
+
+      [Fact]
+      public void Different_seed_gives_different_initial_weights()
+      {
+          var a = Build(1);
+          var b = Build(2);
+
+          a.GetResults(new Tensor(new double[] { 1, 1 }));
+          b.GetResults(new Tensor(new double[] { 1, 1 }));
+
+          Assert.NotEqual(
+              ((Dense)a.Layers.Layers[0]).Neurons[0].Weights,
+              ((Dense)b.Layers.Layers[0]).Neurons[0].Weights);
+      }
+
+      [Fact]
+      public void Same_seed_gives_identical_result_after_full_training()
+      {
+          // nejtvrdší varianta: seed musí pokrýt i míchání datasetu a výběr vzorků,
+          // ne jen inicializaci vah
+          var (X, Y) = Data(20);
+          var probe = new Tensor(new double[] { 0.5, 0.5 });
+
+          var a = Build(7);
+          a.Train.TrainLoop(X, Y, 30, 4);
+          double outA = a.GetResults(probe).Data[0];
+
+          var b = Build(7);
+          b.Train.TrainLoop(X, Y, 30, 4);
+          double outB = b.GetResults(probe).Data[0];
+
+          Assert.Equal(outA, outB);
+      }
+
+      [Fact]
+      public void Same_seed_splits_dataset_identically()
+      {
+          var (X, Y) = Data(20);
+
+          var a = Build(7);
+          a.Train.TrainLoop(X, Y, 5);
+          double[] validA = a.Train.ValidDataInputs!.Data;
+
+          var b = Build(7);
+          b.Train.TrainLoop(X, Y, 5);
+
+          Assert.Equal(validA, b.Train.ValidDataInputs!.Data);   // shodné míchání → shodný split
+      }
+
+      [Fact]
+      public void Without_seed_behaviour_is_unchanged()
+      {
+          // zpětná kompatibilita: bez seedu se pořád tahá ze sdíleného globálního
+          // generátoru, takže dva modely NEmají stejné váhy
+          var a = Build(null);
+          var b = Build(null);
+
+          a.GetResults(new Tensor(new double[] { 1, 1 }));
+          b.GetResults(new Tensor(new double[] { 1, 1 }));
+
+          Assert.NotEqual(
+              ((Dense)a.Layers.Layers[0]).Neurons[0].Weights,
+              ((Dense)b.Layers.Layers[0]).Neurons[0].Weights);
+      }
+
+      [Fact]
+      public void Seeded_conv_kernels_are_reproducible()
+      {
+          My_DNN.MDNN WithConv(int seed)
+          {
+              var m = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE(), seed);
+              m.Layers.Add(new Conv(2, 3, new ReLu(), "valid"));
+              m.Layers.SetInputSizeForFirstLayer(new int[] { 6, 6, 1 });
+              return m;
+          }
+
+          var a = (Conv)WithConv(99).Layers.Layers[0];
+          var b = (Conv)WithConv(99).Layers.Layers[0];
+
+          Assert.Equal(a.Kernel[0][0][0], b.Kernel[0][0][0]);
+          Assert.Equal(a.Biases, b.Biases);
+      }
+  }
