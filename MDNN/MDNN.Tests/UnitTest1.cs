@@ -915,9 +915,11 @@
       }
 
       [Fact]
-      public void Missing_valid_is_carved_from_test()
+      public void Missing_valid_is_carved_from_train_not_from_test()
       {
           // Typicky MNIST: dodán train a test, validační sada chybí.
+          // Testovací sada je finální nezaujatý odhad → z ní se nekrájí NIKDY.
+          // Validační se v praxi bere z trainu, takže se ukrojí odtamtud.
           var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
 
           var (trainX, trainY) = MakeSamples(30);
@@ -926,9 +928,9 @@
           model.Train.SetDatasets(new LabeledData(trainX, trainY), valid: null, test: new LabeledData(testX, testY));
           model.Train.DividingDataIntoDatasets(trainX, trainY);
 
-          Assert.Equal(30, model.Train.TrainDataInputs!.Shape[0]);   // train NEDOTČENÝ
-          Assert.Equal(5, model.Train.TestDataInputs!.Shape[0]);
-          Assert.Equal(5, model.Train.ValidDataInputs!.Shape[0]);
+          Assert.Equal(10, model.Train.TestDataInputs!.Shape[0]);    // test NEDOTČENÝ
+          Assert.Equal(24, model.Train.TrainDataInputs!.Shape[0]);   // 30 × 0.7/(0.7+0.15)
+          Assert.Equal(6, model.Train.ValidDataInputs!.Shape[0]);    // zbytek
       }
 
       [Fact]
@@ -964,15 +966,19 @@
       }
 
       [Fact]
-      public void SetDatasets_needs_valid_or_test()
+      public void SetDatasets_with_train_only_splits_everything()
       {
-          // Kdyby chyběly obě, nezbylo by než ukrojit z trainu — a právě tomu se vyhýbáme.
+          // Když nedodáš ani valid ani test, není z čeho jiného krájet než z trainu —
+          // dostaneš klasické rozdělení podle poměrů — dřív na to byla samostatná metoda.
           var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
-          var (trainX, trainY) = MakeSamples(30);
+          var (x, y) = MakeSamples(100);
 
-          var ex = Assert.Throws<ArgumentException>(
-              () => model.Train.SetDatasets(new LabeledData(trainX, trainY)));
-          Assert.Contains("SetDatasetAndSplit", ex.Message);
+          model.Train.SetDatasets(new LabeledData(x, y));
+          model.Train.DividingDataIntoDatasets(x, y);
+
+          Assert.Equal(70, model.Train.TrainDataInputs!.Shape[0]);
+          Assert.Equal(15, model.Train.ValidDataInputs!.Shape[0]);
+          Assert.Equal(15, model.Train.TestDataInputs!.Shape[0]);
       }
 
       [Fact]
@@ -991,7 +997,7 @@
       [Fact]
       public void TrainLoop_with_data_is_a_shortcut_for_split_plus_loop()
       {
-          // TrainLoop(X, Y, ...) musí dělat PŘESNĚ totéž co SetDatasetAndSplit + TrainLoop(...)
+          // TrainLoop(X, Y, ...) musí dělat PŘESNĚ totéž co SetDatasets(all) + TrainLoop(...)
           var (X, Y) = MakeArrays(40);
           var probe = new Tensor(new double[] { 0.3 });
 
@@ -999,7 +1005,7 @@
           shortcut.Train.TrainLoop(X, Y, 4, 2);
 
           var explicitForm = Quiet(seed: 3);
-          explicitForm.Train.SetDatasetAndSplit(new LabeledData(X, Y));
+          explicitForm.Train.SetDatasets(new LabeledData(X, Y));
           explicitForm.Train.TrainLoop(4, 2);
 
           Assert.Equal(shortcut.GetResults(probe).Data[0], explicitForm.GetResults(probe).Data[0]);
