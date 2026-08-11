@@ -36,8 +36,14 @@ namespace My_DNN
         {
             get { return context.Optimizer; }
         }
-        private MDNN(NetworkSaveLoadManager loadModel)
+        private MDNN(NetworkSaveLoadManager loadModel, int? seed = null)
         {
+            // Váhy se načítají ze souboru, takže seed neovlivní inicializaci — zato ovlivní
+            // míchání datasetu a výběr vzorků, což u dotrénování načteného modelu chceš.
+            if (seed != null)
+            {
+                context.Seed = seed;
+            }
 
             context.Optimizer = Optimizer.Refactor_optimizer(loadModel.Optimizer);
             GeneralNeuralNetworkSettings.optimizer = context.Optimizer;   // export-konstrukce neuronů klonuje static
@@ -65,7 +71,7 @@ namespace My_DNN
 
             if (seed != null)
             {
-                context.Random = new Random(seed.Value);
+                context.Seed = seed;
             }
 
             layerManager = new LayerManager(Output_Layer, context);
@@ -128,10 +134,10 @@ namespace My_DNN
             NetworkSaveLoadManager NSLM = new NetworkSaveLoadManager(this);
             NSLM.Save(fileName);
         }
-        public static MDNN LoadModel(string fullPath)
+        public static MDNN LoadModel(string fullPath, int? seed = null)
         {
             NetworkSaveLoadManager loadModel = NetworkSaveLoadManager.Load(fullPath);
-            return new MDNN(loadModel);
+            return new MDNN(loadModel, seed);
         }
         // serializace TOHOTO modelu do JSON stringu (pro in-memory snapshot nejlepšího modelu)
         public string SaveAsJsonString()
