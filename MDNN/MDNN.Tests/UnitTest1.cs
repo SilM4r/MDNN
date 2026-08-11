@@ -2150,8 +2150,11 @@
           finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
       }
 
+      // Záměrně NE "Tampered" — checksum cílenou manipulaci nechytá (kdo soubor upraví,
+      // přepočítá si i hash) a nemá se to tak tvářit. Chytá NEZAMÝŠLENOU změnu: překlep
+      // při ruční editaci, omylem přepsanou hodnotu, poškozený přenos.
       [Fact]
-      public void Tampered_file_is_rejected()
+      public void Accidentally_modified_file_is_rejected()
       {
           string path = TempBase();
           try
