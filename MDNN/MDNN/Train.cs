@@ -69,40 +69,42 @@ namespace My_DNN
         private Tensor? _trainDataCurrentOutput;
         private Tensor? _testDataCurrentOutput;
         private Tensor? _validDataCurrentOutput;
-        // Co dodal UŽIVATEL (na rozdíl od toho, co si dopočítalo dělení datasetu).
-        // Bez tohohle rozlišení druhý TrainLoop na stejném modelu viděl valid/test z prvního
-        // běhu, spadl do jiné větve DividingDataIntoDatasets a natrénoval na CELÉM datasetu
-        // včetně testovací části — tiše, bez varování.
-        private Tensor? _userValidInputs;
-        private Tensor? _userValidOutputs;
-        private Tensor? _userTestInputs;
-        private Tensor? _userTestOutputs;
+        // Datasety dodané UŽIVATELEM přes SetDatasets(). Drží se odděleně od pracovních polí
+        // výš, protože ta se během běhu přepisují (slicování) — bez toho rozlišení viděl
+        // druhý TrainLoop na stejném modelu zbytky z prvního běhu a natrénoval na CELÉM
+        // datasetu včetně testovací části.
+        private LabeledData? _explicitTrain;
+        private LabeledData? _explicitValid;
+        private LabeledData? _explicitTest;
 
-        public Tensor? TestDataInputs
-        {
-            get => _testDataInputs;
-            set { _testDataInputs = value; _userTestInputs = value; }
-        }
-        public Tensor? ValidDataInputs
-        {
-            get => _validDataInputs;
-            set { _validDataInputs = value; _userValidInputs = value; }
-        }
-        public Tensor? TestDataCurrentOutput
-        {
-            get => _testDataCurrentOutput;
-            set { _testDataCurrentOutput = value; _userTestOutputs = value; }
-        }
-        public Tensor? ValidDataCurrentOutput
-        {
-            get => _validDataCurrentOutput;
-            set { _validDataCurrentOutput = value; _userValidOutputs = value; }
-        }
-
-        // Read-only protějšky k valid/test — ať jde zvenčí zjistit, na čem se doopravdy
-        // trénovalo (a ať je vidět, když se dělení rozjede).
+        // VŠECHNO jen ke čtení. Dřív šly valid/test nastavovat čtyřmi nezávislými settery,
+        // což dovolovalo dodat vstupy bez cílů a nafukovalo DividingDataIntoDatasets na
+        // čtyři větve podle toho, co uživatel zrovna vyplnil. Jediná cesta dovnitř je
+        // teď SetDatasets(), kde vstupy a cíle drží pohromadě LabeledData.
         public Tensor? TrainDataInputs => _trainDataInputs;
         public Tensor? TrainDataCurrentOutput => _trainDataCurrentOutput;
+        public Tensor? ValidDataInputs => _validDataInputs;
+        public Tensor? ValidDataCurrentOutput => _validDataCurrentOutput;
+        public Tensor? TestDataInputs => _testDataInputs;
+        public Tensor? TestDataCurrentOutput => _testDataCurrentOutput;
+
+        // Má model datasety zadané ručně (na rozdíl od odvození z poměrů)?
+        public bool HasExplicitDatasets => _explicitTrain != null;
+
+        // Dodej datasety napřímo, když už máš vlastní rozdělení (typicky předrozdělený
+        // dataset jako MNIST). `test` je volitelný — bez něj se závěrečný přehled omezí
+        // na train a valid, místo aby si test někde domýšlel.
+        //
+        // Poté se trénuje bezdatovým přetížením: TrainLoop(numberOfEpoch, sizeOfMiniBatch).
+        public void SetDatasets(LabeledData train, LabeledData valid, LabeledData? test = null)
+        {
+            ArgumentNullException.ThrowIfNull(train);
+            ArgumentNullException.ThrowIfNull(valid);
+
+            _explicitTrain = train;
+            _explicitValid = valid;
+            _explicitTest = test;
+        }
 
         // Počet DOKONČENÝCH epoch, tedy plných průchodů trénovacím setem.
         // POZOR na změnu významu: dřív `UpdateParams()` inkrementoval tenhle čítač, a protože
@@ -268,20 +270,24 @@ namespace My_DNN
 
         public void ComplexTestNeuralNetwork()
         {
-            (int,int) testScore, trainScore, validationScore;
-            
-            if (_testDataInputs != null && _testDataCurrentOutput != null && _trainDataInputs != null &&
-                _trainDataCurrentOutput != null && _validDataInputs != null && _validDataCurrentOutput != null)
+            if (_trainDataInputs == null || _trainDataCurrentOutput == null ||
+                _validDataInputs == null || _validDataCurrentOutput == null)
             {
-                testScore =  TestNeuralNetwork(_testDataInputs, _testDataCurrentOutput,false);
-                trainScore = TestNeuralNetwork(_trainDataInputs, _trainDataCurrentOutput,false);
-                validationScore = TestNeuralNetwork(_validDataInputs, _validDataCurrentOutput,false);
+                throw new InvalidOperationException(
+                    "Trénovací nebo validační dataset chybí — trénink ještě neproběhl, " +
+                    "nebo nebyly datasety zadané přes SetDatasets().");
             }
-            else
-            {
-                throw new Exception("Dataset is Empty");
-            }
-            
+
+            (int, int) trainScore = TestNeuralNetwork(_trainDataInputs, _trainDataCurrentOutput, false);
+            (int, int) validationScore = TestNeuralNetwork(_validDataInputs, _validDataCurrentOutput, false);
+
+            // Test je volitelný: když ho uživatel přes SetDatasets() nedodal, přehled ho
+            // prostě neuvede. Domýšlet si testovací sadu z validační by bylo horší než
+            // ji neukázat vůbec.
+            (int, int)? testScore = (_testDataInputs != null && _testDataCurrentOutput != null)
+                ? TestNeuralNetwork(_testDataInputs, _testDataCurrentOutput, false)
+                : null;
+
             ConsoleControler.ShowComplexScoreOfmodel(testScore, trainScore, validationScore);
                     
         }
@@ -416,12 +422,30 @@ namespace My_DNN
             return (score, maxScore);
         }
 
+        // Trénink nad datasety zadanými přes SetDatasets(). Data se sem už nepředávají —
+        // předávat je podruhé, když je model zná, by si protiřečilo.
+        public void TrainLoop(uint numberOfEpoch, uint sizeOfMiniBatch = 1, bool isSequence = false)
+        {
+            if (_explicitTrain == null || _explicitValid == null)
+            {
+                throw new InvalidOperationException(
+                    "Nejdřív zavolej SetDatasets(train, valid, test), nebo použij " +
+                    "TrainLoop(inputs, targets, ...) a datasety se odvodí z poměrů.");
+            }
+
+            RunTrainLoop(_explicitTrain.Inputs, _explicitTrain.Targets, numberOfEpoch, sizeOfMiniBatch, isSequence);
+        }
+
         public void TrainLoop(Array inputsValues, Array currentOutputValues, uint numberOfEpoch, uint sizeOfMiniBatch = 1, bool isSequence = false)
         {
+            RunTrainLoop(
+                Tensor.ConvertArrayToTensor(inputsValues),
+                Tensor.ConvertArrayToTensor(currentOutputValues),
+                numberOfEpoch, sizeOfMiniBatch, isSequence);
+        }
 
-            Tensor tensorInputsValues = Tensor.ConvertArrayToTensor(inputsValues);
-            Tensor tensorCurrentOutputValues = Tensor.ConvertArrayToTensor(currentOutputValues);
-
+        private void RunTrainLoop(Tensor tensorInputsValues, Tensor tensorCurrentOutputValues, uint numberOfEpoch, uint sizeOfMiniBatch = 1, bool isSequence = false)
+        {
             PreparationForTrainLoop(tensorInputsValues, tensorCurrentOutputValues, numberOfEpoch, sizeOfMiniBatch, isSequence);
             if (ShowModelInfoIntrainLoop)
             {
@@ -630,7 +654,14 @@ namespace My_DNN
         {
             CheckTensorShapes(inputsValues, currentOutputValues);
 
-            ShuffleTensor(inputsValues, currentOutputValues, out inputsValues, out currentOutputValues);
+            // Zamíchat má smysl jen když se z těch dat teprve krájí train/valid/test — pořadí
+            // rozhoduje o tom, co kam padne. U explicitně zadaných datasetů by to bylo jednak
+            // zbytečné (rozdělení je dané), jednak by to sahalo na tenzory, které drží uživatel.
+            // Pořadí uvnitř epochy míchá RunOneEpoch tak jako tak.
+            if (_explicitTrain == null)
+            {
+                ShuffleTensor(inputsValues, currentOutputValues, out inputsValues, out currentOutputValues);
+            }
 
             if (isSequence)
             {
@@ -821,90 +852,62 @@ namespace My_DNN
         // setu za „uživatelův valid set" a rozdělení by se s každým během posouvalo.
         private void ResetDerivedDatasets()
         {
-            _validDataInputs = _userValidInputs;
-            _validDataCurrentOutput = _userValidOutputs;
-
-            _testDataInputs = _userTestInputs;
-            _testDataCurrentOutput = _userTestOutputs;
-
             _trainDataInputs = null;
             _trainDataCurrentOutput = null;
+            _validDataInputs = null;
+            _validDataCurrentOutput = null;
+            _testDataInputs = null;
+            _testDataCurrentOutput = null;
         }
 
+        // Rozdělí dataset na train/valid/test. Nově jen DVĚ větve:
+        //   1) uživatel dodal datasety přes SetDatasets() → použijí se, jak jsou
+        //   2) nedodal → vše se odvodí z poměrů
+        //
+        // Dřív jich byly čtyři, protože valid a test šly nastavit nezávisle na sobě čtyřmi
+        // settery a každá kombinace „co uživatel vyplnil" měla vlastní cestu. Kombinatorika
+        // rostla mocninou (s trainem by jich bylo osm) a jedna z těch větví tiše trénovala
+        // na celém datasetu včetně testu.
         public void DividingDataIntoDatasets(Tensor inputsValues, Tensor currentOutputValues)
         {
-            int trainDataSize;
-            int validDataSize;
-            int testDataSize;
+            if (_explicitTrain != null && _explicitValid != null)
+            {
+                _trainDataInputs = _explicitTrain.Inputs;
+                _trainDataCurrentOutput = _explicitTrain.Targets;
+
+                _validDataInputs = _explicitValid.Inputs;
+                _validDataCurrentOutput = _explicitValid.Targets;
+
+                _testDataInputs = _explicitTest?.Inputs;
+                _testDataCurrentOutput = _explicitTest?.Targets;
+
+                return;
+            }
 
             int totalSize = inputsValues.Shape[0];
 
-            if (_validDataInputs == null && _testDataInputs == null)
-            {
-                var (trainRatio, validRatio, _) = ResolveSplitRatios();
-                trainDataSize = (int)(totalSize * trainRatio);
-                validDataSize = (int)(totalSize * validRatio);
-                testDataSize = totalSize - trainDataSize - validDataSize;   // zbytek → žádný vzorek se neztratí
+            var (trainRatio, validRatio, _) = ResolveSplitRatios();
 
-                _validDataInputs = inputsValues.Slice(trainDataSize, validDataSize);
-                _testDataInputs = inputsValues.Slice(trainDataSize + validDataSize, testDataSize);
+            int trainDataSize = (int)(totalSize * trainRatio);
+            int validDataSize = (int)(totalSize * validRatio);
+            int testDataSize = totalSize - trainDataSize - validDataSize;   // zbytek → žádný vzorek se neztratí
 
-                _validDataCurrentOutput = currentOutputValues.Slice(trainDataSize, validDataSize);
-                _testDataCurrentOutput = currentOutputValues.Slice(trainDataSize + validDataSize, testDataSize);
+            _trainDataInputs = inputsValues.Slice(0, trainDataSize);
+            _trainDataCurrentOutput = currentOutputValues.Slice(0, trainDataSize);
 
-                _trainDataInputs = inputsValues.Slice(0, trainDataSize);
-                _trainDataCurrentOutput = currentOutputValues.Slice(0, trainDataSize);
-            }
-            else if (_validDataInputs != null && _testDataInputs == null)
-            {
-                int oldValidSize = _validDataInputs.Shape[0];
+            _validDataInputs = inputsValues.Slice(trainDataSize, validDataSize);
+            _validDataCurrentOutput = currentOutputValues.Slice(trainDataSize, validDataSize);
 
-                // předaný valid dělíme na valid/test ve stejném poměru valid:test
-                var (_, validRatio, testRatio) = ResolveSplitRatios();
-                validDataSize = (int)(oldValidSize * validRatio / (validRatio + testRatio));
-                testDataSize = oldValidSize - validDataSize;
-
-                _trainDataInputs = inputsValues;
-                _trainDataCurrentOutput = currentOutputValues;
-
-                // Test se musí vyříznout z PŮVODNÍHO valid tensoru; kdyby se _validDataInputs
-                // nejdřív přepsal na Slice(0, validDataSize), test-slice od offsetu validDataSize
-                // by byl mimo rozsah zmenšeného tensoru → "Invalid slice range!".
-                Tensor originalValidInputs = _validDataInputs;
-                Tensor? originalValidOutput = _validDataCurrentOutput;
-
-                _validDataInputs = originalValidInputs.Slice(0, validDataSize);
-                _validDataCurrentOutput = originalValidOutput?.Slice(0, validDataSize);
-
-                _testDataInputs = originalValidInputs.Slice(validDataSize, testDataSize);
-                _testDataCurrentOutput = originalValidOutput?.Slice(validDataSize, testDataSize);
-            }
-            else if (_validDataInputs == null && _testDataInputs != null)
-            {
-                // test je předaný → zbytek (train+valid) dělíme ve stejném poměru train:valid
-                var (trainRatio, validRatio, _) = ResolveSplitRatios();
-                trainDataSize = (int)(totalSize * trainRatio / (trainRatio + validRatio));
-                validDataSize = totalSize - trainDataSize;
-
-                _trainDataInputs = inputsValues.Slice(0, trainDataSize);
-                _trainDataCurrentOutput = currentOutputValues.Slice(0, trainDataSize);
-
-                _validDataInputs = inputsValues.Slice(trainDataSize, validDataSize);
-                _validDataCurrentOutput = currentOutputValues.Slice(trainDataSize, validDataSize);
-            }
-            else
-            {
-                _trainDataInputs = inputsValues;
-                _trainDataCurrentOutput = currentOutputValues;
-            }
+            _testDataInputs = inputsValues.Slice(trainDataSize + validDataSize, testDataSize);
+            _testDataCurrentOutput = currentOutputValues.Slice(trainDataSize + validDataSize, testDataSize);
         }
 
         // JEDNA EPOCHA = jeden plný průchod trénovacím setem.
         //
         // Dřív se za „epochu" považovalo `size_of_mini_batch` náhodných tahů S OPAKOVÁNÍM,
         // po kterých přišel jeden krok optimizeru. Důsledky: některé vzorky model za celý
-        // trénink neviděl, jiné dostal několikrát, pokrytí dat bylo náhodné a `number_of_epoch`
-        // byl fakticky počet kroků optimizeru, ne průchodů daty.
+        // trénink neviděl, jiné dostal několikrát, a `number_of_epoch` byl fakticky počet
+        // kroků optimizeru, ne průchodů daty.
         //
         // Nově: každou epochu se zamíchá pořadí VŠECH trénovacích vzorků a projde se po
         // dávkách velikosti `size_of_mini_batch`, s jedním `UpdateParams()` na dávku.

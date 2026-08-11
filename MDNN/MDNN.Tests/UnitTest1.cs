@@ -866,57 +866,73 @@
 
   public class DataSplitTests : GradientCheckTestBase
   {
+      // Dřív tu byl test `DividingDataIntoDatasets_userValidNoTest_carves_test_from_original_valid`,
+      // který hlídal větev „uživatel dodal VALID, ale ne TEST → vyřízni test z validu".
+      // Ta větev byla ZRUŠENÁ spolu se settery: datasety se teď dodávají jedním voláním
+      // SetDatasets(train, valid, test) a použijí se, jak jsou. Regrese, kterou ten test
+      // hlídal (test se krájel z už zmenšeného validu → "Invalid slice range!"), tedy
+      // nemůže nastat, protože ta cesta v kódu není. Nahrazeno testy nové sémantiky níž.
+
       [Fact]
-      public void DividingDataIntoDatasets_userValidNoTest_carves_test_from_original_valid()
+      public void Explicit_datasets_are_used_as_given()
       {
-          // Regrese #3: uživatel dodá VALID set, ale ne TEST set → valid se má rozdělit
-          // 80 % valid / 20 % test. Před opravou se test krájel z UŽ zmenšeného
-          // _validDataInputs (Slice(0, 80%)), takže Slice od offsetu 80 % byl mimo rozsah
-          // → "Invalid slice range!". Po opravě se test řeže z PŮVODNÍHO valid tensoru.
           var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
 
-          // valid: 10 vzorků, každý distinktní ([i*10, i*10+1]) → poznám, odkud se test vyřízl
-          var validIn = new double[10, 2];
-          var validOut = new double[10, 1];
-          for (int i = 0; i < 10; i++)
-          {
-              validIn[i, 0] = i * 10;
-              validIn[i, 1] = i * 10 + 1;
-              validOut[i, 0] = i;
-          }
-          model.Train.ValidDataInputs = new Tensor(validIn);
-          model.Train.ValidDataCurrentOutput = new Tensor(validOut);
-          // TestDataInputs zůstává null → spustí se ta větev (dělí předaný valid na valid/test)
+          var (trainX, trainY) = MakeSamples(30);
+          var (validX, validY) = MakeSamples(8);
+          var (testX, testY) = MakeSamples(5);
 
-          // custom poměr valid:test = 0.4:0.1 = 4:1 → z 10 dá 8 valid / 2 test.
-          // Zároveň ověřuje, že branch 2 respektuje nastavené poměry.
-          model.Train.ValidSplitRatio = 0.4;
-          model.Train.TestSplitRatio = 0.1;
+          model.Train.SetDatasets(
+              new LabeledData(trainX, trainY),
+              new LabeledData(validX, validY),
+              new LabeledData(testX, testY));
 
-          var trainIn = new double[4, 2];    // train data (stanou se _trainDataInputs); tvar libovolný
-          var trainOut = new double[4, 1];
+          model.Train.DividingDataIntoDatasets(trainX, trainY);
 
-          // nesmí hodit "Invalid slice range!"
-          model.Train.DividingDataIntoDatasets(new Tensor(trainIn), new Tensor(trainOut));
-
-          // poměr 4:1 z 10 = 8 valid, 2 test
-          Assert.NotNull(model.Train.ValidDataInputs);
-          Assert.NotNull(model.Train.TestDataInputs);
+          // žádné krájení, žádné poměry — přesně to, co uživatel dal
+          Assert.Equal(30, model.Train.TrainDataInputs!.Shape[0]);
           Assert.Equal(8, model.Train.ValidDataInputs!.Shape[0]);
-          Assert.Equal(2, model.Train.TestDataInputs!.Shape[0]);
+          Assert.Equal(5, model.Train.TestDataInputs!.Shape[0]);
+          Assert.True(model.Train.HasExplicitDatasets);
+      }
 
-          // valid = vzorky 0..7 originálu
-          Assert.Equal(new double[] { 0, 1 },   model.Train.ValidDataInputs.GetTensorValue([0]).Data);
-          Assert.Equal(new double[] { 70, 71 }, model.Train.ValidDataInputs.GetTensorValue([7]).Data);
+      [Fact]
+      public void Test_dataset_is_optional()
+      {
+          // Bez testovací sady se prostě žádná neuvede. Domýšlet si ji z validační
+          // (jako to dělala zrušená větev) by bylo horší než ji neukázat.
+          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
 
-          // test = vzorky 8..9 originálu (vyříznuto z PŮVODNÍHO valid, ne ze zmenšeného)
-          Assert.Equal(new double[] { 80, 81 }, model.Train.TestDataInputs.GetTensorValue([0]).Data);
-          Assert.Equal(new double[] { 90, 91 }, model.Train.TestDataInputs.GetTensorValue([1]).Data);
+          var (trainX, trainY) = MakeSamples(30);
+          var (validX, validY) = MakeSamples(8);
 
-          // labely testu odpovídají vzorkům 8,9
-          Assert.NotNull(model.Train.TestDataCurrentOutput);
-          Assert.Equal(new double[] { 8 }, model.Train.TestDataCurrentOutput!.GetTensorValue([0]).Data);
-          Assert.Equal(new double[] { 9 }, model.Train.TestDataCurrentOutput.GetTensorValue([1]).Data);
+          model.Train.SetDatasets(new LabeledData(trainX, trainY), new LabeledData(validX, validY));
+          model.Train.DividingDataIntoDatasets(trainX, trainY);
+
+          Assert.Equal(8, model.Train.ValidDataInputs!.Shape[0]);
+          Assert.Null(model.Train.TestDataInputs);
+      }
+
+      [Fact]
+      public void LabeledData_rejects_mismatched_sample_counts()
+      {
+          // Nekonzistentní dvojice teď nejde ani vyrobit — dřív šlo nastavit vstupy
+          // bez cílů a spadlo to až u prvního valid reportu.
+          var (x, _) = MakeSamples(10);
+          var (_, y) = MakeSamples(7);
+
+          var ex = Assert.Throws<ArgumentException>(() => new LabeledData(x, y));
+          Assert.Contains("10", ex.Message);
+          Assert.Contains("7", ex.Message);
+      }
+
+      [Fact]
+      public void TrainLoop_without_data_requires_SetDatasets()
+      {
+          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+
+          var ex = Assert.Throws<InvalidOperationException>(() => model.Train.TrainLoop(5));
+          Assert.Contains("SetDatasets", ex.Message);
       }
 
       [Fact]
@@ -1671,25 +1687,31 @@
       // jako popis zamýšlené sémantiky (uživatelův vstup se nesmí s každým během dál
       // ukrajovat), ne jako důkaz opravy — tím je test výš, kde train set ujel 14 → 20.
       [Fact]
-      public void User_supplied_valid_set_survives_repeated_runs()
+      public void User_supplied_datasets_survive_repeated_runs()
       {
           var (X, Y) = Data(20);
           var model = QuietModel();
 
-          // uživatel dodá vlastní valid set → z něj se ukrojí i test
-          model.Train.ValidDataInputs = new Tensor(new double[] { 1, 2, 3, 4 }, new int[] { 4, 1 });
-          model.Train.ValidDataCurrentOutput = new Tensor(new double[] { 2, 4, 6, 8 }, new int[] { 4, 1 });
+          // uživatel dodá vlastní datasety → musí zůstat nedotčené i po opakovaných bězích
+          var trainData = new LabeledData(
+              new Tensor(X.SelectMany(r => r).ToArray(), new int[] { X.Length, 1 }),
+              new Tensor(Y.SelectMany(r => r).ToArray(), new int[] { Y.Length, 1 }));
+          var validData = new LabeledData(
+              new Tensor(new double[] { 1, 2, 3, 4 }, new int[] { 4, 1 }),
+              new Tensor(new double[] { 2, 4, 6, 8 }, new int[] { 4, 1 }));
 
-          model.Train.TrainLoop(X, Y, 5);
+          model.Train.SetDatasets(trainData, validData);
+
+          model.Train.TrainLoop(5);
+          int train1 = model.Train.TrainDataInputs!.Shape[0];
           int valid1 = model.Train.ValidDataInputs!.Shape[0];
-          int test1  = model.Train.TestDataInputs!.Shape[0];
 
-          model.Train.TrainLoop(X, Y, 5);
+          model.Train.TrainLoop(5);
 
-          // uživatelův vstup se nesmí s každým během dál ukrajovat
+          Assert.Equal(train1, model.Train.TrainDataInputs!.Shape[0]);
           Assert.Equal(valid1, model.Train.ValidDataInputs!.Shape[0]);
-          Assert.Equal(test1,  model.Train.TestDataInputs!.Shape[0]);
-          Assert.Equal(4, valid1 + test1);                // pořád jeho 4 vzorky, jen rozdělené
+          Assert.Equal(20, train1);                       // celý dodaný train set, nic se neukrojilo
+          Assert.Equal(4, valid1);
       }
   }
 

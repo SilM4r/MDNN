@@ -235,14 +235,26 @@ namespace My_DNN
             Console.WriteLine();
         }
         
-        public static void ShowComplexScoreOfmodel((int,int) test, (int,int) train,(int,int) valid)
+        // `test` je nullable: uživatel, který si datasety zadal přes SetDatasets(), testovací
+        // sadu dodat nemusí. Pak se prostě neuvede — vymýšlet si ji z validační by klamalo.
+        public static void ShowComplexScoreOfmodel((int, int)? test, (int,int) train,(int,int) valid)
         {
             Console.WriteLine();
             Console.WriteLine("------------- Model Score ------------- ");
-            Console.WriteLine($"Precision on test dataset: {(float)((float)(test.Item1) / (float)(test.Item2)) * 100}%");
-            Console.WriteLine($"Total number of samples tested on test dataset: {test.Item2}");
-            Console.WriteLine($"Number of correctly guessed tested samples on test dataset: {test.Item1}");
-            Console.WriteLine($"Number of mistyped samples tested on test dataset: {test.Item2 - test.Item1}");
+
+            if (test != null)
+            {
+                (int correct, int total) = test.Value;
+                Console.WriteLine($"Precision on test dataset: {(float)((float)(correct) / (float)(total)) * 100}%");
+                Console.WriteLine($"Total number of samples tested on test dataset: {total}");
+                Console.WriteLine($"Number of correctly guessed tested samples on test dataset: {correct}");
+                Console.WriteLine($"Number of mistyped samples tested on test dataset: {total - correct}");
+            }
+            else
+            {
+                Console.WriteLine("Test dataset: none (not supplied via SetDatasets)");
+            }
+
             Console.WriteLine();
             Console.WriteLine($"Precision on train dataset: {(float)((float)(train.Item1) / (float)(train.Item2)) * 100}%");
             Console.WriteLine($"Precision on valid dataset: {(float)((float)(valid.Item1) / (float)(valid.Item2)) * 100}%");
