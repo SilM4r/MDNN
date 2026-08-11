@@ -55,6 +55,9 @@ namespace My_DNN.Layers
         private int mini_batch_size;
         private Optimizer optimizer;
 
+        // Kolik filtrů si vyžádalo poslední WireShapes; MaterializeParameters podle toho staví.
+        private int? requestedKernelCount;
+
         private Activation_func activation_func;
 
         public Conv(ExportCNNLayer layer)
@@ -141,12 +144,17 @@ namespace My_DNN.Layers
 
         }
 
-        public override void LayerAdjustment(int? number_of_kernels = null, int[]? input_Shape = null)
+        public override void WireShapes(int? number_of_kernels = null, int[]? input_Shape = null)
         {
             // Tvar vstupu ještě není známý (Insert/Add před SetInputSizeForFirstLayer předá
             // placeholder {0}). Dřív se to protlačilo do ConvertTo2D → rows = ceil(sqrt(0)) = 0
             // → DivideByZeroException z hloubi knihovny. Necháme vrstvu placeholderem;
             // SetInputSizeForFirstLayer ji doplní, až tvar bude znám.
+            if (number_of_kernels != null)
+            {
+                requestedKernelCount = number_of_kernels;
+            }
+
             if (input_Shape != null && input_Shape.Any(d => d <= 0))
             {
                 inputsShape = new int[] { 0 };
@@ -215,20 +223,32 @@ namespace My_DNN.Layers
             }
 
 
-            if (number_of_kernels == null)
+        }
+
+        public override bool IsMaterialized =>
+            inputsShape.Length == 3
+            && inputsShape[2] > 0
+            && kernels.Length == (requestedKernelCount ?? kernels.Length)
+            && kernels[0][0][0].Length == inputsShape[2];
+
+        public override void MaterializeParameters()
+        {
+            if (inputsShape.Length != 3 || inputsShape[2] <= 0)
             {
-                number_of_kernels = Kernel.Length;
+                return;   // tvar vstupu ještě neznáme
             }
 
+            int filters = requestedKernelCount ?? kernels.Length;
+
             // Kernely znovu inicializovat JEN když se mění jejich tvar (počet filtrů nebo
-            // počet vstupních kanálů). Dřív se předávalo natvrdo ChangeKernel: true, takže
-            // i volání, které nic nemění, přepsalo natrénované kernely náhodnými čísly.
-            // ChangeKernel: false jen vynuluje dKernels/dBiases a kernely+biasy nechá být.
-            bool kernelShapeMatches = kernels.Length == number_of_kernels
+            // počet vstupních kanálů). Jinak by i volání, které nic nemění, přepsalo
+            // natrénované kernely náhodnými čísly. ChangeKernel: false jen vynuluje
+            // dKernels/dBiases a kernely+biasy nechá být.
+            bool kernelShapeMatches = kernels.Length == filters
                                       && kernels[0][0][0].Length == inputsShape[2];
 
             inicializationK_B_dK_dB(
-                number_of_kernels,
+                filters,
                 new int[] { Kernel[0].Count(), Kernel[0][0].Count(), inputsShape[2] },
                 !kernelShapeMatches);
 

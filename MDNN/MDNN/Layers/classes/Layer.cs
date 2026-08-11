@@ -16,7 +16,35 @@
         abstract public Tensor CalculateLayerGradients(Tensor next_layer_e, Layer next_layer);
         abstract public void BackPropagation(Tensor de);
         abstract public void UpdateParams();
-        abstract public void LayerAdjustment(int? number_of_elements = null, int[]? number_of_input = null);
+        // Stavba vrstvy je rozdělená na DVĚ fáze, které spolu nesouvisí:
+        //
+        //   WireShapes()           dopočítá tvary (vstup, výstup, buffery). Potřebuje to
+        //                          LayerManager, aby mohl zřetězit vrstvy, a smí se to
+        //                          volat kolikrát chce — nic to nelosuje.
+        //   MaterializeParameters() vytvoří a VYLOSUJE parametry. Volá se právě jednou,
+        //                          jedním průchodem zleva doprava, před prvním forwardem.
+        //
+        // Proč rozdělené: dokud to bylo v jedné metodě, materializace se spouštěla už při
+        // skládání modelu. Pořadí losování tak bylo funkcí HISTORIE volání (Add/Insert),
+        // ne výsledné architektury — dvě stejné sítě se stejným seedem daly různé váhy podle
+        // toho, jak jsi je poskládal. Výstupní vrstva se navíc při přidání dvou vrstev
+        // materializovala třikrát. A vložená vrstva se nezapojila vůbec, což u načteného
+        // modelu končilo IndexOutOfRange ve forwardu.
+        public void LayerAdjustment(int? number_of_elements = null, int[]? number_of_input = null)
+        {
+            WireShapes(number_of_elements, number_of_input);
+            MaterializeParameters();
+        }
+
+        abstract public void WireShapes(int? number_of_elements = null, int[]? number_of_input = null);
+
+        // Idempotentní: když parametry pro aktuální tvar už existují, nechá je být
+        // (jinak by přepsala natrénované váhy).
+        abstract public void MaterializeParameters();
+
+        // Má vrstva parametry odpovídající svému aktuálnímu tvaru? False znamená
+        // „tvar je zapojený, ale parametry ještě nejsou" nebo „tvar zatím neznáme".
+        abstract public bool IsMaterialized { get; }
 
         // Gradient shora pro VÝSTUPNÍ vrstvu. Prostřední vrstvy si vnitřní stav pro backward
         // (Conv.dOutput, RNN.gImm) naplní v CalculateLayerGradients — jenže tu poslední vrstva

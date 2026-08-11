@@ -8,25 +8,15 @@ namespace My_DNN
     public class LayerManager
     {
         private List<Layer> layersList = new List<Layer>();
-        private int[] number_of_penultimate_output_in_Layer
-        {
-            get 
-            {
-                switch (layersList.Count())
-                {
-                    case 1:
-                        return layersList[layersList.Count() - 1].Input_size_and_shape;
-                    case 0:
-                        return new int[] { -1 };
-                    default: 
-                        return layersList[layersList.Count() - 2].Output_size_and_shape; ;
-                }
-            }
-        }
+
         public List<Layer> Layers
         {
             get { return layersList; }
         }
+
+        // Má některá vrstva zapojený tvar, ale ještě ne parametry? Tohle je signál pro
+        // model, že je před forwardem potřeba doběhnout materializaci.
+        public bool HasUnmaterializedLayers => layersList.Any(layer => !layer.IsMaterialized);
         private NetworkContext context;
 
         public LayerManager(Layer Output_Layer, NetworkContext context)
@@ -82,78 +72,89 @@ namespace My_DNN
                 }
             }
 
-            // 1. vrstva dostane vstup modelu; každá další se přestaví vstupem = výstup předchozí.
-            // Jde zleva doprava, takže Output_size_and_shape předchozí vrstvy je už správně
-            // nastavené (nutné hlavně pro Conv/MaxPool, jejichž výstup závisí na vstupu).
-            // Bez rozlišení typu — dvě neuronové vrstvy za sebou (Dense→Dense) se JINAK
-            // nepřestaví a druhá zůstane s placeholder neurony (0 vah) → IndexOutOfRange.
-            layersList[0].LayerAdjustment(null, context.InputShape);
+            RewireChain();
+            MaterializeAll();
+        }
+
+        // Zapojí tvary zleva doprava. Nic nelosuje, takže se to smí volat kolikrát chce —
+        // po každé změně struktury. Když vstup modelu ještě neznáme, neudělá nic a tvary
+        // se dopočítají až při prvním forwardu.
+        public void RewireChain()
+        {
+            int[] inputShape = EffectiveInputShape();
+
+            if (inputShape.Length == 0 || inputShape[0] <= 0)
+            {
+                return;
+            }
+
+            layersList[0].WireShapes(null, inputShape);
+
             for (int i = 1; i < layersList.Count; i++)
             {
-                layersList[i].LayerAdjustment(null, layersList[i - 1].Output_size_and_shape);
+                layersList[i].WireShapes(null, layersList[i - 1].Output_size_and_shape);
             }
         }
+
+        // Materializace JEDNÍM průchodem zleva doprava. Díky tomu je pořadí losování funkcí
+        // architektury, ne historie skládání — dvě stejné sítě se stejným seedem tak vyjdou
+        // stejně bez ohledu na to, jestli vznikly přes Add() nebo Insert().
+        public void MaterializeAll()
+        {
+            foreach (Layer layer in layersList)
+            {
+                layer.MaterializeParameters();
+            }
+        }
+
+        // Vstupní tvar modelu. Přednost má Context; u NAČTENÉHO modelu ho ale Context nezná,
+        // zatímco první vrstva ano (má ho ze souboru) — bez téhle větve by se po Add()
+        // do načteného modelu nezapojila nová vrstva a forward spadl na IndexOutOfRange.
+        private int[] EffectiveInputShape()
+        {
+            if (context.InputShape.Length > 0 && context.InputShape[0] > 0)
+            {
+                return context.InputShape;
+            }
+
+            if (layersList.Count > 0)
+            {
+                int[] firstLayerInput = layersList[0].Input_size_and_shape;
+                if (firstLayerInput.Length > 0 && firstLayerInput[0] > 0)
+                {
+                    return firstLayerInput;
+                }
+            }
+
+            return new int[] { 0 };
+        }
+
         public void Add(Layer Hidden_Layer)
         {
             Hidden_Layer.Context = context;
             layersList.Insert(layersList.Count() - 1, Hidden_Layer);
-            layersList[layersList.Count() - 1].LayerAdjustment(null, number_of_penultimate_output_in_Layer);
+            RewireChain();
         }
         public void Insert(int position, Layer Hidden_Layer)
         {
-            Hidden_Layer.Context = context;
-            if (position <= layersList.Count())
-            {
-                int[] New_Layer_Input;
-
-                if (position == 0)
-                {
-                    New_Layer_Input = layersList[position].Input_size_and_shape;
-                }
-                else
-                {
-                    New_Layer_Input = layersList[position - 1].Output_size_and_shape;
-                }
-
-                Hidden_Layer.LayerAdjustment(null, New_Layer_Input);
-                layersList.Insert(position, Hidden_Layer);
-
-                if (position != (layersList.Count() - 1))
-                {
-                    layersList[position + 1].LayerAdjustment(null, Hidden_Layer.Output_size_and_shape);
-                }
-            }
-            else
+            if (position > layersList.Count())
             {
                 throw new Exception("Varialbe position must be less or equal than the values ​​of Variable Layers (position <= Layers.Count())");
             }
+
+            Hidden_Layer.Context = context;
+            layersList.Insert(position, Hidden_Layer);
+            RewireChain();
         }
         public void RemoveAt(int position)
         {
-            if (position < layersList.Count())
-            {
-                int[] New_Layer_Input;
-
-                if (position == 0)
-                {
-                    New_Layer_Input = layersList[position].Input_size_and_shape;
-                }
-                else
-                {
-                    New_Layer_Input = layersList[position - 1].Output_size_and_shape;
-                }
-
-                layersList.RemoveAt(position);
-
-                if (layersList.Count() > position)
-                {
-                    layersList[position].LayerAdjustment(null, New_Layer_Input);
-                }
-            }
-            else
+            if (position >= layersList.Count())
             {
                 throw new Exception("Varialbe position must be less than the values ​​of Variable Layers (position < Layers.Count())");
             }
+
+            layersList.RemoveAt(position);
+            RewireChain();
         }
         public void OutputLayerActivationFunc(Activation_func activation_func)
         {

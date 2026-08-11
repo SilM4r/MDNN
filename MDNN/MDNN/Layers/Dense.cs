@@ -71,7 +71,7 @@ namespace My_DNN.Layers
             input_size = new int[] { neurons[0].Weights.Length };
 
         }
-        public override void LayerAdjustment(int? number_of_elements = null, int[]? number_of_input = null)
+        public override void WireShapes(int? number_of_elements = null, int[]? number_of_input = null)
         {
 
             if (number_of_input != null)
@@ -97,13 +97,21 @@ namespace My_DNN.Layers
                 raw_output = new double[(int)number_of_elements];
             }
 
-            // Přestavuj JEN když se tvar opravdu mění. Dřív se `neurons` vždycky zahodily a
-            // postavily znovu s náhodnou inicializací — takže i volání, které nic nemění
-            // (druhé SetInputSizeForFirstLayer se stejným tvarem, nebo Add() vrstvy se
-            // stejným počtem neuronů), tiše smazalo natrénované váhy.
-            //
-            // Když se tvar MĚNÍ (jiný počet neuronů nebo jiná velikost vstupu), je přestavba
-            // nevyhnutelná — mění se délka vektoru vah a staré hodnoty nemají kam sednout.
+        }
+
+        public override bool IsMaterialized =>
+            input_size[0] > 0 && NeuronsMatchShape(output.Length, input_size[0]);
+
+        public override void MaterializeParameters()
+        {
+            if (input_size[0] <= 0)
+            {
+                return;   // tvar vstupu ještě neznáme, není z čeho stavět
+            }
+
+            // Přestavuj JEN když se tvar opravdu mění. Jinak by i volání, které nic nemění,
+            // tiše smazalo natrénované váhy. Když se tvar MĚNÍ, je přestavba nevyhnutelná —
+            // mění se délka vektoru vah a staré hodnoty nemají kam sednout.
             if (!NeuronsMatchShape(output.Length, input_size[0]))
             {
                 neurons = new List<Neuron>();
@@ -114,9 +122,9 @@ namespace My_DNN.Layers
                 }
             }
 
-            // per-model optimizer: každý neuron dostane klon optimizeru z Contextu (nezávislost modelů).
-            // Děje se i při zachovaných vahách — LayerAdjustment znamená přepojení architektury
-            // a stav optimizeru (momenty Adamu) se k nové topologii stejně nevztahuje.
+            // per-model optimizer: každý neuron dostane klon optimizeru z Contextu (nezávislost
+            // modelů). Děje se i při zachovaných vahách — přepojení architektury znamená, že se
+            // stav optimizeru (momenty Adamu) k nové topologii stejně nevztahuje.
             if (Context != null)
                 foreach (Neuron n in neurons)
                     n.optimizer = Optimizer.Clone_optimizer(Context.Optimizer);

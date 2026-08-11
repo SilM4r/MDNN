@@ -275,7 +275,7 @@ namespace My_DNN.Layers
             return new Tensor(Tensor.ConvertJaggedToMulti(output));
         }
 
-        public override void LayerAdjustment(int? number_of_elements = null, int[]? input_Shape = null)
+        public override void WireShapes(int? number_of_elements = null, int[]? input_Shape = null)
         {
             // Stejná pojistka jako u Conv: tvar vstupu ještě není známý (placeholder z Insert/Add).
             // Bez ní se počítalo (0 - poolSize)/poolSize + 1 → záporný rozměr → pád při alokaci.
@@ -352,6 +352,11 @@ namespace My_DNN.Layers
                 }
             }
         }
+
+        // MaxPool nemá trénovatelné parametry — není co materializovat ani co ztratit.
+        public override void MaterializeParameters() { }
+
+        public override bool IsMaterialized => true;
 
         private void ConvertTo2D(double[] array, out int rows, out int cols)
         {

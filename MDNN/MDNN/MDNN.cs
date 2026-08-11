@@ -87,12 +87,7 @@ namespace My_DNN
         }
         public Tensor GetResults(Tensor inputs_values)
         {
-
-            if (Layers.Layers[0].Input_size_and_shape[0] <= 0)
-            {
-                context.InputShape = inputs_values.Shape;
-                Layers.SetInputSizeForFirstLayer();
-            }
+            EnsureReadyForInput(inputs_values);
 
             Tensor values = inputs_values;
 
@@ -103,6 +98,27 @@ namespace My_DNN
 
             return values;
         }
+        // Model je připravený, když má každá vrstva zapojený tvar I vylosované parametry.
+        //
+        // Dřív tu byla jen podmínka `Layers[0].Input_size_and_shape[0] <= 0`, tedy „neznáme
+        // vstup". Ta je ale křehká: u NAČTENÉHO modelu má první vrstva vstup ze souboru,
+        // takže podmínka neplatila — a vrstva přidaná přes Add() zůstala nezapojená až do
+        // pádu na IndexOutOfRange ve forwardu. Druhá větev tenhle případ pokrývá.
+        private void EnsureReadyForInput(Tensor inputs_values)
+        {
+            if (Layers.Layers[0].Input_size_and_shape[0] <= 0)
+            {
+                // tvar vstupu se dozvídáme teprve teď, z prvního vzorku
+                context.InputShape = inputs_values.Shape;
+                Layers.SetInputSizeForFirstLayer();
+            }
+            else if (Layers.HasUnmaterializedLayers)
+            {
+                // tvary zapojené jsou (Add/Insert je přepočítal), chybí jen parametry
+                Layers.MaterializeAll();
+            }
+        }
+
         public void ResetSequence()
         {
             foreach (Layer layer in Layers.Layers)
@@ -116,13 +132,7 @@ namespace My_DNN
         }
         public async Task<Tensor> GetResultsAsync(Tensor inputs_values)
         {
-
-            if (Layers.Layers[0].Input_size_and_shape[0] <= 0)
-            {
-                context.InputShape = inputs_values.Shape;
-                Layers.SetInputSizeForFirstLayer();
-            }
-
+            EnsureReadyForInput(inputs_values);
 
             Tensor values = inputs_values;
 

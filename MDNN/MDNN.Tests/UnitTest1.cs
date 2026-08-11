@@ -1750,6 +1750,8 @@
           Assert.Equal(3, outputLayer.Neurons[0].Weights.Length);
 
           model.Layers.Add(new Dense(5, new ReLu()));
+          // Add() nově jen ZAPOJÍ tvary; parametry se materializují až před prvním forwardem
+          model.GetResults(new Tensor(new double[] { 1, 0.5 }));
 
           Assert.Equal(5, outputLayer.Neurons[0].Weights.Length);
       }
@@ -1970,13 +1972,33 @@
       }
 
       [Fact]
+      public void Seed_can_still_be_set_after_adding_layers()
+      {
+          // Od sjednocení materializace do jednoho průchodu Add() NELOSUJE — jen zapojí tvary.
+          // Okno pro nastavení seedu je proto mnohem širší než dřív: stačí to stihnout před
+          // prvním forwardem. (Dřív Add() vylosoval váhy výstupní vrstvy a seed nastavený
+          // potom už na ni nedosáhl → model vyšel jen ČÁSTEČNĚ reprodukovatelný.)
+          My_DNN.MDNN Build()
+          {
+              var m = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE());
+              m.Layers.Add(new Dense(3, new ReLu()));
+              m.Context.Seed = 42;                        // po Add(), ale před forwardem → OK
+              m.GetResults(new Tensor(new double[] { 1, 1 }));
+              return m;
+          }
+
+          Assert.Equal(
+              ((Dense)Build().Layers.Layers[0]).Neurons[0].Weights,
+              ((Dense)Build().Layers.Layers[0]).Neurons[0].Weights);
+      }
+
+      [Fact]
       public void Setting_seed_after_weights_were_drawn_throws()
       {
-          // Tichá past, kterou guard ruší: Add() losuje váhy výstupní vrstvy HNED, takže
-          // seed nastavený až potom by na ni nedosáhl a model by vyšel jen ČÁSTEČNĚ
-          // reprodukovatelný (skryté vrstvy ano, výstupní ne) — bez jakéhokoli varování.
+          // Guard pořád platí — jen se posunul tam, kde se opravdu losuje: za první forward.
           var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE());
-          model.Layers.Add(new Dense(3, new ReLu()));    // tady se losuje
+          model.Layers.Add(new Dense(3, new ReLu()));
+          model.GetResults(new Tensor(new double[] { 1, 1 }));   // tady se losuje
 
           var ex = Assert.Throws<InvalidOperationException>(() => model.Context.Seed = 42);
 
@@ -1988,6 +2010,7 @@
       {
           var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE());
           model.Layers.Add(new Dense(3, new ReLu()));
+          model.GetResults(new Tensor(new double[] { 1, 1 }));
 
           Assert.Throws<InvalidOperationException>(() => model.Context.Random = new Random(42));
       }
@@ -2012,22 +2035,15 @@
       }
 
       // ------------------------------------------------------------------------------
-      // ZNÁMÉ OMEZENÍ — charakterizační test, ne požadavek.
+      // Dřív tu bylo ZNÁMÉ OMEZENÍ s Assert.NotEqual: seed platil jen pro stejně poskládaný
+      // model, protože LayerAdjustment materializovalo parametry už při skládání a pořadí
+      // losování bylo funkcí historie volání (Add/Insert), ne výsledné architektury.
       //
-      // Seed dnes zaručuje reprodukovatelnost jen pro STEJNĚ POSKLÁDANÝ model. Příčina:
-      // LayerAdjustment materializuje parametry hned při skládání, takže pořadí losování
-      // je funkcí historie volání (Add/Insert), ne výsledné architektury. Výstupní vrstva
-      // se při skládání dvou vrstev postaví dokonce třikrát (0 → 3 → 4 → 4 vah).
-      //
-      // Pro AutoML, které k téže topologii může dojít různou mutační cestou, to znamená,
-      // že „stejný seed" negarantuje srovnatelnost kandidátů.
-      //
-      // Až se materializace sjednotí do jediného průchodu (roadmap, Fáze 4 / seed krok 3),
-      // MUSÍ SE TENHLE TEST OTOČIT na Assert.Equal. Je tu proto, aby to omezení bylo
-      // vidět v kódu a nepřekvapilo, ne aby ho cementovalo.
+      // Po sjednocení materializace do jediného průchodu (seed krok 3) to platit přestalo,
+      // takže test je OTOČENÝ na Assert.Equal — přesně jak si ten komentář žádal.
       // ------------------------------------------------------------------------------
       [Fact]
-      public void KNOWN_LIMITATION_seed_does_not_survive_different_assembly_order()
+      public void Seed_survives_different_assembly_order()
       {
           My_DNN.MDNN ViaAddAdd()
           {
@@ -2057,10 +2073,11 @@
                   ((Dense)a.Layers.Layers[i]).Neurons.Count,
                   ((Dense)b.Layers.Layers[i]).Neurons.Count);
 
-          // …ale jiné váhy. AŽ TO PŮJDE, ZMĚNIT NA Assert.Equal.
-          Assert.NotEqual(
-              ((Dense)a.Layers.Layers[0]).Neurons[0].Weights,
-              ((Dense)b.Layers.Layers[0]).Neurons[0].Weights);
+          // …a nově i stejné váhy, ve VŠECH vrstvách
+          for (int i = 0; i < a.Layers.Layers.Count; i++)
+              Assert.Equal(
+                  ((Dense)a.Layers.Layers[i]).Neurons[0].Weights,
+                  ((Dense)b.Layers.Layers[i]).Neurons[0].Weights);
       }
   }
 
@@ -2240,5 +2257,113 @@
 
           model.LoadWeightsFromString(snapshot);
           Assert.Equal(before, model.GetResults(x).Data);
+      }
+  }
+
+  public class ExtendingLoadedModelTests : GradientCheckTestBase
+  {
+      // Pád nalezený 2026-08-11: LoadModel → Add → GetResults skončilo IndexOutOfRange.
+      // LayerManager.Add() přestavěl jen POSLEDNÍ vrstvu, vložená zůstala s placeholder
+      // neurony (0 vah) a spoléhala na SetInputSizeForFirstLayer — jenže to se pouštělo jen
+      // pod podmínkou "Layers[0].Input_size_and_shape[0] <= 0". U načteného modelu má první
+      // vrstva vstup ze souboru, podmínka neplatila a nová vrstva zůstala prázdná.
+      //
+      // Pro AutoML blokující: načíst checkpoint a rozšířit architekturu je základní operace.
+      private static string TempBase()
+          => System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mdnn_ext_" + Guid.NewGuid().ToString("N"));
+
+      private static void Save(string path, int? seed = null)
+      {
+          var m = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE(), seed);
+          m.Layers.Add(new Dense(3, new ReLu()));
+          m.GetResults(new Tensor(new double[] { 1, 1 }));
+          m.SaveAsJson(path);
+      }
+
+      [Fact]
+      public void Adding_layer_to_loaded_model_does_not_crash()
+      {
+          string path = TempBase();
+          try
+          {
+              Save(path);
+
+              var loaded = My_DNN.MDNN.LoadModel(path);
+              loaded.Layers.Add(new Dense(4, new ReLu()));
+
+              double[] output = loaded.GetResults(new Tensor(new double[] { 1, 1 })).Data;
+              Assert.Equal(2, output.Length);
+              Assert.All(output, v => Assert.True(double.IsFinite(v)));
+          }
+          finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
+      }
+
+      [Fact]
+      public void Loaded_model_can_be_trained_after_extension()
+      {
+          // nejen že to nespadne — rozšířený model se musí i doučit
+          string path = TempBase();
+          try
+          {
+              Save(path);
+
+              var loaded = My_DNN.MDNN.LoadModel(path);
+              loaded.Layers.Add(new Dense(4, new ReLu()));
+
+              var x = new Tensor(new double[] { 1, 1 });
+              var t = new Tensor(new double[] { 0.5, -0.5 });
+
+              double lossBefore = loaded.Loss.CalculateAndGetLoss(loaded.GetResults(x).Data, t.Data);
+              for (int i = 0; i < 200; i++)
+              {
+                  loaded.Train.Fit(x, t);
+                  loaded.Train.UpdateParams();
+              }
+              double lossAfter = loaded.Loss.CalculateAndGetLoss(loaded.GetResults(x).Data, t.Data);
+
+              Assert.True(lossAfter < lossBefore, $"loss {lossBefore} → {lossAfter}, model se neučí");
+          }
+          finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
+      }
+
+      [Fact]
+      public void Extending_loaded_model_keeps_weights_of_untouched_layers()
+      {
+          // vrstvy, jejichž tvar se nemění, si musí natrénované váhy podržet (2c-10)
+          string path = TempBase();
+          try
+          {
+              Save(path);
+
+              var loaded = My_DNN.MDNN.LoadModel(path);
+              double[] hiddenBefore = (double[])((Dense)loaded.Layers.Layers[0]).Neurons[0].Weights.Clone();
+
+              loaded.Layers.Add(new Dense(4, new ReLu()));
+              loaded.GetResults(new Tensor(new double[] { 1, 1 }));
+
+              // první skrytá vrstva dostává pořád vstup modelu → beze změny
+              Assert.Equal(hiddenBefore, ((Dense)loaded.Layers.Layers[0]).Neurons[0].Weights);
+          }
+          finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
+      }
+
+      [Fact]
+      public void Removing_layer_from_loaded_model_rewires_the_rest()
+      {
+          string path = TempBase();
+          try
+          {
+              Save(path);
+
+              var loaded = My_DNN.MDNN.LoadModel(path);
+              Assert.Equal(2, loaded.Layers.Layers.Count);
+
+              loaded.Layers.RemoveAt(0);                       // pryč se skrytou vrstvou
+
+              double[] output = loaded.GetResults(new Tensor(new double[] { 1, 1 })).Data;
+              Assert.Equal(2, output.Length);
+              Assert.All(output, v => Assert.True(double.IsFinite(v)));
+          }
+          finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
       }
   }

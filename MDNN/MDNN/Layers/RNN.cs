@@ -120,7 +120,7 @@ namespace My_DNN.Layers
                 AllocateSensitivities();
         }
 
-        public override void LayerAdjustment(int? number_of_elements = null, int[]? number_of_input = null)
+        public override void WireShapes(int? number_of_elements = null, int[]? number_of_input = null)
         {
             if (number_of_input != null)
             {
@@ -145,8 +145,19 @@ namespace My_DNN.Layers
                 raw_output = new double[(int)number_of_elements];
             }
 
-            // Stejná idempotence jako u Dense — bez ní i volání, které nic nemění, smazalo
-            // natrénované váhy. Pozor: RNN neuron má o jednu váhu navíc (rekurentní vstup).
+        }
+
+        // Pozor: RNN neuron má o jednu váhu navíc (rekurentní vstup h(t-1)).
+        public override bool IsMaterialized =>
+            input_size[0] > 0 && NeuronsMatchShape(output.Length, input_size[0] + 1);
+
+        public override void MaterializeParameters()
+        {
+            if (input_size[0] <= 0)
+            {
+                return;
+            }
+
             if (!NeuronsMatchShape(output.Length, input_size[0] + 1))
             {
                 neurons = new List<Neuron>();
