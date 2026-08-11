@@ -2063,3 +2063,179 @@
               ((Dense)b.Layers.Layers[0]).Neurons[0].Weights);
       }
   }
+
+  // ==========================================================================================
+  //  Fáze 4 — formát uloženého modelu v1 (FormatVersion, seed, datum, checksum)
+  // ==========================================================================================
+
+  public class SaveFormatTests : GradientCheckTestBase
+  {
+      private static string TempBase()
+          => System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mdnn_fmt_" + Guid.NewGuid().ToString("N"));
+
+      private static My_DNN.MDNN Model(int? seed = null)
+      {
+          var m = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE(), seed);
+          m.Layers.Add(new Dense(3, new ReLu()));
+          m.GetResults(new Tensor(new double[] { 0.5, -0.3 }));
+          return m;
+      }
+
+      [Fact]
+      public void Saved_file_carries_version_checksum_seed_and_timestamp()
+      {
+          string path = TempBase();
+          try
+          {
+              DateTime before = DateTime.UtcNow.AddSeconds(-1);
+              Model(seed: 4242).SaveAsJson(path);
+
+              using var doc = System.Text.Json.JsonDocument.Parse(System.IO.File.ReadAllText(path + ".json"));
+              var root = doc.RootElement;
+
+              Assert.Equal(1, root.GetProperty("FormatVersion").GetInt32());
+              Assert.StartsWith("sha256:", root.GetProperty("Checksum").GetString());
+
+              var model = root.GetProperty("Model");
+              Assert.Equal(4242, model.GetProperty("Seed").GetInt32());
+
+              DateTime savedAt = model.GetProperty("SavedAtUtc").GetDateTime();
+              Assert.InRange(savedAt, before, DateTime.UtcNow.AddSeconds(1));
+          }
+          finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
+      }
+
+      [Fact]
+      public void Seed_is_restored_from_file_when_caller_gives_none()
+      {
+          string path = TempBase();
+          try
+          {
+              Model(seed: 777).SaveAsJson(path);
+
+              var loaded = My_DNN.MDNN.LoadModel(path);
+              Assert.Equal(777, loaded.Context.Seed);          // provenience přežije uložení
+          }
+          finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
+      }
+
+      [Fact]
+      public void Explicit_seed_wins_over_the_one_in_file()
+      {
+          string path = TempBase();
+          try
+          {
+              Model(seed: 777).SaveAsJson(path);
+
+              var loaded = My_DNN.MDNN.LoadModel(path, seed: 111);
+              Assert.Equal(111, loaded.Context.Seed);
+          }
+          finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
+      }
+
+      [Fact]
+      public void Round_trip_still_reproduces_the_forward_pass()
+      {
+          // obálka nesmí rozbít to podstatné — že načtený model počítá stejně
+          string path = TempBase();
+          try
+          {
+              var src = Model(seed: 5);
+              var x = new Tensor(new double[] { 0.5, -0.3 });
+              double[] before = src.GetResults(x).Data;
+
+              src.SaveAsJson(path);
+              Assert.Equal(before, My_DNN.MDNN.LoadModel(path).GetResults(x).Data);
+          }
+          finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
+      }
+
+      [Fact]
+      public void Tampered_file_is_rejected()
+      {
+          string path = TempBase();
+          try
+          {
+              Model(seed: 1).SaveAsJson(path);
+
+              // změň jednu váhu v datech, checksum nech být → nesmí projít
+              string json = System.IO.File.ReadAllText(path + ".json");
+              string broken = json.Replace("\"Bias\": 0", "\"Bias\": 0.123456");
+              Assert.NotEqual(json, broken);                   // pojistka, že se náhrada povedla
+              System.IO.File.WriteAllText(path + ".json", broken);
+
+              var ex = Assert.Throws<ModelFileCorruptedException>(() => My_DNN.MDNN.LoadModel(path));
+              Assert.StartsWith("sha256:", ex.ExpectedChecksum);
+              Assert.NotEqual(ex.ExpectedChecksum, ex.ActualChecksum);
+          }
+          finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
+      }
+
+      [Fact]
+      public void Truncated_file_is_rejected()
+      {
+          string path = TempBase();
+          try
+          {
+              Model().SaveAsJson(path);
+              string json = System.IO.File.ReadAllText(path + ".json");
+              System.IO.File.WriteAllText(path + ".json", json.Substring(0, json.Length / 2));
+
+              Assert.Throws<ModelFileCorruptedException>(() => My_DNN.MDNN.LoadModel(path));
+          }
+          finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
+      }
+
+      [Fact]
+      public void Future_format_version_is_rejected_with_clear_message()
+      {
+          string path = TempBase();
+          try
+          {
+              Model().SaveAsJson(path);
+              string json = System.IO.File.ReadAllText(path + ".json");
+              System.IO.File.WriteAllText(path + ".json", json.Replace("\"FormatVersion\": 1", "\"FormatVersion\": 99"));
+
+              var ex = Assert.Throws<ModelFileCorruptedException>(() => My_DNN.MDNN.LoadModel(path));
+              Assert.Contains("Aktualizuj knihovnu", ex.Message);
+          }
+          finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
+      }
+
+      [Fact]
+      public void Legacy_file_without_envelope_still_loads()
+      {
+          // zpětná kompatibilita: modely uložené starou verzí knihovny (plochý JSON,
+          // žádná FormatVersion ani checksum) musí jít načíst dál
+          string path = TempBase();
+          try
+          {
+              Model(seed: 3).SaveAsJson(path);
+
+              // rozbal obálku → vznikne přesně starý formát
+              string json = System.IO.File.ReadAllText(path + ".json");
+              using var doc = System.Text.Json.JsonDocument.Parse(json);
+              System.IO.File.WriteAllText(path + ".json", doc.RootElement.GetProperty("Model").GetRawText());
+
+              var loaded = My_DNN.MDNN.LoadModel(path);
+              Assert.NotNull(loaded);
+              Assert.Equal(2, loaded.GetResults(new Tensor(new double[] { 0.5, -0.3 })).Data.Length);
+          }
+          finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
+      }
+
+      [Fact]
+      public void In_memory_snapshot_round_trips_through_the_same_path()
+      {
+          // SaveAsJsonString/LoadWeightsFromString jede stejnou obálkou jako disk
+          var model = Model(seed: 9);
+          var x = new Tensor(new double[] { 0.5, -0.3 });
+          double[] before = model.GetResults(x).Data;
+
+          string snapshot = model.SaveAsJsonString();
+          Assert.Contains("FormatVersion", snapshot);
+
+          model.LoadWeightsFromString(snapshot);
+          Assert.Equal(before, model.GetResults(x).Data);
+      }
+  }

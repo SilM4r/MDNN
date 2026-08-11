@@ -40,9 +40,15 @@ namespace My_DNN
         {
             // Váhy se načítají ze souboru, takže seed neovlivní inicializaci — zato ovlivní
             // míchání datasetu a výběr vzorků, což u dotrénování načteného modelu chceš.
-            if (seed != null)
+            //
+            // Explicitně předaný seed vyhrává; jinak se převezme ten ze souboru (od formátu
+            // v1 se ukládá), takže načtený model ví, čím vznikl, aniž by ho volající musel
+            // evidovat vedle. Když soubor seed nemá (starý formát), zůstane null jako dřív.
+            int? effectiveSeed = seed ?? loadModel.Seed;
+
+            if (effectiveSeed != null)
             {
-                context.Seed = seed;
+                context.Seed = effectiveSeed;
             }
 
             context.Optimizer = Optimizer.Refactor_optimizer(loadModel.Optimizer);
