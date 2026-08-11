@@ -77,9 +77,6 @@ namespace My_DNN
         private LabeledData? _explicitValid;
         private LabeledData? _explicitTest;
 
-        // Má se chybějící valid/test ukrojit ze sourozenkyně? (viz SetDatasets)
-        private bool _carveMissingDataset = true;
-
         // VŠECHNO jen ke čtení. Dřív šly valid/test nastavovat čtyřmi nezávislými settery,
         // což dovolovalo dodat vstupy bez cílů a nafukovalo DividingDataIntoDatasets na
         // čtyři větve podle toho, co uživatel zrovna vyplnil. Jediná cesta dovnitř je
@@ -109,29 +106,18 @@ namespace My_DNN
         // Když chybí obojí, není z čeho jiného než z trainu.
         //
         //
-        // `carveMissing: false` krájení vypne — chybějící sada prostě nebude. Hodí se, když
-        // si chceš validační sadu nechat celou a otestovat model potom sám nad vlastními
-        // daty (TestNeuralNetwork(...)). Závěrečný přehled pak testovací řádek vynechá.
+        // Když nechceš přijít o kus validační sady kvůli testovací, kterou stejně nepoužiješ,
+        // nastav `TestNeuralNetworkAfterTraining = false` — pak se test z validu neukrojí
+        // a valid zůstane celý. Otestovat si model potom můžeš sám: TestNeuralNetwork(...).
         //
         // Poté se trénuje bezdatovým přetížením: TrainLoop(numberOfEpoch, sizeOfMiniBatch).
-        public void SetDatasets(LabeledData train, LabeledData? valid = null, LabeledData? test = null, bool carveMissing = true)
+        public void SetDatasets(LabeledData train, LabeledData? valid = null, LabeledData? test = null)
         {
             ArgumentNullException.ThrowIfNull(train);
-
-            // Bez validační sady se nedá trénovat (počítá se z ní valid loss pro AutoSave
-            // i early stopping), takže tuhle kombinaci je potřeba odmítnout hned tady,
-            // ne až uprostřed tréninku.
-            if (!carveMissing && valid == null)
-            {
-                throw new ArgumentException(
-                    "S carveMissing: false musí být validační sada zadaná — trénink ji potřebuje " +
-                    "pro valid loss (AutoSave, early stopping). Vynechat jde jen testovací sada.");
-            }
 
             _explicitTrain = train;
             _explicitValid = valid;
             _explicitTest = test;
-            _carveMissingDataset = carveMissing;
         }
 
         // Počet DOKONČENÝCH epoch, tedy plných průchodů trénovacím setem.
@@ -1010,20 +996,25 @@ namespace My_DNN
                 return;
             }
 
-            if (!_carveMissingDataset)
-            {
-                // uživatel si krájení nepřeje — co nedodal, nebude
-                if (_explicitValid != null) SetValid(_explicitValid); else ClearValid();
-                if (_explicitTest != null) SetTest(_explicitTest); else ClearTest();
-                return;
-            }
-
             var (trainRatio, validRatio, testRatio) = ResolveSplitRatios();
 
             if (_explicitValid != null)
             {
-                // Chybí TEST → ukroj ho z validu. Train zůstane celý: uživatel ho dodal
-                // jako svůj trénovací set a zmenšovat mu ho pod rukama by bylo překvapivé.
+                // Chybí TEST. Ukrojit ho z validu má smysl jen tehdy, když se po tréninku
+                // opravdu testuje — jinak by uživatel přišel o kus validační sady kvůli
+                // datům, která nikdo nepoužije. Proto to řídí TestNeuralNetworkAfterTraining
+                // a ne vlastní příznak: je to jedno rozhodnutí („chci závěrečné testování?"),
+                // ne dvě.
+                //
+                // Train zůstane celý tak jako tak: uživatel ho dodal jako svůj trénovací set
+                // a zmenšovat mu ho pod rukama by bylo překvapivé.
+                if (!TestNeuralNetworkAfterTraining)
+                {
+                    SetValid(_explicitValid);
+                    ClearTest();
+                    return;
+                }
+
                 var (keptValid, carvedTest) = CarveInTwo(
                     _explicitValid, validRatio / (validRatio + testRatio), "validační");
 
@@ -1057,7 +1048,7 @@ namespace My_DNN
             {
                 throw new ArgumentException(
                     $"Z {name} sady o {total} vzorku/vzorcích nejde ukrojit chybějící sadu — " +
-                    "potřebuje aspoň 2. Dodej obě sady, nebo použij carveMissing: false.");
+                    "potřebuje aspoň 2. Dodej obě sady, nebo vypni TestNeuralNetworkAfterTraining.");
             }
 
             int firstSize = Math.Clamp((int)(total * firstShare), 1, total - 1);

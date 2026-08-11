@@ -934,35 +934,44 @@
       }
 
       [Fact]
-      public void Carving_can_be_turned_off()
+      public void Test_is_not_carved_when_final_testing_is_off()
       {
-          // Uživatel si chce nechat validační sadu celou a otestovat si model potom sám.
+          // Ukrojit test z validu má smysl jen když se po tréninku opravdu testuje.
+          // Jinak by uživatel přišel o kus validační sady kvůli datům, co nikdo nepoužije.
+          // Řídí to TestNeuralNetworkAfterTraining — jedno rozhodnutí, ne dvě.
           var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          model.Train.TestNeuralNetworkAfterTraining = false;
 
           var (trainX, trainY) = MakeSamples(30);
           var (validX, validY) = MakeSamples(8);
 
-          model.Train.SetDatasets(
-              new LabeledData(trainX, trainY),
-              new LabeledData(validX, validY),
-              carveMissing: false);
+          model.Train.SetDatasets(new LabeledData(trainX, trainY), new LabeledData(validX, validY));
           model.Train.DividingDataIntoDatasets(trainX, trainY);
 
+          Assert.Equal(30, model.Train.TrainDataInputs!.Shape[0]);
           Assert.Equal(8, model.Train.ValidDataInputs!.Shape[0]);   // celá, neukrojená
           Assert.Null(model.Train.TestDataInputs);
       }
 
       [Fact]
-      public void Carving_off_still_requires_valid()
+      public void Explicit_test_survives_final_testing_being_off()
       {
-          // bez validační sady se nedá trénovat (valid loss pro AutoSave a early stopping)
+          // Když test dodáš sám, vypnutý přehled ho nesmí zahodit — jen se nevypíše.
           var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
-          var (trainX, trainY) = MakeSamples(30);
-          var (testX, testY) = MakeSamples(10);
+          model.Train.TestNeuralNetworkAfterTraining = false;
 
-          var ex = Assert.Throws<ArgumentException>(() => model.Train.SetDatasets(
-              new LabeledData(trainX, trainY), valid: null, test: new LabeledData(testX, testY), carveMissing: false));
-          Assert.Contains("valid", ex.Message.ToLower());
+          var (trainX, trainY) = MakeSamples(30);
+          var (validX, validY) = MakeSamples(8);
+          var (testX, testY) = MakeSamples(5);
+
+          model.Train.SetDatasets(
+              new LabeledData(trainX, trainY),
+              new LabeledData(validX, validY),
+              new LabeledData(testX, testY));
+          model.Train.DividingDataIntoDatasets(trainX, trainY);
+
+          Assert.Equal(8, model.Train.ValidDataInputs!.Shape[0]);
+          Assert.Equal(5, model.Train.TestDataInputs!.Shape[0]);
       }
 
       [Fact]
@@ -991,7 +1000,7 @@
           model.Train.SetDatasets(new LabeledData(trainX, trainY), new LabeledData(validX, validY));
 
           var ex = Assert.Throws<ArgumentException>(() => model.Train.DividingDataIntoDatasets(trainX, trainY));
-          Assert.Contains("carveMissing", ex.Message);
+          Assert.Contains("TestNeuralNetworkAfterTraining", ex.Message);
       }
 
       [Fact]
@@ -1817,6 +1826,9 @@
               new Tensor(new double[] { 2, 4, 6, 8 }, new int[] { 4, 1 }));
 
           model.Train.SetDatasets(trainData, validData);
+
+          // ať se test z validu opravdu ukrojí (jinak by nebylo co hlídat na stabilitu)
+          model.Train.TestNeuralNetworkAfterTraining = true;
 
           model.Train.TrainLoop(5);
           int train1 = model.Train.TrainDataInputs!.Shape[0];
