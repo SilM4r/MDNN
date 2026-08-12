@@ -27,7 +27,9 @@ namespace My_DNN
         private double bias;
         
         internal double[] gradientsW;
-        private double gradientsB;
+        // internal kvůli paritním testům proti PyTorchi — bez čtení gradientu biasu
+        // by se dal porovnat jen gradient vah. Veřejné API zůstává beze změny.
+        internal double gradientsB;
 
         private int mini_batch_size = 0;
 
@@ -75,6 +77,21 @@ namespace My_DNN
             activation_func = activation_function;
         }
 
+
+        // Nastavení konkrétních vah a biasu zvenčí. Potřebné pro paritní testy proti
+        // PyTorchi: obě strany musí startovat z BITOVĚ stejných parametrů, jinak by se
+        // porovnávala náhodná inicializace, ne výpočet. `Weights` je sice veřejné, ale
+        // jen ke čtení (vrací pole, takže by šlo mutovat prvek po prvku) a `Bias` je
+        // scalar bez setteru — tohle obojí obsluhuje na jednom místě.
+        internal void SetParamsForTests(double[] newWeights, double newBias)
+        {
+            if (newWeights.Length != weights.Length)
+                throw new ArgumentException(
+                    $"Očekáváno {weights.Length} vah, dostal jsem {newWeights.Length}.");
+
+            Array.Copy(newWeights, weights, weights.Length);
+            bias = newBias;
+        }
 
         public double feedForward(double[] values)
         {

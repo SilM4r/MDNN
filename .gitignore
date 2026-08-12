@@ -13,3 +13,7 @@ TestResults/
 # soubory, které si knihovna sama zapisuje do CWD při běhu
 loss.png
 AutoSave.json
+
+# venv pro generátor PyTorch fixtures (tools/torch_fixtures) — NEcommitovat
+.venv/
+tools/**/.venv/

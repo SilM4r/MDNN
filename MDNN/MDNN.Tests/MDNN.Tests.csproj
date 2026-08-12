@@ -28,4 +28,10 @@
     <ProjectReference Include="..\MDNN\MDNN.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Referenční hodnoty z PyTorche pro TorchParityTests. Commitují se, aby CI
+         nepotřebovalo Python; přegenerovat jde přes tools/torch_fixtures/. -->
+    <Content Include="Fixtures\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
