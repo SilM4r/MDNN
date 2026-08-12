@@ -75,9 +75,9 @@ model.SaveAsJson("save");
 
 ## Examples
 
-The Quick start above is a complete, working example. A larger one — MNIST with a LeNet-style
-CNN, IDX loaders, a held-out test set, and early stopping — lives in the `mdnn_test` project
-next to this repository.
+Full, runnable examples for each task type — classification, regression, sequential data (RNN), and image data (Conv + MaxPool) — live in a separate repository:
+
+[github.com/SilM4r/MDNN_examples](https://github.com/SilM4r/MDNN_examples)
 
 ## Model configuration
 

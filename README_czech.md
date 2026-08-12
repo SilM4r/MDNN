@@ -75,9 +75,9 @@ model.SaveAsJson("save");
 
 ## Příklady
 
-Rychlý start výše je kompletní funkční příklad. Rozsáhlejší — MNIST s CNN v LeNet stylu,
-IDX loadery, held-out testovací sadou a early stoppingem — je v projektu `mdnn_test`
-vedle tohoto repozitáře.
+Kompletní spustitelné příklady pro každý typ úlohy — klasifikace, regrese, sekvenční data (RNN) a obrazová data (Conv + MaxPool) — najdete v samostatném repozitáři:
+
+[github.com/SilM4r/MDNN_examples](https://github.com/SilM4r/MDNN_examples)
 
 ## Konfigurace modelu
 
