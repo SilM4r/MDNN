@@ -271,15 +271,20 @@ namespace My_DNN.Layers
                 TensorValues.Reshape(new int[] { rows, cols, 1 });
             }
 
-            double[,,] inputs_val = (double[,,])TensorValues.GetOriginalData();
+            // Čte se rovnou z plochých dat. Dřív tu bylo (double[,,])GetOriginalData(),
+            // což si vynutilo postavit multidim kopii přes Array.CreateInstance + SetValue
+            // po prvcích — reflexe a boxing na každý forward. Row-major pořadí Data
+            // odpovídá [i,j,k], takže stačí jeden běžící index.
+            double[] inputValues = TensorValues.Data;
 
+            int flatIndex = 0;
             for (int i = 0; i < TensorValues.Shape[0]; i++)
             {
                 for (int j = 0; j < TensorValues.Shape[1]; j++)
                 {
                     for (int k = 0; k < TensorValues.Shape[2]; k++)
                     {
-                        inputs[i][j][k] = inputs_val[i, j, k];
+                        inputs[i][j][k] = inputValues[flatIndex++];
                     }
                 }
             }
@@ -326,7 +331,7 @@ namespace My_DNN.Layers
                 }
             }
 
-            return new Tensor(Tensor.ConvertJaggedToMulti(output));
+            return Tensor.FromJagged3D(output, outputShape);
         }
         // Conv jako VÝSTUPNÍ vrstva: dOutput se jinak nemá kde vzít (CalculateLayerGradients
         // se pro poslední vrstvu nevolá). Derivaci aktivace si aplikujeme sami — stejná
@@ -483,15 +488,18 @@ namespace My_DNN.Layers
             }
             else
             {
-                double[,,] tensorDOutput = (double[,,])TensordOutput.GetOriginalData();
+                // zase plochá cesta místo multidim kopie přes reflexi
+                double[] upstream = TensordOutput.Data;
+                int[] upstreamShape = TensordOutput.Shape;
 
-                for (int i = 0;i < tensorDOutput.GetLength(0);i++)
+                int flat = 0;
+                for (int i = 0; i < upstreamShape[0]; i++)
                 {
-                    for (int j = 0; j < tensorDOutput.GetLength(1); j++)
+                    for (int j = 0; j < upstreamShape[1]; j++)
                     {
-                        for (int k = 0; k < tensorDOutput.GetLength(2); k++)
+                        for (int k = 0; k < upstreamShape[2]; k++)
                         {
-                            dOutput[i][j][k] = tensorDOutput[i, j, k] * activation_func.Derivative(raw_output[i][j][k]);
+                            dOutput[i][j][k] = upstream[flat++] * activation_func.Derivative(raw_output[i][j][k]);
                         }
                     }
                 }
@@ -578,7 +586,7 @@ namespace My_DNN.Layers
                 dInput = dInputPadded;
             }
 
-            return new Tensor(Tensor.ConvertJaggedToMulti(dInput));
+            return Tensor.FromJagged3D(dInput, new int[] { dInput.Length, dInput[0].Length, dInput[0][0].Length });
         }
 
         private void CheckIsActivationFuncIsNotApplyToLayer()

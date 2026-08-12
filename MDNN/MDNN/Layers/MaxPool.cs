@@ -146,15 +146,17 @@ namespace My_DNN.Layers
             }
             else
             {
-                double[,,] tensorDOutput = (double[,,])TensordOutput.GetOriginalData();
+                double[] upstream = TensordOutput.Data;
+                int[] upstreamShape = TensordOutput.Shape;
 
-                for (int i = 0; i < tensorDOutput.GetLength(0); i++)
+                int flat = 0;
+                for (int i = 0; i < upstreamShape[0]; i++)
                 {
-                    for (int j = 0; j < tensorDOutput.GetLength(1); j++)
+                    for (int j = 0; j < upstreamShape[1]; j++)
                     {
-                        for (int k = 0; k < tensorDOutput.GetLength(2); k++)
+                        for (int k = 0; k < upstreamShape[2]; k++)
                         {
-                            dOutput[i][j][k] = tensorDOutput[i, j, k];
+                            dOutput[i][j][k] = upstream[flat++];
                         }
                     }
                 }
@@ -195,7 +197,7 @@ namespace My_DNN.Layers
                 }
             }
 
-            return new Tensor(Tensor.ConvertJaggedToMulti(dInput));
+            return Tensor.FromJagged3D(dInput, new int[] { dInput.Length, dInput[0].Length, dInput[0][0].Length });
         }
 
         public override Tensor FeedForward(Tensor TensorValues)
@@ -215,15 +217,17 @@ namespace My_DNN.Layers
                 throw new NotSupportedException();
             }
 
-            double[,,] inputs_val = (double[,,])TensorValues.GetOriginalData();
+            // plochá cesta místo (double[,,])GetOriginalData() — viz Conv.FeedForward
+            double[] inputValues = TensorValues.Data;
 
+            int flatIndex = 0;
             for (int i = 0; i < TensorValues.Shape[0]; i++)
             {
                 for (int j = 0; j < TensorValues.Shape[1]; j++)
                 {
                     for (int k = 0; k < TensorValues.Shape[2]; k++)
                     {
-                        inputs[i][j][k] = inputs_val[i, j, k];
+                        inputs[i][j][k] = inputValues[flatIndex++];
                     }
                 }
             }
@@ -272,7 +276,7 @@ namespace My_DNN.Layers
                     }
                 }
             }
-            return new Tensor(Tensor.ConvertJaggedToMulti(output));
+            return Tensor.FromJagged3D(output, outputShape);
         }
 
         public override void WireShapes(int? number_of_elements = null, int[]? input_Shape = null)
