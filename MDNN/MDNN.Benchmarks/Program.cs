@@ -143,6 +143,24 @@ namespace MDNN.Benchmarks
             Console.WriteLine(title);
             Console.WriteLine(new string('=', 78));
 
+            // Skutečná topologie, ne jen popisek v nadpisu. MDNN nemá vstupní vrstvu jako
+            // objekt — velikost vstupu se odvodí z dat a projeví se až v počtu vah první
+            // vrstvy, takže z kódu modelu ji přečíst nejde.
+            Console.WriteLine($"  vstup: {inputs[0].Length} hodnot, {inputs.Length} vzorků");
+            foreach (Layer layer in layers)
+            {
+                string shape = layer switch
+                {
+                    Dense d => $"{d.Neurons.Count} neuronů, {d.Neurons[0].Weights.Length} vah na neuron",
+                    RNN r => $"{r.Neurons.Count} neuronů, {r.Neurons[0].Weights.Length} vah na neuron (vč. rekurentní)",
+                    Conv c => $"{c.Kernel.Length} filtrů {c.Kernel[0].Length}x{c.Kernel[0][0].Length}x{c.Kernel[0][0][0].Length}"
+                              + $", výstup [{string.Join(",", c.Output_size_and_shape)}]",
+                    _ => $"výstup [{string.Join(",", layer.Output_size_and_shape)}]",
+                };
+                Console.WriteLine($"  {layer.Name,-8} {shape}");
+            }
+            Console.WriteLine($"  trénovatelných parametrů: {ConsoleControler.CountTrainableParams(model):N0}");
+
             Table("PODLE FÁZE", byPhase);
             Table("FORWARD podle vrstvy", forwardByLayer);
             Table("AKUMULACE VAH podle vrstvy", backwardByLayer);
