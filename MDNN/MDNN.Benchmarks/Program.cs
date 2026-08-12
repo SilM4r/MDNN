@@ -20,6 +20,58 @@ namespace MDNN.Benchmarks
     // přes tlak na GC.
     internal static class Program
     {
+        // ==================================================================================
+        //  ZÁKLAD (baseline) — stav PŘED optimalizacemi datové vrstvy
+        // ==================================================================================
+        //
+        //  Naměřeno 2026-08-12, commit b0168bb, Apple Silicon / 10 jader, .NET 9, Release,
+        //  workstation GC. Slouží k porovnání: profil níž tiskne u každého řádku, o kolik
+        //  se čas a alokace posunuly proti těmhle číslům.
+        //
+        //  Absolutní hodnoty závisí na stroji — na jiném počítači bude celý sloupec
+        //  "vs základ" posunutý a nic to neznamená. Smysl to dává jen při porovnání
+        //  na TOMTÉŽ stroji. Když se změní scénář (jiná architektura, jiný počet vzorků),
+        //  je potřeba základ přeměřit, jinak se porovnává neporovnatelné.
+        //
+        //  Hlavní zjištění základu: úzkým hrdlem není matematika, ale datová vrstva.
+        //  Tensor.FlattenArray boxuje každý double (foreach nad System.Array) a sype ho
+        //  do List<double>, takže payload 6 KB stojí ~40 KB alokací.
+        // ==================================================================================
+        private static readonly Dictionary<string, Cost> Baseline = new()
+        {
+            // MLP 784-128-10, 32 vzorků
+            ["MLP/fáze/1. forward"] = new(73.5, 1_572_864),
+            ["MLP/fáze/2. řetěz gradientů"] = new(2.1, 188_416),
+            ["MLP/fáze/3. akumulace vah"] = new(70.8, 202_957),
+            ["MLP/fáze/4. update parametrů"] = new(3.4, 0),
+            ["MLP/forward/Dense(128)"] = new(72.4, 1_363_148),
+            ["MLP/forward/Dense(10)"] = new(1.1, 213_504),
+            ["MLP/akumulace/Dense(128)"] = new(69.8, 202_957),
+            ["MLP/akumulace/Dense(10)"] = new(0.9, 0),
+
+            // CNN, 8 vzorků
+            ["CNN/fáze/1. forward"] = new(27.9, 33_135_493),
+            ["CNN/fáze/2. řetěz gradientů"] = new(29.7, 33_764_147),
+            ["CNN/fáze/3. akumulace vah"] = new(7.5, 0),
+            ["CNN/fáze/4. update parametrů"] = new(3.6, 80),
+            ["CNN/forward/Conv(16x3)"] = new(13.6, 20_132_659),
+            ["CNN/forward/Conv(32x3)"] = new(9.2, 6_606_028),
+            ["CNN/forward/MaxPool"] = new(3.9, 6_081_741),
+            ["CNN/forward/Dense(64)"] = new(1.1, 339_866),
+            ["CNN/forward/Dense(10)"] = new(0.0, 28_570),
+            ["CNN/akumulace/Conv(32x3)"] = new(4.8, 0),
+            ["CNN/akumulace/Conv(16x3)"] = new(1.6, 0),
+            ["CNN/akumulace/Dense(64)"] = new(1.0, 0),
+            ["CNN/akumulace/Dense(10)"] = new(0.0, 0),
+
+            // režie datové vrstvy, 20 000 volání
+            ["režie/GetTensorValue([i])"] = new(464.0, 1_010_407_014),
+            ["režie/Tensor.Data (flatten)"] = new(409.0, 839_385_907),
+            ["režie/Layer_output + .Data"] = new(105.0, 131_398_042),
+            ["režie/Layer_output (getter)"] = new(1.6, 4_508_876),
+            ["režie/new Tensor(double[784])"] = new(1.5, 4_508_876),
+        };
+
         // Jedno měření: čas + kolik bajtů se při tom naalokovalo.
         private readonly record struct Cost(double Milliseconds, long Bytes)
         {
@@ -49,25 +101,53 @@ namespace MDNN.Benchmarks
              : b >= 1024 ? $"{b / 1024.0:F1} KB"
              : $"{b} B";
 
-        private static void Table(string title, Dictionary<string, Cost> rows)
+        // Změna proti základu. Kladné číslo = zhoršení, záporné = zlepšení.
+        // Prázdno, když pro daný řádek základ není (nový scénář nebo nová vrstva).
+        private static string VsBaseline(double now, double before)
+        {
+            if (before <= 0)
+            {
+                return now <= 0 ? "     ." : "   nový";
+            }
+
+            double change = (now - before) / before * 100;
+
+            // Pod 5 % už je to na téhle úrovni měření šum, ne výsledek.
+            return Math.Abs(change) < 5 ? "     ~" : $"{change,+6:F0}%";
+        }
+
+        private static void Table(string title, Dictionary<string, Cost> rows, string baselinePrefix)
         {
             double totalMs = rows.Values.Sum(c => c.Milliseconds);
             long totalBytes = rows.Values.Sum(c => c.Bytes);
 
             Console.WriteLine();
             Console.WriteLine(title);
-            Console.WriteLine($"  {"",-26} {"čas",13} {"podíl",7} {"alokace",11} {"podíl",7}");
+            Console.WriteLine($"  {"",-26} {"čas",13} {"podíl",7} {"vs zákl",8} "
+                            + $"{"alokace",11} {"podíl",7} {"vs zákl",8}");
+
+            double baselineMs = 0;
+            long baselineBytes = 0;
 
             foreach ((string name, Cost cost) in rows.OrderByDescending(r => r.Value.Milliseconds))
             {
                 double timeShare = totalMs > 0 ? cost.Milliseconds / totalMs * 100 : 0;
                 double allocShare = totalBytes > 0 ? (double)cost.Bytes / totalBytes * 100 : 0;
 
+                Baseline.TryGetValue(baselinePrefix + name, out Cost old);
+                baselineMs += old.Milliseconds;
+                baselineBytes += old.Bytes;
+
                 Console.WriteLine($"  {name,-26} {cost.Milliseconds,10:F1} ms {timeShare,5:F1} % "
-                                + $"{Bytes(cost.Bytes),11} {allocShare,5:F1} %");
+                                + $"{VsBaseline(cost.Milliseconds, old.Milliseconds),8} "
+                                + $"{Bytes(cost.Bytes),11} {allocShare,5:F1} % "
+                                + $"{VsBaseline(cost.Bytes, old.Bytes),8}");
             }
 
-            Console.WriteLine($"  {"CELKEM",-26} {totalMs,10:F1} ms {"",7} {Bytes(totalBytes),11}");
+            Console.WriteLine($"  {"CELKEM",-26} {totalMs,10:F1} ms {"",7} "
+                            + $"{VsBaseline(totalMs, baselineMs),8} "
+                            + $"{Bytes(totalBytes),11} {"",7} "
+                            + $"{VsBaseline(totalBytes, baselineBytes),8}");
         }
 
         // Jméno vrstvy pro souhrn — u Dense/RNN i s počtem neuronů, ať jde rozlišit,
@@ -83,7 +163,7 @@ namespace MDNN.Benchmarks
 
         // Projede `samples` vzorků jedním krokem tréninku a rozpadne čas i alokace
         // podle fáze a podle vrstvy.
-        private static void ProfileTrainingStep(string title, My_DNN.MDNN model, double[][] inputs, double[][] targets)
+        private static void ProfileTrainingStep(string title, string baselinePrefix, My_DNN.MDNN model, double[][] inputs, double[][] targets)
         {
             List<Layer> layers = model.Layers.Layers;
 
@@ -161,9 +241,9 @@ namespace MDNN.Benchmarks
             }
             Console.WriteLine($"  trénovatelných parametrů: {ConsoleControler.CountTrainableParams(model):N0}");
 
-            Table("PODLE FÁZE", byPhase);
-            Table("FORWARD podle vrstvy", forwardByLayer);
-            Table("AKUMULACE VAH podle vrstvy", backwardByLayer);
+            Table("PODLE FÁZE", byPhase, baselinePrefix + "/fáze/");
+            Table("FORWARD podle vrstvy", forwardByLayer, baselinePrefix + "/forward/");
+            Table("AKUMULACE VAH podle vrstvy", backwardByLayer, baselinePrefix + "/akumulace/");
         }
 
         // Podezřelí, kteří s paralelizací nesouvisí — čistá režie datové vrstvy.
@@ -217,7 +297,7 @@ namespace MDNN.Benchmarks
             Console.WriteLine(new string('=', 78));
             Console.WriteLine($"REŽIE DATOVÉ VRSTVY ({repeats:N0}x, mimo vlastní výpočet)");
             Console.WriteLine(new string('=', 78));
-            Table($"náklady na {repeats:N0} volání", rows);
+            Table($"náklady na {repeats:N0} volání", rows, "režie/");
 
             Console.WriteLine();
             Console.WriteLine("  Pozn.: GetTensorValue([i]) volá TrainLoop na KAŽDÝ vzorek každé epochy,");
@@ -257,7 +337,7 @@ namespace MDNN.Benchmarks
                 model.Layers.Add(new Dense(128, new ReLu()));
 
                 var (inputs, targets) = MakeData(32, 784, 10, seed: 1);
-                ProfileTrainingStep("MLP 784 -> 128 -> 10   (32 vzorků, jedna dávka)", model, inputs, targets);
+                ProfileTrainingStep("MLP 784 -> 128 -> 10   (32 vzorků, jedna dávka)", "MLP", model, inputs, targets);
             }
 
             // --- CNN jako v mdnn_test: 28x28 -> conv16 -> pool -> conv32 -> pool -> dense64 -> dense10 ---
@@ -271,7 +351,7 @@ namespace MDNN.Benchmarks
 
                 var (inputs, targets) = MakeData(8, 784, 10, seed: 2);
                 ProfileTrainingStep("CNN 28x28 -> conv16 -> pool -> conv32 -> pool -> dense64 -> dense10   (8 vzorků)",
-                    model, inputs, targets);
+                    "CNN", model, inputs, targets);
             }
 
             ProfileOverhead();
