@@ -130,7 +130,11 @@
                 throw new Exception("input array is null");
             }
 
-            if (elementType.IsArray)
+            // Rozbalit VŠECHNY úrovně jagged pole, ne jen jednu. Dřív se odloupla jedna,
+            // takže `double[][]` prošlo, ale `double[][][]` skončilo na hlášce
+            // „invalid type on input array" — a to je přesně tvar sekvenčních dat
+            // ([sekvence][krok][rys]), tedy případ, kvůli kterému sekvenční trénink existuje.
+            while (elementType != null && elementType.IsArray)
             {
                 elementType = elementType.GetElementType();
                 isjagged = true;

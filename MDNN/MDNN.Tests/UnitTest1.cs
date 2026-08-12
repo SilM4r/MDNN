@@ -1495,6 +1495,24 @@
           => Assert.Equal(new double[] { 1, 2 },
                           Tensor.ConvertArrayToTensor(new float[][] { new float[] { 1f, 2f } }).Data);
 
+      // Nález z procházení příkladů: rozbalovala se jen JEDNA úroveň jagged pole, takže
+      // double[][] prošlo, ale double[][][] skončilo na "invalid type on input array".
+      // A to je přesně tvar sekvenčních dat ([sekvence][krok][rys]).
+      [Fact]
+      public void ConvertArrayToTensor_accepts_triple_jagged()
+      {
+          var sequences = new double[][][]
+          {
+              new double[][] { new double[] { 1, 2 }, new double[] { 3, 4 } },
+              new double[][] { new double[] { 5, 6 }, new double[] { 7, 8 } },
+          };
+
+          Tensor tensor = Tensor.ConvertArrayToTensor(sequences);
+
+          Assert.Equal(new int[] { 2, 2, 2 }, tensor.Shape);
+          Assert.Equal(new double[] { 1, 2, 3, 4, 5, 6, 7, 8 }, tensor.Data);
+      }
+
       [Fact]
       public void ConvertArrayToTensor_accepts_int_multidim()
           => Assert.Equal(new double[] { 1, 2 },
