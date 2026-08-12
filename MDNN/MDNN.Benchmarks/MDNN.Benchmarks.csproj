@@ -6,6 +6,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <!-- Aplikace cílí na net9.0, ale spouštět se může na stroji, kde je nainstalovaný
+         jen novější runtime (typicky Rider s vlastním .NET v ~/.dotnet). Bez tohohle
+         skončí start na "The following frameworks were found: 10.0.8" a exit code 150,
+         protože přechod přes HLAVNÍ verzi runtime je ve výchozím stavu vypnutý.
+         LatestMajor = "spusť na nejnovějším, co je k dispozici". -->
+    <RollForward>LatestMajor</RollForward>
     <!-- Měření dává smysl jen v Release; v Debug jsou čísla o řád jinde. -->
     <Optimize>true</Optimize>
   </PropertyGroup>
