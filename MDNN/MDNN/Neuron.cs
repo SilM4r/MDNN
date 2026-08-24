@@ -118,6 +118,15 @@ namespace My_DNN
             }
             bias -= L * e * 1;
         }
+        // Neuron byl v tomhle vzorku vypnutý dropoutem: nepočítal se ve forwardu a jeho
+        // gradient je nulový, takže není co akumulovat. Čítač dávky se ale zvýšit MUSÍ —
+        // gradienty se dělí právě jím, a kdyby vypnuté vzorky nepočítal, dělilo by se
+        // menším číslem a gradient by vyšel nafouknutý.
+        internal void SkipSample()
+        {
+            mini_batch_size++;
+        }
+
         public void Calculate_gradients_of_W_B(double e)
         {
 
@@ -143,7 +152,8 @@ namespace My_DNN
             mini_batch_size++;
         }
 
-        public void Update_weights_bias()
+        // weightDecay = koeficient L2. Vrstva ho bere z NetworkContext.L2; 0 = vypnuto.
+        public void Update_weights_bias(double weightDecay = 0)
         {
             // Prázdná dávka je legitimní stav (UpdateParams bez předchozího backpropu).
             // Bez tohohle se dělilo nulou → 0/0 = NaN → tiše celý model NaN.
@@ -154,8 +164,14 @@ namespace My_DNN
 
             for (int i = 0; i < Weights.Count(); i++)
             {
-                Weights[i] = optimizer.Update(Weights[i], gradientsW[i] / mini_batch_size,i);
+                // L2 se přičítá k UŽ ZPRŮMĚROVANÉMU gradientu, ne k součtu přes dávku —
+                // jinak by síla regularizace závisela na velikosti minibatche.
+                double gradient = gradientsW[i] / mini_batch_size + weightDecay * Weights[i];
+                Weights[i] = optimizer.Update(Weights[i], gradient, i);
             }
+
+            // Bias se NEregularizuje: netvaruje rozhodovací hranici, jen ji posouvá,
+            // takže jeho tažení k nule model nezjednoduší — jen zhorší.
             bias = optimizer.Update(bias, gradientsB / mini_batch_size,Weights.Count());
 
             mini_batch_size = 0;

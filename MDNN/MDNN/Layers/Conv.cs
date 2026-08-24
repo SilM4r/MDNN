@@ -419,6 +419,10 @@ namespace My_DNN.Layers
 
             int numFilters = kernels.Length;
             int idx = 0;
+            // L2 se aplikuje na kernely (to jsou váhy konvoluce), na biasy ne — viz
+            // NetworkContext.L2. Přičítá se k už zprůměrovanému gradientu.
+            double weightDecay = Context?.L2 ?? 0;
+
             for (int f = 0; f < numFilters; f++)
             {
                 int kernelHeight = kernels[f].Length;
@@ -431,7 +435,9 @@ namespace My_DNN.Layers
                     {
                         for (int c = 0; c < inChannels; c++)
                         {
-                            kernels[f][i][j][c] = optimizer.Update(kernels[f][i][j][c], dKernels[f][i][j][c] / mini_batch_size,idx++);
+                            double gradient = dKernels[f][i][j][c] / mini_batch_size
+                                              + weightDecay * kernels[f][i][j][c];
+                            kernels[f][i][j][c] = optimizer.Update(kernels[f][i][j][c], gradient, idx++);
                         }
                     }
                 }

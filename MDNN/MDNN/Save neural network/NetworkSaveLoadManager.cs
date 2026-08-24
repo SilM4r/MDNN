@@ -24,6 +24,12 @@ namespace My_DNN.Save_neural_network
         // UTC + ISO-8601 ("O") přes JsonSerializer, ať to nezávisí na lokalizaci stroje.
         public DateTime SavedAtUtc { get; set; }
 
+        // Regularizace je součást PŘEDPISU tréninku, ne natrénovaných vah — bez uložení
+        // by načtený model pokračoval v učení bez ní a nikde by to nebylo vidět.
+        // Starší soubory tyhle klíče nemají → načtou se jako 0, tedy vypnuto.
+        public double L2 { get; set; }
+        public double Dropout { get; set; }
+
         public ExportOptimizer Optimizer { get; set; }
 
         [JsonConverter(typeof(LayerListConverter))]
@@ -40,6 +46,8 @@ namespace My_DNN.Save_neural_network
             Valid_Loss = model.Loss.GetAverageLossPerIteration();
             Note = model.Note;
             Seed = model.Context.Seed;
+            L2 = model.Context.L2;
+            Dropout = model.Context.Dropout;
             SavedAtUtc = DateTime.UtcNow;
             Optimizer = new ExportOptimizer(model.Optimizer);
             Layers = new List<BaseExportLayer>();

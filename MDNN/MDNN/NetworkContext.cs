@@ -73,5 +73,77 @@ namespace My_DNN
         public bool SequenceTrain { get; set; } = false;
         public bool CalculationViaGpu { get; set; } = false;
         public int[] InputShape { get; set; } = new int[] { 0 };
+
+        // ---------------------------------------------------------------- regularizace
+
+        private double _l2 = 0.0;
+
+        /// <summary>
+        /// Koeficient L2 regularizace (weight decay). 0 = vypnuto (výchozí).
+        ///
+        /// Trestá velké váhy, čímž brání přeučení: k účelové funkci se přičte
+        /// <c>λ/2 · Σw²</c>, což v gradientu znamená <c>+ λ·w</c>.
+        ///
+        /// POZOR na dvě věci:
+        /// 1. Aplikuje se JEN na váhy a kernely, NE na biasy. Bias jen posouvá práh,
+        ///    jeho zmenšování model nezjednoduší, jen mu sebere schopnost se posunout.
+        /// 2. Trénovací loss, kterou knihovna vypisuje, ten člen λ/2·Σw² NEobsahuje —
+        ///    stejně jako `weight_decay` v PyTorchi. Vypsaná loss je tedy čistá chyba
+        ///    predikce, ne celá minimalizovaná funkce.
+        ///
+        /// Pozn.: tohle je klasické L2 (přičte se ke gradientu, takže u Adamu projde
+        /// i adaptivním škálováním). Oddělený weight decay à la AdamW, který se
+        /// aplikuje mimo adaptivní člen, je jiná věc a knihovna ho zatím nemá.
+        /// </summary>
+        public double L2
+        {
+            get => _l2;
+            set
+            {
+                if (double.IsNaN(value) || value < 0)
+                    throw new ArgumentOutOfRangeException(nameof(L2), value,
+                        "Koeficient L2 musí být nezáporné číslo (0 = regularizace vypnutá).");
+
+                _l2 = value;
+            }
+        }
+
+        private double _dropout = 0.0;
+
+        /// <summary>
+        /// Globální dropout pro celý model. 0 = vypnuto (výchozí).
+        ///
+        /// Platí pro každou vrstvu, která si NEurčí vlastní hodnotu — takže u pětivrstvé
+        /// sítě stačí jeden řádek místo pěti. Konkrétní vrstva ho přebije tím, že si
+        /// zadá vlastní (<c>new Dense(64, new ReLu(), dropout: 0.2)</c>), včetně nuly,
+        /// kterou se dropout na té vrstvě vypne.
+        ///
+        /// NEAPLIKUJE SE NA VÝSTUPNÍ VRSTVU. Zahazovat výstupy sítě není regularizace,
+        /// je to poškozování predikce — a je to chyba, kterou by globální přepínač jinak
+        /// tiše zavedl. Kdo to opravdu chce, musí si to na výstupní vrstvě zadat explicitně.
+        /// </summary>
+        public double Dropout
+        {
+            get => _dropout;
+            set
+            {
+                if (double.IsNaN(value) || value < 0 || value >= 1)
+                    throw new ArgumentOutOfRangeException(nameof(Dropout), value,
+                        "Dropout musí být v intervalu <0, 1). 0 = vypnuto; 1 by zahodilo " +
+                        "všechno a škálovací faktor 1/(1-p) by dělil nulou.");
+
+                _dropout = value;
+            }
+        }
+
+        /// <summary>
+        /// Je model v trénovacím režimu? Rozhoduje o chování vrstev, které se při
+        /// tréninku a při predikci chovají jinak — dnes dropout.
+        ///
+        /// Nastavuje se automaticky: <c>Fit</c> ho na dobu svého průchodu zapne,
+        /// samostatné <c>GetResults</c> ho nechá vypnutý. Díky tomu dá predikce na stejný
+        /// vstup vždy stejnou odpověď, i když je dropout zapnutý.
+        /// </summary>
+        public bool IsTraining { get; set; } = false;
     }
 }

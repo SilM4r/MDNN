@@ -34,12 +34,61 @@ namespace My_DNN.Layers
         private List<Neuron> neurons;
         private Activation_func activation_func;
 
-        public Dense(int number_of_neuron, Activation_func? activation_func = null)
+        // ---------------------------------------------------------------- dropout
+
+        private double? dropout;
+
+        // Maska z posledního forwardu: 0 = neuron byl vypnutý, 1/(1-p) = přežil,
+        // 1 = dropout se neuplatnil (predikce nebo rate 0). Backward MUSÍ použít TUTÉŽ
+        // masku, proto se drží mezi forwardem a backwardem, negeneruje se znovu.
+        private double[]? dropoutMask;
+
+        /// <summary>
+        /// Dropout pro TUTO vrstvu. <c>null</c> (výchozí) = použij globální
+        /// <see cref="NetworkContext.Dropout"/>. Vlastní hodnota globální přebije —
+        /// včetně nuly, kterou se dropout na téhle vrstvě vypne.
+        /// </summary>
+        public double? DropoutRate
+        {
+            get => dropout;
+            set
+            {
+                if (value != null) ValidateDropout(value.Value);
+                dropout = value;
+            }
+        }
+
+        private static void ValidateDropout(double value)
+        {
+            if (double.IsNaN(value) || value < 0 || value >= 1)
+                throw new ArgumentOutOfRangeException(nameof(DropoutRate), value,
+                    "Dropout musí být v intervalu <0, 1). 0 = vypnuto; 1 by zahodilo " +
+                    "všechny neurony a škálovací faktor 1/(1-p) by dělil nulou.");
+        }
+
+        /// <summary>Kolik se doopravdy zahazuje: vlastní hodnota, jinak globální —
+        /// a na výstupní vrstvě se globální ZÁMĚRNĚ ignoruje (viz NetworkContext.Dropout).</summary>
+        private double EffectiveDropout
+        {
+            get
+            {
+                if (dropout != null) return dropout.Value;
+                if (IsOutputLayer) return 0.0;
+                return Context?.Dropout ?? 0.0;
+            }
+        }
+
+        /// <param name="dropout">Podíl neuronů zahozených při tréninku, 0 ≤ p &lt; 1.
+        /// null = zdědit globální <see cref="NetworkContext.Dropout"/>.</param>
+        public Dense(int number_of_neuron, Activation_func? activation_func = null, double? dropout = null)
         {
             if (number_of_neuron <= 0)
             {
                 throw new ArgumentException("The number of neurons in a layer must be greater than 0");
             }
+
+            if (dropout != null) ValidateDropout(dropout.Value);
+            this.dropout = dropout;
 
             // aktivace: default když nezadaná; správný input size + neurony dopočítá LayerAdjustment (při připojení k modelu)
             this.activation_func = activation_func ?? GeneralNeuralNetworkSettings.default_hidden_layers_activation_func;
@@ -58,6 +107,12 @@ namespace My_DNN.Layers
         public Dense(ExportDenseLayer layer)
         {
             activation_func = Activation_func.inicialization_activation_func(layer.Name_of_activation_function);
+
+            // Starší soubory tenhle klíč nemají → null → vrstva se vrátí k dědění globální
+            // hodnoty, což je i výchozí chování nového modelu. Zpětně kompatibilní.
+            if (layer.DropoutRate != null) ValidateDropout(layer.DropoutRate.Value);
+            dropout = layer.DropoutRate;
+
             output = new double[layer.Neurons.Count()];
             raw_output = new double[layer.Neurons.Count()];
 
@@ -147,8 +202,28 @@ namespace My_DNN.Layers
                 return FeedForwardViaGpu(values);
             }
 
+            // Masku je potřeba znát PŘED výpočtem, aby se vypnuté neurony daly rovnou
+            // přeskočit — u p=0.5 to ušetří polovinu skalárních součinů této vrstvy.
+            PrepareDropoutMask();
+
+            // Softmax počítá přes CELÝ vektor raw_output, takže se z něj nesmí nic
+            // vynechat — jinak by se normalizovalo přes zastaralá čísla. Tam se tedy
+            // spočítá všechno a maska se uplatní až na hotový výstup.
+            bool canSkip = dropoutMask != null && !activation_func.Apply_to_layer;
+
             for (int i = 0; i < neurons.Count(); i++)
             {
+                if (canSkip && dropoutMask![i] == 0.0)
+                {
+                    // Vypnutý neuron se NEPOČÍTÁ. Nuly se nastavují explicitně, ať v polích
+                    // nezůstanou hodnoty z minulého vzorku.
+                    output[i] = 0;
+                    raw_output[i] = 0;
+                    neurons[i].output = 0;
+                    neurons[i].raw_output = 0;
+                    continue;
+                }
+
                 output[i] = neurons[i].feedForward(values);
                 raw_output[i] = neurons[i].raw_output;
             }
@@ -170,7 +245,65 @@ namespace My_DNN.Layers
                 }
             }
 
+            ApplyDropoutMask();
+
             return new Tensor(output);
+        }
+
+        // Vylosuje masku pro tento vzorek. null = dropout se neuplatní vůbec (vypnutý,
+        // nebo běží predikce) — pak se nikde nenásobí a nealokuje.
+        // Testovací můstek. Gradient check volá forward opakovaně a porovnává, jak se mění
+        // loss — to má smysl jen tehdy, když je to POKAŽDÉ TÁŽ funkce. S losovanou maskou
+        // by se pod rukama měnila a kontrola by neměřila nic. Zmrazením se z dropoutu
+        // stane obyčejné násobení konstantním vektorem, které se ověřit dá.
+        internal bool FreezeDropoutMaskForTests { get; set; }
+
+        internal double[]? DropoutMaskForTests => dropoutMask;
+
+        private void PrepareDropoutMask()
+        {
+            double rate = EffectiveDropout;
+            bool training = Context?.IsTraining ?? false;
+
+            if (rate == 0.0 || !training)
+            {
+                dropoutMask = null;
+                return;
+            }
+
+            if (FreezeDropoutMaskForTests && dropoutMask != null
+                && dropoutMask.Length == neurons.Count())
+            {
+                return;
+            }
+
+            if (dropoutMask == null || dropoutMask.Length != neurons.Count())
+            {
+                dropoutMask = new double[neurons.Count()];
+            }
+
+            // Zesílení přeživších drží střední hodnotu výstupu stejnou jako bez dropoutu
+            // („inverted dropout"). Díky tomu predikce nemusí nic dopočítávat.
+            double scale = 1.0 / (1.0 - rate);
+            Random random = Context!.Random;
+
+            for (int i = 0; i < dropoutMask.Length; i++)
+            {
+                dropoutMask[i] = random.NextDouble() < rate ? 0.0 : scale;
+            }
+        }
+
+        // Dopočet pro neurony, které se spočítaly (skip je nechal na nule): vynulovat
+        // zahozené a zesílit přeživší.
+        private void ApplyDropoutMask()
+        {
+            if (dropoutMask == null) return;
+
+            for (int i = 0; i < output.Length; i++)
+            {
+                output[i] *= dropoutMask[i];
+                neurons[i].output = output[i];
+            }
         }
         public override async Task<Tensor> FeedForwardAsync(Tensor input_values)
         {
@@ -223,7 +356,18 @@ namespace My_DNN.Layers
             // Krok 1: gradient shora vůči VÝSTUPU této vrstvy (∂L/∂output), bez derivace aktivace.
             double[] gradFromAbove = GradientFromAbove(nextLayerE.Data, nextLayer);
 
-            // Krok 2: přes derivaci aktivace na ∂L/∂raw_output.
+            // Krok 2: dropout. Gradient prochází TOUTÉŽ maskou jako forward — vypnutý
+            // neuron gradient nedostane, přeživší dostane zesílený stejným faktorem.
+            // Musí to být PŘED derivací aktivace, protože maska působí na výstup vrstvy.
+            if (dropoutMask != null)
+            {
+                for (int i = 0; i < gradFromAbove.Length; i++)
+                {
+                    gradFromAbove[i] *= dropoutMask[i];
+                }
+            }
+
+            // Krok 3: přes derivaci aktivace na ∂L/∂raw_output.
             return new Tensor(ApplyActivationBackward(gradFromAbove));
         }
 
@@ -329,6 +473,15 @@ namespace My_DNN.Layers
 
             for (int i = 0; i < neurons.Count(); i++)
             {
+                // Vypnutý neuron má gradient přesně nula, takže smyčka přes jeho váhy by
+                // jen přičítala nuly. Přeskočí se — ale čítač dávky se zvýšit MUSÍ, jinak
+                // by se jeho gradienty dělily menším číslem než u ostatních neuronů.
+                if (dropoutMask != null && dropoutMask[i] == 0.0)
+                {
+                    neurons[i].SkipSample();
+                    continue;
+                }
+
                 neurons[i].Calculate_gradients_of_W_B(e[i]);
             }
         }
@@ -351,7 +504,7 @@ namespace My_DNN.Layers
         {
             foreach (Neuron neuron in neurons)
             {
-                neuron.Update_weights_bias();
+                neuron.Update_weights_bias(Context?.L2 ?? 0);
             }
         }
         public override async Task UpdateParamsAsync()
@@ -363,7 +516,7 @@ namespace My_DNN.Layers
                 index++;
                 tasks[index] = Task.Run(() =>
                 {
-                    neuron.Update_weights_bias();
+                    neuron.Update_weights_bias(Context?.L2 ?? 0);
                 });
             }
             await Task.WhenAll(tasks);

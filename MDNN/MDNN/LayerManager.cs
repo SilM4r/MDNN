@@ -24,6 +24,7 @@ namespace My_DNN
             this.context = context;
             Output_Layer.Context = context;
             layersList = new List<Layer> { Output_Layer };
+            MarkLayerRoles();
         }
         public LayerManager(List<BaseExportLayer> exportLayers, NetworkContext context)
         {
@@ -56,6 +57,7 @@ namespace My_DNN
             }
 
             foreach (Layer l in layersList) l.Context = context;
+            MarkLayerRoles();
         }
         public void SetInputSizeForFirstLayer(int[]? input_size = null)
         {
@@ -76,11 +78,26 @@ namespace My_DNN
             MaterializeAll();
         }
 
+        // Kdo je výstupní vrstva. Musí se přepočítat při KAŽDÉ změně řetězu — po Insert
+        // nebo RemoveAt se poslední vrstvou může stát někdo jiný, a kdyby si starý příznak
+        // nechal, dostal by globální dropout (viz Layer.IsOutputLayer).
+        private void MarkLayerRoles()
+        {
+            for (int i = 0; i < layersList.Count; i++)
+            {
+                layersList[i].IsOutputLayer = (i == layersList.Count - 1);
+            }
+        }
+
         // Zapojí tvary zleva doprava. Nic nelosuje, takže se to smí volat kolikrát chce —
         // po každé změně struktury. Když vstup modelu ještě neznáme, neudělá nic a tvary
         // se dopočítají až při prvním forwardu.
         public void RewireChain()
         {
+            // ZÁMĚRNĚ před early returnem níž: role vrstev jdou určit i tehdy, když
+            // ještě neznáme tvar vstupu a zapojení se tím pádem přeskočí.
+            MarkLayerRoles();
+
             int[] inputShape = EffectiveInputShape();
 
             if (inputShape.Length == 0 || inputShape[0] <= 0)
@@ -164,6 +181,7 @@ namespace My_DNN
         {
             Output_Layer.Context = context;
             layersList = new List<Layer> { Output_Layer };
+            MarkLayerRoles();
         }
     }
 }

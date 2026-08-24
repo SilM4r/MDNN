@@ -51,6 +51,11 @@ namespace My_DNN
                 context.Seed = effectiveSeed;
             }
 
+            // Regularizace patří k předpisu tréninku — bez obnovení by dotrénování
+            // načteného modelu tiše běželo bez ní. Starý formát klíče nemá → 0 = vypnuto.
+            context.L2 = loadModel.L2;
+            context.Dropout = loadModel.Dropout;
+
             context.Optimizer = Optimizer.Refactor_optimizer(loadModel.Optimizer);
             GeneralNeuralNetworkSettings.optimizer = context.Optimizer;   // export-konstrukce neuronů klonuje static
 

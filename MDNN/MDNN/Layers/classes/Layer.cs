@@ -5,6 +5,12 @@
         // Reference na kontext modelu, do kterého vrstva patří (nastaví LayerManager při připojení).
         public My_DNN.NetworkContext? Context { get; set; }
 
+        // Je tohle poslední vrstva v modelu? Udržuje LayerManager při každé změně řetězu.
+        // Dnes to potřebuje jediná věc: GLOBÁLNÍ dropout se na výstupní vrstvu NESMÍ
+        // aplikovat — zahazovat výstupy sítě není regularizace, je to poškozování predikce.
+        // Explicitně zadaný dropout na konkrétní vrstvě tenhle zákaz přebije (je to volba).
+        public bool IsOutputLayer { get; internal set; }
+
         abstract public string Name { get; }
 
         abstract public int[] Input_size_and_shape { get; }

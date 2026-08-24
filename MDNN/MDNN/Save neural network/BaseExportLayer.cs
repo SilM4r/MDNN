@@ -16,6 +16,13 @@ namespace My_DNN.Save_neural_network
     public class ExportDenseLayer : BaseExportLayer
     {
         public string? Name_of_activation_function { get; set; }
+
+        // Dropout nastavený PŘÍMO na téhle vrstvě. null = vrstva dědí globální hodnotu,
+        // takže se null musí i uložit — kdyby se místo něj zapsala nula, načtený model by
+        // měl dropout natvrdo vypnutý a globální nastavení by na něj přestalo platit.
+        // (Globální hodnota sama patří k modelu, ne k vrstvě, a ukládá se zvlášť.)
+        public double? DropoutRate { get; set; }
+
         public List<ExportNeuron>? Neurons { get; set; }
 
         [JsonConstructor]
@@ -29,6 +36,7 @@ namespace My_DNN.Save_neural_network
             LayerType = "Dense";
 
             Name_of_activation_function = layer.Activation_Func.Name;
+            DropoutRate = layer.DropoutRate;
 
             Neurons = new List<ExportNeuron>();
 

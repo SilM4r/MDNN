@@ -187,7 +187,22 @@ namespace My_DNN
 
             CheckLayersAreNotEmpty();
 
-            Tensor output = _model.GetResults(inputsValues);
+            // Trénovací režim jen na dobu tohohle průchodu. Rozhoduje o dropoutu:
+            // uvnitř Fit se neurony zahazují, samostatné GetResults (predikce, valid loss)
+            // jede bez něj — jinak by stejný vstup dával pokaždé jinou odpověď.
+            // Obnova ve finally, aby výjimka v půlce tréninku nenechala model "v tréninku".
+            bool wasTraining = _model.Context.IsTraining;
+            _model.Context.IsTraining = true;
+
+            Tensor output;
+            try
+            {
+                output = _model.GetResults(inputsValues);
+            }
+            finally
+            {
+                _model.Context.IsTraining = wasTraining;
+            }
 
             BackPropagation(targetValues);
 
