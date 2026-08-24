@@ -7,7 +7,9 @@ namespace My_DNN
         public override string Name => "MSE";
         public override double LossFunction(double value, double target_value) 
         {
-            return Math.Pow(value - target_value, 2);
+            // násobení místo Math.Pow — viz Tanh.Derivative; volá se na každý výstup
+            double diff = value - target_value;
+            return diff * diff;
         }
 
         public override double DerivativeOfLossFunction(double value, double target_value)

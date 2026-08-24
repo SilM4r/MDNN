@@ -15,7 +15,10 @@ namespace My_DNN.Activation_functions
 
         public override double Derivative(double value)
         {
-            return 1 - Math.Pow(Apply(value), 2);
+            // Math.Pow je obecná mocninná funkce (větvení + vnitřní log/exp); na druhou
+            // mocninu stačí jedno násobení. Běží to na každý neuron při každém backwardu.
+            double s = Apply(value);
+            return 1 - s * s;
         }
     }
 }
