@@ -391,7 +391,7 @@
               g[i, j, c] = gc++;
           double[] gFlat = new Tensor(g).Data;
 
-          double[] dInAnalytic = pool.CalculateLayerGradients(new Tensor(g), null!).Data;
+          double[] dInAnalytic = pool.Backward(new Tensor(g)).Data;
 
           Func<double> lossAt = () =>
           {
@@ -566,7 +566,7 @@
           var (input, conv, gFlat, gTensor) = ConvSetup(h, w, c,k, f, pad, actName);
 
           // ANALYTIC dL/dinput (3D větev; next_layer se nepoužije)
-          double[] dInAnalytic = conv.CalculateLayerGradients(gTensor, null!).Data;
+          double[] dInAnalytic = conv.Backward(gTensor).Data;
 
           var lossAt = ConvLoss(conv, input, gFlat);
 
@@ -593,9 +593,8 @@
       {
           var (input, conv, gFlat, gTensor) = ConvSetup(h, w, c,k, f, pad, actName);
 
-          // ANALYTIC: CalculateLayerGradients nastaví dOutput, BackPropagation z něj napočítá dKernels
-          conv.CalculateLayerGradients(gTensor, null!);
-          conv.BackPropagation(gTensor);
+          // ANALYTIC: Backward vezme ∂L/∂output, naakumuluje dKernels/dBiases a vrátí ∂L/∂input
+          conv.Backward(gTensor);
           var dK = conv.dKernels;
           var kern = conv.Kernel;
 
@@ -625,8 +624,7 @@
       {
           var (input, conv, gFlat, gTensor) = ConvSetup(h, w, c,k, f, pad, actName);
 
-          conv.CalculateLayerGradients(gTensor, null!);
-          conv.BackPropagation(gTensor);
+          conv.Backward(gTensor);
           double[] analytic = (double[])conv.dBiases.Clone();
 
           var lossAt = ConvLoss(conv, input, gFlat);

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -237,8 +237,7 @@ public class TorchParityTests
             g[i, j, fi] = gNested[i][j][fi];
 
         var gTensor = new Tensor(g);
-        var dInput = conv.CalculateLayerGradients(gTensor, null!);
-        conv.BackPropagation(gTensor);
+        var dInput = conv.Backward(gTensor);
 
         Same($"{fixture}: dKernel", Flat(D4(expected.GetProperty("dKernel"))), Flat(conv.dKernels));
         Same($"{fixture}: dBias",   D1(expected.GetProperty("dBias")),         conv.dBiases);
@@ -282,7 +281,7 @@ public class TorchParityTests
         for (int ch = 0; ch < c; ch++)
             g[i, j, ch] = gNested[i][j][ch];
 
-        var dInput = pool.CalculateLayerGradients(new Tensor(g), null!);
+        var dInput = pool.Backward(new Tensor(g));
 
         Same($"{fixture}: dInput", Flat(D3(expected.GetProperty("dInput"))), dInput.Data);
     }

@@ -333,40 +333,6 @@ namespace My_DNN.Layers
 
             return Tensor.FromJagged3D(output, outputShape);
         }
-        // Conv jako VÝSTUPNÍ vrstva: dOutput se jinak nemá kde vzít (CalculateLayerGradients
-        // se pro poslední vrstvu nevolá). Derivaci aktivace si aplikujeme sami — stejná
-        // konvence jako v CalculateLayerGradients. Pořadí flatten = row-major [i][j][f],
-        // shodné s Layer_output.Data.
-        public override void SeedOutputGradient(double[] dLossDOutput)
-        {
-            int expected = outputShape[0] * outputShape[1] * outputShape[2];
-            if (dLossDOutput.Length != expected)
-            {
-                throw new ArgumentException(
-                    $"Gradient shora má {dLossDOutput.Length} prvků, výstup vrstvy {expected}.");
-            }
-
-            int n = 0;
-            for (int i = 0; i < outputShape[0]; i++)
-            {
-                for (int j = 0; j < outputShape[1]; j++)
-                {
-                    for (int f = 0; f < outputShape[2]; f++)
-                    {
-                        dOutput[i][j][f] = dLossDOutput[n++] * activation_func.Derivative(raw_output[i][j][f]);
-                    }
-                }
-            }
-        }
-
-        public override void BackPropagation(Tensor TensordOutput)
-        {
-            // Argument se ZÁMĚRNĚ nepoužívá — stará konvence: gradient shora si vrstva
-            // vzala do dOutput už v CalculateLayerGradients / SeedOutputGradient.
-            // Přesně tahle nekonzistence (u Dense je argument závazný, tady dekorace)
-            // je to, co konvence B ruší.
-            AccumulateKernelAndBiasGradients();
-        }
 
         // Gradienty kernelů a biasů z už naplněného `dOutput`. Sdílí to stará cesta
         // (BackPropagation) i nová (Backward), takže se ten výpočet nikde neduplikuje.
@@ -495,72 +461,6 @@ namespace My_DNN.Layers
             AccumulateKernelAndBiasGradients();
 
             // 3) ∂L/∂input pro vrstvu pod sebou
-            return ComputeInputGradientFromDOutput();
-        }
-
-        public override Tensor CalculateLayerGradients(Tensor TensordOutput, Layer next_layer)
-        {
-            double[][][] dInput;
-
-            if (TensordOutput.Shape.Length == 1)
-            {
-                double[] next_layer_e = TensordOutput.Data;
-                double de = 0;
-                
-
-                LayerBasedOnNeurons? nextlayer = next_layer as LayerBasedOnNeurons;
-
-                double[] e = new double[output.Count()* output[0].Count()* output[0][0].Count()];
-
-                if (nextlayer != null)
-                {
-
-                    for (int j = 0; j < (output.Count() * output[0].Count() * output[0][0].Count()); j++)
-                    {
-                        for (int k = 0; k < nextlayer.Neurons.Count(); k++)
-                        {
-                            de += next_layer_e[k] * nextlayer.Neurons[k].Weights[j];
-                        }
-
-                        e[j] = de;
-                        de = 0;
-                    }
-                    for (int i = 0; i < output.Count(); i++)
-                    {
-                        for (int j = 0; j < output[0].Count(); j++)
-                        {
-                            for (int k = 0;k < output[0][0].Count(); k++)
-                            {
-                                dOutput[i][j][k] = e[i * (output[0][0].Count() * output[0].Count()) + j * output[0][0].Count() + k] * activation_func.Derivative(raw_output[i][j][k]);
-                            }
-                            
-                        }
-                    }
-                }
-                else
-                {
-                    throw new NotImplementedException(); 
-                }
-            }
-            else
-            {
-                // zase plochá cesta místo multidim kopie přes reflexi
-                double[] upstream = TensordOutput.Data;
-                int[] upstreamShape = TensordOutput.Shape;
-
-                int flat = 0;
-                for (int i = 0; i < upstreamShape[0]; i++)
-                {
-                    for (int j = 0; j < upstreamShape[1]; j++)
-                    {
-                        for (int k = 0; k < upstreamShape[2]; k++)
-                        {
-                            dOutput[i][j][k] = upstream[flat++] * activation_func.Derivative(raw_output[i][j][k]);
-                        }
-                    }
-                }
-            }
-
             return ComputeInputGradientFromDOutput();
         }
 

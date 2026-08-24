@@ -79,6 +79,19 @@ namespace MDNN.Benchmarks
                 => new(a.Milliseconds + b.Milliseconds, a.Bytes + b.Bytes);
         }
 
+        // ∂L/∂output výstupní vrstvy — vstup do Backward řetězu. Totéž, co si uvnitř
+        // počítá Gradient.RunBackward; tady zvlášť, aby šel změřit jen samotný backward.
+        private static Tensor OutputGradient(My_DNN.MDNN model, Tensor target)
+        {
+            double[] output = model.Layers.Layers[^1].Layer_output!.Data;
+            double[] d = new double[output.Length];
+
+            for (int i = 0; i < d.Length; i++)
+                d[i] = model.Context.Loss.DerivativeOfLossFunction(output[i], target.Data[i]);
+
+            return new Tensor(d);
+        }
+
         private static Cost Measure(Action action)
         {
             long before = GC.GetAllocatedBytesForCurrentThread();
@@ -194,20 +207,24 @@ namespace MDNN.Benchmarks
                     value = produced!;
                 }
 
-                // --- řetěz gradientů (loss + CalculateLayerGradients přes vrstvy) ---
-                Tensor[] gradients = Array.Empty<Tensor>();
-                Add(byPhase, "2. řetěz gradientů",
-                    Measure(() => gradients = Gradient.GetGradients(new Tensor(targets[s]), model)));
+                // --- backward, vrstvu po vrstvě ---
+                // Konvence B: jeden průchod. Dřív se měřily dvě fáze (řetěz gradientů +
+                // akumulace vah), protože backward byl rozdělený na dvě metody. Teď dělá
+                // každá vrstva obojí naráz, takže je to jedna fáze na vrstvu.
+                Tensor grad = OutputGradient(model, new Tensor(targets[s]));
 
-                // --- akumulace gradientů vah, vrstvu po vrstvě ---
-                for (int i = 0; i < layers.Count; i++)
+                for (int i = layers.Count - 1; i >= 0; i--)
                 {
                     Layer layer = layers[i];
-                    Tensor gradient = gradients[i];
+                    bool fused = i == layers.Count - 1
+                                 && model.Context.Loss.RequiresSoftmax
+                                 && layer.Activation_Func.Apply_to_layer;
 
-                    Cost cost = Measure(() => layer.BackPropagation(gradient));
+                    Tensor produced = grad;
+                    Cost cost = Measure(() => produced = layer.Backward(grad, fused));
+                    grad = produced;
 
-                    Add(byPhase, "3. akumulace vah", cost);
+                    Add(byPhase, "2. backward", cost);
                     Add(backwardByLayer, LayerKey(layer), cost);
                 }
             }

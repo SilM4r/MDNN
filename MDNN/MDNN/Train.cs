@@ -257,18 +257,6 @@ namespace My_DNN
             Gradient.RunBackward(targetValues, _model);
         }
 
-        public void BackPropagation(Tensor[] layerGradients)
-        {
-            CheckLayersAreNotEmpty();
-            Propagation(layerGradients);
-        }
-
-        public async Task BackPropagationAsync(Tensor[] layerGradients)
-        {
-            CheckLayersAreNotEmpty();
-            await PropagationAsync(layerGradients);
-        }
-
         public Tensor FeedForward(Tensor inputsValue)
         {
             return _model.GetResults(inputsValue);
@@ -1342,30 +1330,6 @@ namespace My_DNN
                     _stopEarly = true;
                 }
             }
-        }
-
-        private void Propagation(Tensor[] layerGradients)
-        {
-            for (int i = 0; i < _model.Layers.Layers.Count(); i++)
-            {
-                _model.Layers.Layers[i].BackPropagation(layerGradients[i]);
-            }
-        }
-
-        private async Task PropagationAsync(Tensor[] layerGradients)
-        {
-            Task[] tasks = new Task[_model.Layers.Layers.Count()];
-
-            for (int i = 0; i < _model.Layers.Layers.Count(); i++)
-            {
-                int index = i;
-                tasks[index] = Task.Run(async () =>
-                {
-                    _model.Layers.Layers[index].BackPropagation(layerGradients[index]);
-                });
-            }
-
-            await Task.WhenAll(tasks);
         }
 
     }

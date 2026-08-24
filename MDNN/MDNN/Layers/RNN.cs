@@ -214,26 +214,6 @@ namespace My_DNN.Layers
             return new Tensor(output);
         }
 
-        // RNN jako VÝSTUPNÍ vrstva: gImm se jinak nemá kde vzít (CalculateLayerGradients
-        // se pro poslední vrstvu nevolá). BEZ derivace aktivace — RTRL citlivosti sW/sB
-        // ji už obsahují (viz FeedForward: sW[i][k] = actD · (...)), takže by se aplikovala
-        // dvakrát. Stejná konvence jako gImm[j] v CalculateLayerGradients.
-        public override void SeedOutputGradient(double[] dLossDOutput)
-        {
-            EnsureSensitivities();
-
-            if (dLossDOutput.Length != neurons.Count)
-            {
-                throw new ArgumentException(
-                    $"Gradient shora má {dLossDOutput.Length} prvků, vrstva {neurons.Count} neuronů.");
-            }
-
-            for (int i = 0; i < neurons.Count; i++)
-            {
-                gImm[i] = dLossDOutput[i];
-            }
-        }
-
         // ---------------------------------------------------------------- konvence B
 
         public override Tensor Backward(Tensor gradOutput, bool preActivation = false)
@@ -281,16 +261,6 @@ namespace My_DNN.Layers
             return new Tensor(gradInput);
         }
 
-        public override void BackPropagation(Tensor tenosorDe)
-        {
-            // RTRL: gradient parametru = g_imm(t) · citlivost(t), sečteno přes čas.
-            // Argument se nepoužije — pracujeme s uloženým gImm + citlivostmi (jako Conv s dOutput).
-            for (int i = 0; i < neurons.Count(); i++)
-            {
-                neurons[i].AccumulateGradient(gImm[i], sW[i], sB[i]);
-            }
-        }
-
         public override void UpdateParams()
         {
             foreach (Neuron neuron in neurons)
@@ -299,43 +269,5 @@ namespace My_DNN.Layers
             }
         }
 
-        public override Tensor CalculateLayerGradients(Tensor nextLayerE, Layer next_layer)
-        {
-
-            if (nextLayerE.Shape.Length > 1)
-            {
-                throw new NotImplementedException();
-            }
-
-            double[] next_layer_e = nextLayerE.Data;
-            double[] e = new double[Neurons.Count()];
-
-            LayerBasedOnNeurons? nextlayer = next_layer as LayerBasedOnNeurons;
-
-            for (int j = 0; j < Neurons.Count(); j++)
-            {
-                // g_imm_j = OKAMŽITÝ gradient shora vůči h_j (dL_t/dh_j; bez rekurence, bez act')
-                double gImmJ;
-                if (nextlayer != null)
-                {
-                    gImmJ = 0;
-                    for (int k = 0; k < nextlayer.Neurons.Count(); k++)
-                        gImmJ += next_layer_e[k] * nextlayer.Neurons[k].Weights[j];
-                }
-                else
-                {
-                    gImmJ = next_layer_e[j];
-                }
-
-                gImm[j] = gImmJ;   // ulož pro BackPropagation (RTRL: dParam += g_imm · citlivost)
-
-                // vrať OKAMŽITOU deltu (g_imm · act') pro předchozí vrstvu
-                e[j] = gImmJ * Neurons[j].activation_func.Derivative(Neurons[j].raw_output);
-            }
-
-            return new Tensor(e);
-        }
-
-        
     }
 }

@@ -351,25 +351,6 @@ namespace My_DNN.Layers
 
             return new Tensor(output);
         }
-        public override Tensor CalculateLayerGradients(Tensor nextLayerE, Layer nextLayer)
-        {
-            // Krok 1: gradient shora vůči VÝSTUPU této vrstvy (∂L/∂output), bez derivace aktivace.
-            double[] gradFromAbove = GradientFromAbove(nextLayerE.Data, nextLayer);
-
-            // Krok 2: dropout. Gradient prochází TOUTÉŽ maskou jako forward — vypnutý
-            // neuron gradient nedostane, přeživší dostane zesílený stejným faktorem.
-            // Musí to být PŘED derivací aktivace, protože maska působí na výstup vrstvy.
-            if (dropoutMask != null)
-            {
-                for (int i = 0; i < gradFromAbove.Length; i++)
-                {
-                    gradFromAbove[i] *= dropoutMask[i];
-                }
-            }
-
-            // Krok 3: přes derivaci aktivace na ∂L/∂raw_output.
-            return new Tensor(ApplyActivationBackward(gradFromAbove));
-        }
 
         // ---------------------------------------------------------------- konvence B
 
@@ -423,37 +404,6 @@ namespace My_DNN.Layers
             return new Tensor(gradInput);
         }
 
-        // ∂L/∂output_j. Když je další vrstva neuronová, projde se přes její váhy;
-        // jinak (Conv/MaxPool) přichází gradient rovnou po prvcích.
-        private double[] GradientFromAbove(double[] next_layer_e, Layer nextLayer)
-        {
-            double[] gradFromAbove = new double[Neurons.Count()];
-
-            LayerBasedOnNeurons? nextlayer = nextLayer as LayerBasedOnNeurons;
-
-            if (nextlayer != null)
-            {
-                for (int j = 0; j < Neurons.Count(); j++)
-                {
-                    double de = 0;
-                    for (int k = 0; k < nextlayer.Neurons.Count(); k++)
-                    {
-                        de += next_layer_e[k] * nextlayer.Neurons[k].Weights[j];
-                    }
-                    gradFromAbove[j] = de;
-                }
-            }
-            else
-            {
-                for (int j = 0; j < Neurons.Count(); j++)
-                {
-                    gradFromAbove[j] = next_layer_e[j];
-                }
-            }
-
-            return gradFromAbove;
-        }
-
         // Aktivace působící na celou vrstvu (softmax) potřebuje CELÝ vektor gradientu —
         // per-prvkové násobení Derivative() by použilo jen diagonálu Jacobiánu a bylo by špatně.
         private double[] ApplyActivationBackward(double[] gradFromAbove)
@@ -477,24 +427,6 @@ namespace My_DNN.Layers
                 e[j] = gradFromAbove[j] * neuron.activation_func.Derivative(neuron.raw_output);
             }
             return e;
-        }
-        public override void BackPropagation(Tensor TensorE)
-        {
-            double[] e = TensorE.Data;
-
-            for (int i = 0; i < neurons.Count(); i++)
-            {
-                // Vypnutý neuron má gradient přesně nula, takže smyčka přes jeho váhy by
-                // jen přičítala nuly. Přeskočí se — ale čítač dávky se zvýšit MUSÍ, jinak
-                // by se jeho gradienty dělily menším číslem než u ostatních neuronů.
-                if (dropoutMask != null && dropoutMask[i] == 0.0)
-                {
-                    neurons[i].SkipSample();
-                    continue;
-                }
-
-                neurons[i].Calculate_gradients_of_W_B(e[i]);
-            }
         }
         public override void UpdateParams()
         {

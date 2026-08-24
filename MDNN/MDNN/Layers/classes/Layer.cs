@@ -19,8 +19,6 @@
         abstract public Tensor? Layer_raw_output { get; }
         abstract public Activation_func Activation_Func { get; set; }
         abstract public Tensor FeedForward(Tensor input_values);
-        abstract public Tensor CalculateLayerGradients(Tensor next_layer_e, Layer next_layer);
-        abstract public void BackPropagation(Tensor de);
         abstract public void UpdateParams();
         // Stavba vrstvy je rozdělená na DVĚ fáze, které spolu nesouvisí:
         //
@@ -52,17 +50,6 @@
         // „tvar je zapojený, ale parametry ještě nejsou" nebo „tvar zatím neznáme".
         abstract public bool IsMaterialized { get; }
 
-        // Gradient shora pro VÝSTUPNÍ vrstvu. Prostřední vrstvy si vnitřní stav pro backward
-        // (Conv.dOutput, RNN.gImm) naplní v CalculateLayerGradients — jenže tu poslední vrstva
-        // nikdy nedostane (Gradient jede jen count-2..0), takže bez tohohle hooku zůstal její
-        // stav nulový a vrstva se TIŠE neučila.
-        //
-        // `dLossDOutput[i]` = ∂L/∂output_i, tedy BEZ derivace aktivace — každá vrstva si ji
-        // dodá podle své konvence (Conv ano, RNN ne, protože RTRL citlivosti ji už obsahují).
-        // Default je no-op: Dense i MaxPool tenhle stav nemají, Dense.BackPropagation pracuje
-        // rovnou se svým argumentem.
-        virtual public void SeedOutputGradient(double[] dLossDOutput) { }
-
         // ---------------------------------------------------------------- konvence B
         //
         // Jediný vstupní bod do backwardu, který postupně nahradí trojici výš
@@ -83,14 +70,7 @@
         // CrossEntropyLoss v PyTorchi obsahuje log-softmax). Díky tomu zůstává
         // jeden vstupní bod, ne dva.
         //
-        // Zatím virtuální a vedle staré cesty — starý řetěz běží dál, dokud se
-        // v kroku 2 nepřepne Gradient.
-        virtual public Tensor Backward(Tensor gradOutput, bool preActivation = false)
-        {
-            throw new NotImplementedException(
-                $"Vrstva {Name} zatím nemá Backward(); použij starou cestu " +
-                "CalculateLayerGradients + BackPropagation.");
-        }
+        abstract public Tensor Backward(Tensor gradOutput, bool preActivation = false);
 
         virtual public async Task<Tensor> FeedForwardAsync(Tensor input_values)
         {
