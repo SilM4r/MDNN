@@ -218,11 +218,21 @@ namespace My_DNN
             }
             CheckLayersAreNotEmpty();
 
-            Tensor output = await _model.GetResultsAsync(inputsValues);
+            // Trénovací režim (dropout) jen na dobu forwardu — stejně jako v Fit.
+            bool wasTraining = _model.Context.IsTraining;
+            _model.Context.IsTraining = true;
 
-            Tensor[] de = await Gradient.GetGradientsAsync(targetValues, _model);
+            Tensor output;
+            try
+            {
+                output = await _model.GetResultsAsync(inputsValues);
+            }
+            finally
+            {
+                _model.Context.IsTraining = wasTraining;
+            }
 
-            await PropagationAsync(de);
+            Gradient.RunBackward(targetValues, _model);
 
             return output;
         }
@@ -231,18 +241,20 @@ namespace My_DNN
         {
             CheckLayersAreNotEmpty();
 
-            Tensor[] de = Gradient.GetGradients(targetValues, _model);
-
-            Propagation(de);
+            // Konvence B: jeden průchod. Dřív se tu nejdřív spočítalo celé pole gradientů
+            // a pak se ve druhém průchodu (Propagation) aplikovalo — teď si každá vrstva
+            // svoje naakumuluje rovnou a předá dolů jen ∂L/∂input.
+            Gradient.RunBackward(targetValues, _model);
         }
 
         public async Task BackPropagationAsync(Tensor targetValues)
         {
             CheckLayersAreNotEmpty();
 
-            Tensor[] de = await Gradient.GetGradientsAsync(targetValues, _model);
-
-            await PropagationAsync(de);
+            // Stejná cesta jako synchronní varianta. Async backward ve vrstvách byl zrušen
+            // (paralelizoval po neuronech, což bylo pomalejší, a rozjížděl se se sync cestou);
+            // skutečná paralelizace přijde přes dávku.
+            Gradient.RunBackward(targetValues, _model);
         }
 
         public void BackPropagation(Tensor[] layerGradients)
