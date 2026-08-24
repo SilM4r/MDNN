@@ -10,6 +10,8 @@ MDNN is a library for designing and training neural networks in C#. It allows st
 - [Examples](#examples)
 - [Model configuration](#model-configuration)
 - [Adding layers](#adding-layers)
+- [Regularization](#regularization)
+- [Reproducibility](#reproducibility)
 - [Training the model](#training-the-model)
 - [GPU acceleration and asynchronous execution](#gpu-acceleration-and-asynchronous-execution)
 - [Saving and loading models](#saving-and-loading-models)
@@ -29,6 +31,8 @@ Supported layer types:
 Additional capabilities:
 
 - A range of activation functions, optimizers, and loss functions
+- Regularization: L2 weight decay and dropout
+- Reproducible runs from a single seed
 - Straightforward integration into C# projects
 - Optional GPU computation
 - Asynchronous training and inference
@@ -130,6 +134,83 @@ If a layer constructor is called without an activation function, the default hid
 You can also define a custom layer by inheriting one of the abstract classes `Layer`, `LayerBasedOnNeurons`, or `LayerWithUntrainedParameters` and implementing their abstract members.
 
 Available activation functions: `Linear`, `ReLu`, `Leak_ReLu`, `Sigmoid`, `Tanh`, `Softmax`.
+
+## Regularization
+
+Both techniques are off by default and are configured on `model.Context`.
+
+### L2 weight decay
+
+Adds `λ/2 · Σw²` to the objective, which means `+ λ·w` in the gradient — large weights are
+penalised, so the model is pushed toward simpler solutions.
+
+```csharp
+model.Context.L2 = 0.001;   // 0 = disabled (default)
+```
+
+Details worth knowing:
+
+- It applies to **weights and convolution kernels, never to biases**. A bias does not shape
+  the decision boundary, it only shifts it, so shrinking it does not simplify the model.
+- It is added to the **already averaged** gradient, so the strength of the regularization
+  does not change when you change the minibatch size.
+- The loss printed during training does **not** include the `λ/2 · Σw²` term — the same
+  convention PyTorch uses for `weight_decay`. What you see is prediction error alone.
+- This is classic L2 (folded into the gradient, so with `Adam` it also passes through the
+  adaptive scaling). Decoupled weight decay in the style of AdamW is a different thing and
+  is not implemented.
+
+### Dropout
+
+During training a fraction of neurons is switched off at random, so the network cannot rely
+on any single one and has to build several independent routes to the answer.
+
+```csharp
+model.Context.Dropout = 0.5;                        // default for every hidden layer
+model.Layers.Add(new Dense(64, new ReLu()));        // inherits 0.5
+model.Layers.Add(new Dense(32, new ReLu(), 0.2));   // its own rate wins
+model.Layers.Add(new Dense(16, new ReLu(), 0.0));   // explicitly disabled
+```
+
+A per-layer value always overrides the global one, including `0.0` to switch it off. The
+per-layer rate is also available afterwards as `DropoutRate` (`null` means "inherit").
+
+- **The global rate is never applied to the output layer.** Discarding the network's own
+  outputs is not regularization, it is damage, so one global switch must not introduce it
+  silently. Setting a rate explicitly on the output layer still works if you really want it.
+- Dropout is active **only inside `Fit()`** (and therefore inside the training loops).
+  `GetResults()` runs without it, so prediction is deterministic — the same input always
+  gives the same answer.
+- Survivors are scaled by `1/(1-p)` during training ("inverted dropout"), which keeps the
+  mean output unchanged and means inference needs no correction at all.
+- Switched-off neurons are **skipped, not multiplied by zero**. Their dot products are never
+  computed, in the forward or the backward pass. On a 512-512 network, training with
+  `dropout: 0.5` takes about 82 % of the time of training without dropout — here dropout
+  makes training *faster*, which GPU-based libraries cannot do.
+- Currently supported on `Dense` layers only.
+
+Both settings are stored in the saved model, so a model that is loaded and trained further
+keeps the regularization it was trained with.
+
+## Reproducibility
+
+Pass a seed to the constructor and two runs of the same program produce bit-identical
+results — weight initialization, sample order, dataset shuffling, and dropout masks all draw
+from that one generator.
+
+```csharp
+MDNN model = new MDNN(new Dense(3, new Softmax()), new Adam(0.01), new CrossEntropy(), seed: 42);
+
+int? used = model.Context.Seed;   // reads back, and is stored in the saved model
+```
+
+Set the seed **in the constructor**. Assigning `Context.Seed` or `Context.Random` after the
+generator has already been drawn from throws `InvalidOperationException`: the output layer's
+weights are drawn while the model is being assembled, so a seed set later would produce a
+model that is only partly reproducible — worse than an obvious error, because it looks like
+it worked.
+
+Without a seed the library falls back to a shared global generator, exactly as before.
 
 ## Training the model
 
@@ -254,7 +335,14 @@ Network computation can optionally run on an NVIDIA GPU through the accompanying
 model.Context.CalculationViaGpu = true;
 ```
 
-Support currently targets NVIDIA GPUs only.
+Support currently targets NVIDIA GPUs only, and `gpu.dll` is loaded without a fallback — so
+this path is Windows-and-CUDA only.
+
+**The GPU path computes in `float`, the CPU path in `double`.** Values are converted on the
+way in and back on the way out, so the same model does not produce the same numbers on both
+paths — expect agreement to roughly 7 significant digits instead of 16. This is normal for
+GPU kernels, but it is worth knowing before comparing results across the two. Only `Dense`
+layers use the GPU path; everything else runs on the CPU regardless of this flag.
 
 ### Asynchronous execution
 
@@ -322,7 +410,18 @@ The static `ConsoleControler` class handles console output:
 
 ### NetworkContext
 
-Each model owns a `NetworkContext` (`model.Context`) that holds its runtime configuration: the loss function, optimizer, input shape, sequence-training flag, and the GPU flag. Because this state is per-model, two models in the same process do not interfere with each other.
+Each model owns a `NetworkContext` (`model.Context`) that holds its runtime configuration. Because this state is per-model, two models in the same process do not interfere with each other.
+
+| Member | Meaning |
+|---|---|
+| `Loss`, `Optimizer` | the loss function and optimizer for this model |
+| `Seed`, `Random` | the model's own random generator — see [Reproducibility](#reproducibility) |
+| `L2` | L2 weight decay coefficient, `0` = off |
+| `Dropout` | default dropout rate for hidden layers, `0` = off |
+| `IsTraining` | is a training pass running? Switched on by `Fit()` for the duration of its forward pass; this is what turns dropout on and off |
+| `InputShape` | shape of the model's input, inferred on the first pass |
+| `SequenceTrain` | sequential (time-series) training mode |
+| `CalculationViaGpu` | GPU flag |
 
 `GeneralNeuralNetworkSettings` holds only process-wide defaults (the default activation functions and a shared random generator).
 
@@ -379,22 +478,74 @@ Each `Neuron` (and each `Conv` layer) owns its own optimizer instance, cloned fr
 
 ### Recurrent layers (RTRL)
 
-`RNN` layers train with **Real-Time Recurrent Learning** rather than backpropagation-through-time. Instead of unrolling the sequence, the layer carries forward-in-time sensitivities (`∂h/∂weight` and `∂h/∂bias`) that are advanced at every timestep inside `FeedForward()`. During backpropagation the incoming error is multiplied by those stored sensitivities. Call `model.ResetSequence()` at the start of each sequence to zero the hidden state and the sensitivities.
+**The recurrence is diagonal.** Each neuron receives only *its own* previous output as an
+extra input — there is no hidden-to-hidden weight matrix, so neurons do not mix across
+timesteps. This is the structure known as an *independently recurrent* network (IndRNN),
+not the textbook `h(t) = f(W·x(t) + U·h(t−1))`. If you are expecting a fully connected
+recurrent layer, this is the difference to be aware of.
+
+That structure is what makes the training method practical. `RNN` layers train with
+**Real-Time Recurrent Learning** rather than backpropagation-through-time. Instead of
+unrolling the sequence, the layer carries forward-in-time sensitivities (`∂h/∂weight` and
+`∂h/∂bias`) that are advanced at every timestep inside `FeedForward()`. During
+backpropagation the incoming error is multiplied by those stored sensitivities. Call
+`model.ResetSequence()` at the start of each sequence to zero the hidden state and the
+sensitivities.
+
+For diagonal recurrence RTRL is **exact** and its cost is linear in the number of weights.
+With a full hidden-to-hidden matrix it would need `∂h_i/∂w_jk` for every pair, which grows
+as `n³` and stops being practical past a few dozen neurons — that is the point at which
+backpropagation-through-time becomes the right tool instead.
+
+Two consequences worth knowing:
+
+- Gradients flowing into layers placed *before* a recurrent layer remain approximate: the
+  contribution that travels back through time is not accounted for.
+- There are no gated units (LSTM/GRU); those need backpropagation-through-time.
 
 ### Weight initialization
 
 Dense and RNN neurons are initialized with a Xavier/He-style uniform scheme — `U(−1, 1) · sqrt(6 / n_inputs)` — and biases start at zero.
 
-### Correctness: numerical gradient checking
+### Correctness: gradient checking and parity with PyTorch
 
-The entire backward pass is validated by the test suite using numerical gradient checking (central difference): every layer's analytic gradients are compared against finite-difference estimates. These checks act as a regression guard — any change that breaks the underlying math is caught automatically.
+Correctness is checked from two independent directions, because each catches what the other
+cannot.
+
+**Numerical gradient checking** validates the entire backward pass: every layer's analytic
+gradients are compared against central-difference estimates. This catches any change that
+breaks the math, and acts as a regression guard.
+
+It has one blind spot, though. A gradient check compares the backward pass against the
+numerical derivative of *its own* forward pass — so if the forward pass follows a different
+convention than intended (a different padding rule, a flipped kernel, a different loss
+scaling), the check still passes and the discrepancy stays invisible.
+
+**Parity tests against PyTorch** close that gap by supplying an external reference. The same
+computation is set up in PyTorch with bit-identical weights and inputs, and every number is
+compared element by element: layer outputs, loss values, weight and bias gradients, the
+gradient with respect to the input, and optimizer steps. Agreement is on the order of
+`1e-15`, i.e. at the limit of `double` precision.
+
+The reference values are generated by `tools/torch_fixtures/generate_fixtures.py` and
+committed as JSON, so running the test suite does not require Python.
 
 ## Tests
 
-The repository includes an xUnit test project (`MDNN.Tests`) with numerical gradient checks for every layer, unit tests for the activation, loss, and optimizer implementations, and end-to-end training smoke tests. Run them with:
+The repository includes an xUnit test project (`MDNN.Tests`) — currently 195 tests, run in CI
+on both Linux and Windows. Run them with:
 
 ```
 dotnet test
 ```
 
-The gradient checks act as a regression guard: any change that breaks the underlying math is caught automatically.
+What they cover:
+
+- **Numerical gradient checks** for every layer, including the regularization paths
+- **Parity tests against PyTorch** (see [above](#correctness-gradient-checking-and-parity-with-pytorch)) — layer outputs, gradients, and optimizer steps compared against an external reference
+- Unit tests for the activation, loss, and optimizer implementations
+- Save/load round-trips, including what a saved model must preserve
+- End-to-end training smoke tests
+
+The gradient checks act as a regression guard: any change that breaks the underlying math is
+caught automatically.
