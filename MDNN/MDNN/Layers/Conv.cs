@@ -361,6 +361,17 @@ namespace My_DNN.Layers
 
         public override void BackPropagation(Tensor TensordOutput)
         {
+            // Argument se ZÁMĚRNĚ nepoužívá — stará konvence: gradient shora si vrstva
+            // vzala do dOutput už v CalculateLayerGradients / SeedOutputGradient.
+            // Přesně tahle nekonzistence (u Dense je argument závazný, tady dekorace)
+            // je to, co konvence B ruší.
+            AccumulateKernelAndBiasGradients();
+        }
+
+        // Gradienty kernelů a biasů z už naplněného `dOutput`. Sdílí to stará cesta
+        // (BackPropagation) i nová (Backward), takže se ten výpočet nikde neduplikuje.
+        private void AccumulateKernelAndBiasGradients()
+        {
             mini_batch_size++;
 
             int inChannels = inputs[0][0].Length;
@@ -448,6 +459,45 @@ namespace My_DNN.Layers
             inicializationK_B_dK_dB();
         }
 
+        // ---------------------------------------------------------------- konvence B
+
+        public override Tensor Backward(Tensor gradOutput, bool preActivation = false)
+        {
+            if (preActivation)
+                throw new NotSupportedException(
+                    "Conv nesmí mít aktivaci působící na celou vrstvu (softmax), " +
+                    "takže fúze softmax+CE se jí netýká.");
+
+            double[] gradOut = gradOutput.Data;
+            int expected = outputShape[0] * outputShape[1] * outputShape[2];
+
+            if (gradOut.Length != expected)
+                throw new ArgumentException(
+                    $"Conv má výstup {outputShape[0]}×{outputShape[1]}×{outputShape[2]} " +
+                    $"({expected} hodnot), ale gradient shora jich má {gradOut.Length}.");
+
+            // 1) ∂L/∂output → ∂L/∂z. Tohle dělal SeedOutputGradient pro výstupní vrstvu
+            //    a obě větve CalculateLayerGradients pro ty ostatní — teď je to na jednom
+            //    místě, protože všechny vrstvy dostávají gradient stejnou cestou.
+            int n = 0;
+            for (int i = 0; i < outputShape[0]; i++)
+            {
+                for (int j = 0; j < outputShape[1]; j++)
+                {
+                    for (int f = 0; f < outputShape[2]; f++)
+                    {
+                        dOutput[i][j][f] = gradOut[n++] * activation_func.Derivative(raw_output[i][j][f]);
+                    }
+                }
+            }
+
+            // 2) gradienty kernelů a biasů ze stejného dOutput
+            AccumulateKernelAndBiasGradients();
+
+            // 3) ∂L/∂input pro vrstvu pod sebou
+            return ComputeInputGradientFromDOutput();
+        }
+
         public override Tensor CalculateLayerGradients(Tensor TensordOutput, Layer next_layer)
         {
             double[][][] dInput;
@@ -511,6 +561,16 @@ namespace My_DNN.Layers
                 }
             }
 
+            return ComputeInputGradientFromDOutput();
+        }
+
+        // ∂L/∂input z už naplněného `dOutput`. Vytaženo z CalculateLayerGradients, aby to
+        // mohla použít i nová Backward() — je to jediná část, kterou obě cesty sdílejí,
+        // a duplikovat 80 řádků indexové matematiky by byl přesně ten druh chyby,
+        // kterou by pak nikdo nenašel.
+        private Tensor ComputeInputGradientFromDOutput()
+        {
+            double[][][] dInput;
             // Rozměry vstupu
             int H = inputs.Length;
             int W = inputs[0].Length;

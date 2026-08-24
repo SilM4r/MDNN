@@ -37,8 +37,41 @@ public class BackwardConventionTests
                     values.Add(n.gradientsB);
                 }
             }
+            else if (layer is Conv conv)
+            {
+                foreach (var filter in conv.dKernels)
+                foreach (var row in filter)
+                foreach (var col in row)
+                    values.AddRange(col);
+
+                values.AddRange(conv.dBiases);
+            }
+            // MaxPool nemá parametry — do otisku nepřispívá, ale jeho správnost se projeví
+            // v gradientech vrstev POD ním, které tam jsou.
         }
         return values.ToArray();
+    }
+
+    /// <summary>Projde model novou cestou: jeden Backward řetěz shora dolů.</summary>
+    private static Tensor RunNewPath(My_DNN.MDNN model, Tensor x, Tensor target, bool fused = false)
+    {
+        Tensor output = model.GetResults(x);
+        var layers = model.Layers.Layers;
+        var grad = new Tensor(OutputGradient(model, output, target));
+
+        grad = layers[^1].Backward(grad, preActivation: fused);
+        for (int i = layers.Count - 2; i >= 0; i--)
+            grad = layers[i].Backward(grad);
+
+        return grad;
+    }
+
+    private static void AssertBitIdentical(double[] expected, double[] actual, string what)
+    {
+        Assert.Equal(expected.Length, actual.Length);
+        for (int i = 0; i < expected.Length; i++)
+            Assert.True(expected[i].Equals(actual[i]),
+                $"{what}, parametr {i}: stará cesta {expected[i]:G17}, nová {actual[i]:G17}");
     }
 
     /// <summary>∂L/∂output výstupní vrstvy — přesně to, co dnes počítá Gradient
@@ -158,6 +191,126 @@ public class BackwardConventionTests
         for (int i = 0; i < expected.Length; i++)
             Assert.True(expected[i].Equals(actual[i]),
                 $"rate={rate}, parametr {i}: stará {expected[i]:G17}, nová {actual[i]:G17}");
+    }
+
+    // ============================================================ Conv / MaxPool / RNN
+
+    private static double[,,] Image(int h, int w, int c)
+    {
+        var img = new double[h, w, c];
+        for (int i = 0; i < h; i++)
+        for (int j = 0; j < w; j++)
+        for (int k = 0; k < c; k++)
+            img[i, j, k] = ((i * w + j) * c + k) * 0.013 - 0.2;
+        return img;
+    }
+
+    [Theory]
+    [InlineData("valid", 2, 1)]
+    [InlineData("valid", 3, 2)]
+    [InlineData("same", 3, 2)]
+    [InlineData("same", 2, 2)]      // sudý kernel = asymetrický padding, nejcitlivější případ
+    public void Conv_backward_is_bit_identical_to_old_path(string padding, int kernel, int filters)
+    {
+        var x = new Tensor(Image(6, 6, 2));
+        var target = new Tensor(new double[] { 0.2, -0.4, 0.7 });
+
+        My_DNN.MDNN Build()
+        {
+            var m = new My_DNN.MDNN(new Dense(3, new Tanh()), new SGD(0.01), new MSE(), seed: 44);
+            m.Layers.Add(new Conv(filters, kernel, new Tanh(), padding));
+            m.Layers.Add(new Dense(5, new Tanh()));
+            return m;
+        }
+
+        var oldModel = Build();
+        oldModel.Train.Fit(x, target);
+        double[] expected = Fingerprint(oldModel);
+
+        var newModel = Build();
+        RunNewPath(newModel, x, target);
+
+        AssertBitIdentical(expected, Fingerprint(newModel), $"Conv {padding} k={kernel} f={filters}");
+    }
+
+    [Fact]
+    public void Conv_maxpool_dense_backward_is_bit_identical_to_old_path()
+    {
+        // Nejdelší řetěz: Conv → MaxPool → Dense → Dense(out). Prochází přesně těmi
+        // větvemi „další vrstva je Dense", které konvence B ruší.
+        var x = new Tensor(Image(8, 8, 1));
+        var target = new Tensor(new double[] { 0.2, -0.4, 0.7 });
+
+        My_DNN.MDNN Build()
+        {
+            var m = new My_DNN.MDNN(new Dense(3, new Tanh()), new SGD(0.01), new MSE(), seed: 55);
+            m.Layers.Add(new Conv(2, 3, new Tanh(), "valid"));
+            m.Layers.Add(new MaxPool(2));
+            m.Layers.Add(new Dense(6, new Tanh()));
+            return m;
+        }
+
+        var oldModel = Build();
+        oldModel.Train.Fit(x, target);
+        double[] expected = Fingerprint(oldModel);
+
+        var newModel = Build();
+        RunNewPath(newModel, x, target);
+
+        AssertBitIdentical(expected, Fingerprint(newModel), "Conv→MaxPool→Dense");
+    }
+
+    [Fact]
+    public void Conv_as_output_layer_is_bit_identical_to_old_path()
+    {
+        // Výstupní Conv: stará cesta ho musí obsloužit hookem SeedOutputGradient,
+        // nová ho dostane úplně stejně jako každou jinou vrstvu. Přesně tenhle případ
+        // se kdysi TIŠE NEUČIL (bug 2c-1), takže si zaslouží vlastní test.
+        var x = new Tensor(Image(5, 5, 1));
+
+        My_DNN.MDNN Build()
+        {
+            var m = new My_DNN.MDNN(new Conv(2, 3, new Tanh(), "valid"), new SGD(0.01), new MSE(), seed: 66);
+            return m;
+        }
+
+        var probe = Build();
+        Tensor shape = probe.GetResults(x);
+        var target = new Tensor(shape.Data.Select(v => v * 0.5 + 0.1).ToArray(), shape.Shape);
+
+        var oldModel = Build();
+        oldModel.Train.Fit(x, target);
+        double[] expected = Fingerprint(oldModel);
+
+        var newModel = Build();
+        RunNewPath(newModel, x, target);
+
+        AssertBitIdentical(expected, Fingerprint(newModel), "výstupní Conv");
+    }
+
+    [Fact]
+    public void RNN_backward_is_bit_identical_to_old_path()
+    {
+        // RTRL: gImm bylo ve staré cestě SKRYTÉ POLE jen proto, že si ho musely předat
+        // dvě metody. V konvenci B je to lokálka — a musí z toho vyjít totéž.
+        var x = new Tensor(new double[] { 0.5, -0.3 });
+        var target = new Tensor(new double[] { 0.2, -0.4, 0.7 });
+
+        My_DNN.MDNN Build()
+        {
+            var m = new My_DNN.MDNN(new Dense(3, new Tanh()), new SGD(0.01), new MSE(), seed: 77);
+            m.Layers.Add(new RNN(4, new Tanh()));
+            return m;
+        }
+
+        var oldModel = Build();
+        oldModel.Train.Fit(x, target);
+        double[] expected = Fingerprint(oldModel);
+
+        var newModel = Build();
+        RunNewPath(newModel, x, target);
+
+        AssertBitIdentical(expected, Fingerprint(newModel), "RNN");
     }
 
     [Theory]

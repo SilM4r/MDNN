@@ -234,6 +234,53 @@ namespace My_DNN.Layers
             }
         }
 
+        // ---------------------------------------------------------------- konvence B
+
+        public override Tensor Backward(Tensor gradOutput, bool preActivation = false)
+        {
+            if (preActivation)
+                throw new NotSupportedException(
+                    "RNN nesmí být výstupní vrstvou se softmaxem (guard v Gradient), " +
+                    "takže fúze softmax+CE se jí netýká.");
+
+            EnsureSensitivities();
+
+            double[] gradOut = gradOutput.Data;
+
+            if (gradOut.Length != neurons.Count)
+                throw new ArgumentException(
+                    $"Gradient shora má {gradOut.Length} prvků, vrstva {neurons.Count} neuronů.");
+
+            // TADY je vidět, proč konvence B RNN sedí LÍP než dnešek: `gImm` je definičně
+            // ∂L/∂h_j BEZ derivace aktivace — a to je přesně to, co Backward dostává.
+            // Ve staré cestě existovalo jako SKRYTÉ POLE jen proto, že si ho musely předat
+            // dvě metody (CalculateLayerGradients → BackPropagation). Tady je to lokálka.
+            //
+            // Pozn.: rekurentní váha se do gradientu vstupu nepromítá — příspěvek zpět
+            // v čase RTRL nezachycuje. Je to známé omezení, ne opomenutí (viz README).
+            int inputCount = neurons[0].Weights.Length - 1;   // poslední váha je rekurentní
+            double[] gradInput = new double[inputCount];
+
+            for (int j = 0; j < neurons.Count; j++)
+            {
+                double gImmJ = gradOut[j];
+
+                // RTRL: gradient parametru = g_imm(t) · citlivost(t), sečteno přes čas.
+                // Citlivosti sW/sB derivaci aktivace UŽ obsahují (advancují se ve forwardu),
+                // proto se tady act' NEpřidává — na rozdíl od Dense.
+                neurons[j].AccumulateGradient(gImmJ, sW[j], sB[j]);
+
+                // Do vrstvy pod sebou ale act' patří: ∂L/∂z_j = g_imm_j · act'(z_j).
+                double delta = gImmJ * neurons[j].activation_func.Derivative(neurons[j].raw_output);
+                if (delta == 0.0) continue;
+
+                double[] w = neurons[j].Weights;
+                for (int k = 0; k < inputCount; k++) gradInput[k] += delta * w[k];
+            }
+
+            return new Tensor(gradInput);
+        }
+
         public override void BackPropagation(Tensor tenosorDe)
         {
             // RTRL: gradient parametru = g_imm(t) · citlivost(t), sečteno přes čas.

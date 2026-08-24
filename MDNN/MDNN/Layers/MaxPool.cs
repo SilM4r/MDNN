@@ -100,6 +100,63 @@ namespace My_DNN.Layers
             }
         }
 
+        // ---------------------------------------------------------------- konvence B
+
+        public override Tensor Backward(Tensor gradOutput, bool preActivation = false)
+        {
+            if (preActivation)
+                throw new NotSupportedException(
+                    "MaxPool nemá aktivaci, takže preActivation nedává smysl. " +
+                    "Fúze softmax+CE se týká jen výstupní Dense vrstvy.");
+
+            if (output == null || indexes == null)
+                throw new InvalidOperationException(
+                    "MaxPool: backward před forwardem — pozice maxim ještě neexistují.");
+
+            // Gradient přichází rovnou po prvcích, žádné sahání do vah souseda. Právě tím
+            // odpadá celá větev „další vrstva je Dense" ze staré CalculateLayerGradients:
+            // Dense si teď svůj ∂L/∂input spočítá sám a pošle ho sem hotový.
+            double[] upstream = gradOutput.Data;
+
+            int outHeight = output.Length;
+            int outWidth = output[0].Length;
+            int channels = output[0][0].Length;
+
+            if (upstream.Length != outHeight * outWidth * channels)
+                throw new ArgumentException(
+                    $"MaxPool má výstup {outHeight}×{outWidth}×{channels} " +
+                    $"({outHeight * outWidth * channels} hodnot), ale gradient shora " +
+                    $"jich má {upstream.Length}.");
+
+            int inputHeight = inputs!.Length;
+            int inputWidth = inputs[0].Length;
+
+            double[][][] dInput = new double[inputHeight][][];
+            for (int i = 0; i < inputHeight; i++)
+            {
+                dInput[i] = new double[inputWidth][];
+                for (int j = 0; j < inputWidth; j++) dInput[i][j] = new double[channels];
+            }
+
+            // Gradient teče JEN do pozice, která v okně vyhrála; ostatní na výstup
+            // nepřispěly, takže dostávají nulu.
+            int flat = 0;
+            for (int i = 0; i < outHeight; i++)
+            {
+                for (int j = 0; j < outWidth; j++)
+                {
+                    for (int c = 0; c < channels; c++)
+                    {
+                        PoolingIndex idx = indexes[i, j, c];
+                        dInput[idx.Row][idx.Col][c] += upstream[flat++];
+                    }
+                }
+            }
+
+            return Tensor.FromJagged3D(dInput,
+                new int[] { inputHeight, inputWidth, channels });
+        }
+
         public override Tensor CalculateLayerGradients(Tensor TensordOutput, Layer next_layer)
         {
 
