@@ -309,8 +309,13 @@ namespace My_DNN.Layers
 
         public override Tensor Backward(Tensor gradOutput, bool preActivation = false)
         {
-            // Kopie: gradOutput patří volajícímu, nesmí se mu přepsat pod rukama.
-            double[] grad = (double[])gradOutput.Data.Clone();
+            // Kopíruje se JEN když je co přepsat. Jediná mutace `grad` je násobení
+            // dropout maskou níž; bez dropoutu se pole jen čte, takže obranná kopie
+            // by byla alokace navíc na každou vrstvu a každý vzorek — a při stovkách
+            // tisíc kroků tréninku to není nic.
+            double[] grad = dropoutMask != null
+                ? (double[])gradOutput.Data.Clone()
+                : gradOutput.Data;
 
             if (grad.Length != neurons.Count)
                 throw new ArgumentException(
