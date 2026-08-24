@@ -389,6 +389,47 @@ public class RegularizationTests
     }
 
     [Fact]
+    public void Manual_training_loop_behaves_like_Fit()
+    {
+        // README nabízí ruční trénink jako „Fit rozdělený na dva kroky".
+        // Musí to tedy dát TOTÉŽ — a s dropoutem to chvíli neplatilo: Train.FeedForward
+        // volalo GetResults, které trénovací režim nezapíná, takže ruční cesta tiše
+        // běžela BEZ dropoutu.
+        var x = new Tensor(new double[] { 0.5, -0.3, 0.8 });
+        var target = new Tensor(new double[] { 0.2, -0.4 });
+
+        double[] Run(bool manual)
+        {
+            var model = new My_DNN.MDNN(new Dense(2, new Tanh()), new SGD(0.1), new MSE(), seed: 91);
+            model.Layers.Add(new Dense(12, new Tanh(), dropout: 0.5));
+
+            if (manual)
+            {
+                model.Train.FeedForward(x);
+                model.Train.BackPropagation(target);
+            }
+            else
+            {
+                model.Train.Fit(x, target);
+            }
+
+            model.Train.UpdateParams();
+
+            return model.Layers.Layers
+                .SelectMany(l => ((Dense)l).Neurons)
+                .SelectMany(n => n.Weights)
+                .ToArray();
+        }
+
+        double[] viaFit = Run(manual: false);
+        double[] viaManual = Run(manual: true);
+
+        for (int i = 0; i < viaFit.Length; i++)
+            Assert.True(viaFit[i].Equals(viaManual[i]),
+                $"váha {i}: Fit {viaFit[i]:G17}, ruční cesta {viaManual[i]:G17}");
+    }
+
+    [Fact]
     public void Dropout_rejects_invalid_rate()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new Dense(4, new ReLu(), dropout: 1.0));

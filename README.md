@@ -320,9 +320,28 @@ only `Train.OptimizerSteps` advances.
 
 ### `FeedForward()` and `BackPropagation()`
 
-The most granular approach, splitting `Fit()` into a separate forward pass (`FeedForward()`) and backpropagation (`BackPropagation()`). This gives full control over the individual training steps, which is useful for research or advanced optimization. After backpropagation, call `UpdateParams()` to apply the changes.
+The most granular approach, splitting `Fit()` into a separate forward pass (`FeedForward()`)
+and backpropagation (`BackPropagation(target)`). This gives full control over the individual
+training steps, which is useful for research or advanced optimization. After backpropagation,
+call `UpdateParams()` to apply the changes.
 
-`BackPropagation()` has two overloads: one that takes the target values (and computes the layer gradients internally) and one that takes precomputed per-layer gradients.
+```csharp
+model.Train.FeedForward(new Tensor(sample));
+model.Train.BackPropagation(new Tensor(target));   // accumulates, does not apply
+model.Train.UpdateParams();                        // one optimizer step
+```
+
+These two are exactly the two halves of `Fit()`, and that is a guarantee, not a coincidence:
+`Train.FeedForward()` switches the model into training mode for the duration of the pass, so
+dropout behaves the same as it does inside `Fit()`. (Use `model.GetResults()` when you want a
+prediction — that one deliberately leaves dropout off, so the same input always gives the same
+answer.)
+
+**Removed:** `BackPropagation()` used to have a second overload taking precomputed per-layer
+gradients. It is gone, and it never worked the way its signature suggested — `Dense` honoured
+the argument while `Conv` and `RNN` ignored it and read internal state instead. Every layer now
+has a single backward entry point (see [Backward pass](#backward-pass)), so there is nothing
+left to hand in from outside.
 
 ## GPU acceleration
 

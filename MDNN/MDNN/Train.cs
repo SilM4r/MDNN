@@ -219,9 +219,23 @@ namespace My_DNN
             Gradient.RunBackward(targetValues, _model);
         }
 
+        // Trénovací forward. Musí zapnout IsTraining stejně jako Fit — tahle metoda JE
+        // Fitova první polovina, takže „rozdělit Fit na dva kroky" musí dát totéž.
+        // Bez toho by ruční trénink tiše běžel bez dropoutu a nikde by to nebylo vidět.
+        // Pro predikci se používá model.GetResults(), který dropout nechává vypnutý.
         public Tensor FeedForward(Tensor inputsValue)
         {
-            return _model.GetResults(inputsValue);
+            bool wasTraining = _model.Context.IsTraining;
+            _model.Context.IsTraining = true;
+
+            try
+            {
+                return _model.GetResults(inputsValue);
+            }
+            finally
+            {
+                _model.Context.IsTraining = wasTraining;
+            }
         }
 
         public void UpdateParams()
