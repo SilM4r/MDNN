@@ -70,7 +70,16 @@
         // CrossEntropyLoss v PyTorchi obsahuje log-softmax). Díky tomu zůstává
         // jeden vstupní bod, ne dva.
         //
-        abstract public Tensor Backward(Tensor gradOutput, bool preActivation = false);
+        // `computeInputGradient` = false znamená „∂L/∂input nikdo nepotřebuje, nepočítej ho".
+        // Platí pro PRVNÍ vrstvu v modelu: pod ní už nic není, takže její vstupní gradient
+        // jde rovnou do koše. U Conv je to plná korelace přes celý obrázek, tedy nejdražší
+        // operace backwardu — vyhozená zbytečně. (Totéž dělal i kód před konvencí B, jen
+        // to nebylo vidět.) Obdoba `needs_input_grad` v PyTorchi.
+        //
+        // Default je true, tedy vždycky správně; vypnout to smí jen ten, kdo VÍ, že
+        // návratovou hodnotu nepoužije. Při false se vrací PRÁZDNÝ tenzor, ne nesmyslný.
+        abstract public Tensor Backward(Tensor gradOutput, bool preActivation = false,
+                                        bool computeInputGradient = true);
 
     }
 }

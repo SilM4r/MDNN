@@ -307,7 +307,8 @@ namespace My_DNN.Layers
         }
         // ---------------------------------------------------------------- konvence B
 
-        public override Tensor Backward(Tensor gradOutput, bool preActivation = false)
+        public override Tensor Backward(Tensor gradOutput, bool preActivation = false,
+                                        bool computeInputGradient = true)
         {
             // Kopíruje se JEN když je co přepsat. Jediná mutace `grad` je násobení
             // dropout maskou níž; bez dropoutu se pole jen čte, takže obranná kopie
@@ -347,6 +348,8 @@ namespace My_DNN.Layers
             // 4) ∂L/∂input — JEDINÁ věc, kterou dnešní Dense nedělá. Není to nový výpočet,
             //    jen se přesouvá tam, kam patří: dnes tuhle smyčku píše vrstva POD Dense
             //    (Conv/MaxPool/Dense v GradientFromAbove) a sahá si přitom do CIZÍCH vah.
+            if (!computeInputGradient) return Tensor.Empty;
+
             int inputs = neurons[0].Weights.Length;
             double[] gradInput = new double[inputs];
 

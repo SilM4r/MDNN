@@ -127,6 +127,10 @@
             return BuildMultiDimArray(data, shape, 0);
         }
 
+        // Prázdný tenzor. Vrací ho Backward(computeInputGradient: false) — je to
+        // srozumitelnější než null a při omylu spadne na délce, ne až na nesmyslných číslech.
+        public static Tensor Empty => new Tensor(Array.Empty<double>());
+
         public Tensor Slice(int start, int length)
         {
             if (start < 0 || length <= 0 || start + length > Shape[0])

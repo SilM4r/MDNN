@@ -102,7 +102,8 @@ namespace My_DNN.Layers
 
         // ---------------------------------------------------------------- konvence B
 
-        public override Tensor Backward(Tensor gradOutput, bool preActivation = false)
+        public override Tensor Backward(Tensor gradOutput, bool preActivation = false,
+                                        bool computeInputGradient = true)
         {
             if (preActivation)
                 throw new NotSupportedException(
@@ -127,6 +128,8 @@ namespace My_DNN.Layers
                     $"MaxPool má výstup {outHeight}×{outWidth}×{channels} " +
                     $"({outHeight * outWidth * channels} hodnot), ale gradient shora " +
                     $"jich má {upstream.Length}.");
+
+            if (!computeInputGradient) return Tensor.Empty;
 
             int inputHeight = inputs!.Length;
             int inputWidth = inputs[0].Length;

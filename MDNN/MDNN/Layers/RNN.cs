@@ -216,7 +216,8 @@ namespace My_DNN.Layers
 
         // ---------------------------------------------------------------- konvence B
 
-        public override Tensor Backward(Tensor gradOutput, bool preActivation = false)
+        public override Tensor Backward(Tensor gradOutput, bool preActivation = false,
+                                        bool computeInputGradient = true)
         {
             if (preActivation)
                 throw new NotSupportedException(
@@ -251,6 +252,8 @@ namespace My_DNN.Layers
                 neurons[j].AccumulateGradient(gImmJ, sW[j], sB[j]);
 
                 // Do vrstvy pod sebou ale act' patří: ∂L/∂z_j = g_imm_j · act'(z_j).
+                if (!computeInputGradient) continue;
+
                 double delta = gImmJ * neurons[j].activation_func.Derivative(neurons[j].raw_output);
                 if (delta == 0.0) continue;
 

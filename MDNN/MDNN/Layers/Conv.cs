@@ -427,7 +427,8 @@ namespace My_DNN.Layers
 
         // ---------------------------------------------------------------- konvence B
 
-        public override Tensor Backward(Tensor gradOutput, bool preActivation = false)
+        public override Tensor Backward(Tensor gradOutput, bool preActivation = false,
+                                        bool computeInputGradient = true)
         {
             if (preActivation)
                 throw new NotSupportedException(
@@ -460,7 +461,10 @@ namespace My_DNN.Layers
             // 2) gradienty kernelů a biasů ze stejného dOutput
             AccumulateKernelAndBiasGradients();
 
-            // 3) ∂L/∂input pro vrstvu pod sebou
+            // 3) ∂L/∂input pro vrstvu pod sebou — u první vrstvy se přeskočí, je to
+            //    plná korelace, kterou by nikdo nepřevzal.
+            if (!computeInputGradient) return Tensor.Empty;
+
             return ComputeInputGradientFromDOutput();
         }
 

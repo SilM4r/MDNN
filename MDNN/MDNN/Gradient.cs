@@ -65,7 +65,8 @@ namespace My_DNN
 
             for (int i = layers.Count - 2; i >= 0; i--)
             {
-                grad = layers[i].Backward(grad);
+                // Vstupní gradient PRVNÍ vrstvy nikdo nepřevezme — pod ní už nic není.
+                grad = layers[i].Backward(grad, computeInputGradient: i > 0);
             }
         }
 
