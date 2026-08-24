@@ -63,6 +63,35 @@
         // rovnou se svým argumentem.
         virtual public void SeedOutputGradient(double[] dLossDOutput) { }
 
+        // ---------------------------------------------------------------- konvence B
+        //
+        // Jediný vstupní bod do backwardu, který postupně nahradí trojici výš
+        // (CalculateLayerGradients + SeedOutputGradient + BackPropagation).
+        //
+        //   vezme  ∂L/∂output této vrstvy
+        //   udělá  naakumuluje gradienty VLASTNÍCH parametrů
+        //   vrátí  ∂L/∂input, tedy ∂L/∂output vrstvy pod sebou
+        //
+        // Proti dnešku mizí posun o jednu: vrstva propaguje gradient přes SVÉ váhy
+        // a o sousedovi nemusí vědět. Tím odpadají větve „další vrstva je Dense",
+        // které si dnes Conv a MaxPool musí psát samy, i skrytý stav (Conv.dOutput,
+        // RNN.gImm), který dnes existuje jen kvůli tomu rozdělení na dvě metody.
+        //
+        // `preActivation` = gradOutput UŽ JE ∂L/∂z, takže se derivace aktivace přeskočí.
+        // Jediný případ je fúze softmax+CrossEntropy, kde loss vrací rovnou `s − t`:
+        // softmax tam logicky patří k loss funkci, ne k vrstvě (stejně jako
+        // CrossEntropyLoss v PyTorchi obsahuje log-softmax). Díky tomu zůstává
+        // jeden vstupní bod, ne dva.
+        //
+        // Zatím virtuální a vedle staré cesty — starý řetěz běží dál, dokud se
+        // v kroku 2 nepřepne Gradient.
+        virtual public Tensor Backward(Tensor gradOutput, bool preActivation = false)
+        {
+            throw new NotImplementedException(
+                $"Vrstva {Name} zatím nemá Backward(); použij starou cestu " +
+                "CalculateLayerGradients + BackPropagation.");
+        }
+
         virtual public async Task<Tensor> FeedForwardAsync(Tensor input_values)
         {
             return FeedForward(input_values);

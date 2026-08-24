@@ -371,6 +371,58 @@ namespace My_DNN.Layers
             return new Tensor(ApplyActivationBackward(gradFromAbove));
         }
 
+        // ---------------------------------------------------------------- konvence B
+
+        public override Tensor Backward(Tensor gradOutput, bool preActivation = false)
+        {
+            // Kopie: gradOutput patří volajícímu, nesmí se mu přepsat pod rukama.
+            double[] grad = (double[])gradOutput.Data.Clone();
+
+            if (grad.Length != neurons.Count)
+                throw new ArgumentException(
+                    $"Dense má {neurons.Count} neuronů, ale gradient shora má {grad.Length} hodnot.");
+
+            // 1) dropout — TÁŽ maska jako ve forwardu, a PŘED derivací aktivace,
+            //    protože maska působí na výstup vrstvy.
+            if (dropoutMask != null)
+            {
+                for (int i = 0; i < grad.Length; i++) grad[i] *= dropoutMask[i];
+            }
+
+            // 2) ∂L/∂output → ∂L/∂z. Při fúzi softmax+CE je `grad` už ∂L/∂z (s − t)
+            //    a aktivace se přeskakuje, jinak by se softmax derivace použila dvakrát.
+            double[] delta = preActivation ? grad : ApplyActivationBackward(grad);
+
+            // 3) gradienty vlastních parametrů
+            for (int i = 0; i < neurons.Count; i++)
+            {
+                if (dropoutMask != null && dropoutMask[i] == 0.0)
+                {
+                    neurons[i].SkipSample();
+                    continue;
+                }
+
+                neurons[i].Calculate_gradients_of_W_B(delta[i]);
+            }
+
+            // 4) ∂L/∂input — JEDINÁ věc, kterou dnešní Dense nedělá. Není to nový výpočet,
+            //    jen se přesouvá tam, kam patří: dnes tuhle smyčku píše vrstva POD Dense
+            //    (Conv/MaxPool/Dense v GradientFromAbove) a sahá si přitom do CIZÍCH vah.
+            int inputs = neurons[0].Weights.Length;
+            double[] gradInput = new double[inputs];
+
+            for (int i = 0; i < neurons.Count; i++)
+            {
+                double d = delta[i];
+                if (d == 0.0) continue;          // vypnutý dropoutem → nepřispívá
+
+                double[] w = neurons[i].Weights;
+                for (int j = 0; j < inputs; j++) gradInput[j] += d * w[j];
+            }
+
+            return new Tensor(gradInput);
+        }
+
         // ∂L/∂output_j. Když je další vrstva neuronová, projde se přes její váhy;
         // jinak (Conv/MaxPool) přichází gradient rovnou po prvcích.
         private double[] GradientFromAbove(double[] next_layer_e, Layer nextLayer)
