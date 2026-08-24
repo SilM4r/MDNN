@@ -305,53 +305,6 @@ namespace My_DNN.Layers
                 neurons[i].output = output[i];
             }
         }
-        public override async Task<Tensor> FeedForwardAsync(Tensor input_values)
-        {
-            double[] values = input_values.Data;
-
-            if (Context != null && Context.CalculationViaGpu)
-            {
-                return FeedForwardViaGpu(values);
-            }
-
-            Task[] feedTasks = new Task[neurons.Count()];
-            for (int i = 0; i < neurons.Count(); i++)
-            {
-                int index = i; // zachycení lokální kopie indexu
-                feedTasks[index] = Task.Run(() =>
-                {
-                    output[index] = neurons[index].feedForward(values);
-                    raw_output[index] = neurons[index].raw_output;
-                });
-            }
-            await Task.WhenAll(feedTasks);
-
-            if (activation_func.Apply_to_layer)
-            {
-                LayerActivationFunc? layerActivationFunc = activation_func as LayerActivationFunc;
-                if (layerActivationFunc == null)
-                {
-                    throw new ArgumentException("Bad activation func");
-                }
-
-                output = layerActivationFunc.ApplyToLayer(raw_output);
-
-                // Aktualizujeme výstupy neuronů paralelně
-                Task[] updateTasks = new Task[neurons.Count()];
-                for (int i = 0; i < neurons.Count(); i++)
-                {
-                    int index = i;
-                    updateTasks[index] = Task.Run(() =>
-                    {
-                        neurons[index].output = output[index];
-                    });
-                }
-                await Task.WhenAll(updateTasks);
-            }
-
-            return new Tensor(output);
-        }
-
         // ---------------------------------------------------------------- konvence B
 
         public override Tensor Backward(Tensor gradOutput, bool preActivation = false)
@@ -434,20 +387,6 @@ namespace My_DNN.Layers
             {
                 neuron.Update_weights_bias(Context?.L2 ?? 0);
             }
-        }
-        public override async Task UpdateParamsAsync()
-        {
-            int index = -1;
-            Task[] tasks = new Task[Neurons.Count()];
-            foreach (Neuron neuron in neurons)
-            {
-                index++;
-                tasks[index] = Task.Run(() =>
-                {
-                    neuron.Update_weights_bias(Context?.L2 ?? 0);
-                });
-            }
-            await Task.WhenAll(tasks);
         }
         private Tensor FeedForwardViaGpu(double[] values)
         {

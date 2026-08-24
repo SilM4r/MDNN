@@ -13,7 +13,7 @@ MDNN is a library for designing and training neural networks in C#. It allows st
 - [Regularization](#regularization)
 - [Reproducibility](#reproducibility)
 - [Training the model](#training-the-model)
-- [GPU acceleration and asynchronous execution](#gpu-acceleration-and-asynchronous-execution)
+- [GPU acceleration](#gpu-acceleration)
 - [Saving and loading models](#saving-and-loading-models)
 - [Supporting utilities](#supporting-utilities)
 - [How it works internally](#how-it-works-internally)
@@ -35,7 +35,6 @@ Additional capabilities:
 - Reproducible runs from a single seed
 - Straightforward integration into C# projects
 - Optional GPU computation
-- Asynchronous training and inference
 - Saving and loading models in JSON format
 - Pre-built training loops
 
@@ -325,7 +324,7 @@ The most granular approach, splitting `Fit()` into a separate forward pass (`Fee
 
 `BackPropagation()` has two overloads: one that takes the target values (and computes the layer gradients internally) and one that takes precomputed per-layer gradients.
 
-## GPU acceleration and asynchronous execution
+## GPU acceleration
 
 ### GPU
 
@@ -344,17 +343,20 @@ paths — expect agreement to roughly 7 significant digits instead of 16. This i
 GPU kernels, but it is worth knowing before comparing results across the two. Only `Dense`
 layers use the GPU path; everything else runs on the CPU regardless of this flag.
 
-### Asynchronous execution
+### A note on the removed `...Async` API
 
-Each synchronous method has an asynchronous counterpart, for example:
+Earlier versions exposed asynchronous counterparts (`TrainLoopAsync()`, `FitAsync()`,
+`GetResultsAsync()`). **They have been removed**, and nothing was lost by it — they were
+`async` without a single `await`, so they never gave up a thread. What parallelism they did
+attempt was per-neuron `Task.Run`, which is *slower* than a plain loop: the scheduling cost
+per neuron exceeds the arithmetic being scheduled.
 
-- `TrainLoop()` — `TrainLoopAsync()`
-- `Fit()` — `FitAsync()`
-- `GetResults()` — `GetResultsAsync()`
+Worse, they were a second code path that quietly drifted from the first. Dropout was added
+to the synchronous path only, so the asynchronous one silently computed wrong gradients until
+the removal surfaced it.
 
-```csharp
-await model.Train.TrainLoopAsync(inputsDataset, outputDataset, 1000);
-```
+Parallelism will come back, but across the **batch** rather than across neurons — that is the
+axis where there is real work to divide, and it needs layers that do not hold per-call state.
 
 ## Saving and loading models
 
@@ -460,11 +462,32 @@ Layers are constructed without knowing their input size — you only specify the
 
 ### Backward pass
 
-Backpropagation is driven by `Gradient.GetGradients(target, model)`:
+Backpropagation is driven by `Gradient.RunBackward(target, model)` and every layer exposes a
+single entry point:
 
-1. The output-layer error is computed from the loss derivative. For an element-wise output activation it is multiplied by that activation's derivative; for the fused softmax + cross-entropy case (below) it is used directly.
-2. The error is propagated backwards: each layer's `CalculateLayerGradients()` turns the next layer's error into its own error (the chain rule), applying the layer activation's derivative along the way.
-3. Each layer's `BackPropagation()` then accumulates the parameter gradients (for neuron-based layers, into each `Neuron`'s `gradientsW` / `gradientsB`).
+```csharp
+Tensor Backward(Tensor gradOutput, bool preActivation = false)
+```
+
+It takes `∂L/∂output` for that layer, accumulates the gradients of **its own** parameters, and
+returns `∂L/∂input` — which is `∂L/∂output` for the layer below. One walk down the stack, one
+method per layer.
+
+Two consequences are worth spelling out, because they are what this shape buys:
+
+- **A layer never reaches into its neighbour.** Each one propagates the gradient through its
+  own weights, so `Conv` and `MaxPool` no longer need a special branch for "the next layer is
+  `Dense`" (they used to read that layer's weight matrix and remap flat indices by hand).
+- **No hidden state between calls.** There is no separate "seed the output layer" hook and no
+  field carrying a value from one backward method to the next.
+
+`preActivation` says that `gradOutput` is already `∂L/∂z`, so the activation derivative is
+skipped. The only case is the fused softmax + cross-entropy below, where the softmax belongs
+to the loss rather than to the layer — exactly as `CrossEntropyLoss` in PyTorch contains
+log-softmax.
+
+Each layer applies the activation derivative according to its own convention: `Conv` does,
+`RNN` does not (its RTRL sensitivities already contain it).
 
 Gradients are **accumulated, not applied**. `UpdateParams()` divides the accumulated gradients by the number of samples seen and hands them to the optimizer. This is why several `Fit()` calls followed by one `UpdateParams()` are equivalent to one minibatch of that size.
 

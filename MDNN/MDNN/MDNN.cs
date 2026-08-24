@@ -135,19 +135,6 @@ namespace My_DNN
                 }
             }
         }
-        public async Task<Tensor> GetResultsAsync(Tensor inputs_values)
-        {
-            EnsureReadyForInput(inputs_values);
-
-            Tensor values = inputs_values;
-
-            foreach (Layer layer in layerManager.Layers)
-            {
-                values = await layer.FeedForwardAsync(values);
-            }
-
-            return values;
-        }
         public void SaveAsJson(string fileName)
         {
             CreateSchema();

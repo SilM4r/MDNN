@@ -72,13 +72,5 @@
         //
         abstract public Tensor Backward(Tensor gradOutput, bool preActivation = false);
 
-        virtual public async Task<Tensor> FeedForwardAsync(Tensor input_values)
-        {
-            return FeedForward(input_values);
-        }
-        virtual public async Task UpdateParamsAsync()
-        {
-            UpdateParams();
-        }
     }
 }
