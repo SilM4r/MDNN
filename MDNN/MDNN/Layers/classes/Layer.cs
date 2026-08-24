@@ -67,14 +67,6 @@
         {
             return FeedForward(input_values);
         }
-        virtual public async Task<Tensor> CalculateLayerGradientsAsync(Tensor next_layer_e, Layer next_layer)
-        {
-            return CalculateLayerGradients(next_layer_e,next_layer);
-        }
-        virtual public async Task BackPropagationAsync(Tensor de)
-        {
-            BackPropagation(de);
-        }
         virtual public async Task UpdateParamsAsync()
         {
             UpdateParams();

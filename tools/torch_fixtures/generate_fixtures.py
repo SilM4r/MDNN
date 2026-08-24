@@ -81,7 +81,7 @@ def write(name, payload):
 
 # ---------------------------------------------------------------- Dense model
 
-def dense_model(name, sizes, activations, loss_kind):
+def dense_model(name, sizes, activations, loss_kind, weight_scale=0.07, worst_class=None):
     """Plně propojená síť: sizes = [vstup, skrytá..., výstup].
     V MDNN se staví jako new MDNN(výstupní) + Layers.Add(skryté) — pořadí
     v `layers` níž je stejné jako v MDNN.Layers.Layers, tedy skryté → výstupní."""
@@ -91,7 +91,7 @@ def dense_model(name, sizes, activations, loss_kind):
     h = x
     for li in range(len(sizes) - 1):
         fan_in, fan_out = sizes[li], sizes[li + 1]
-        W = deterministic((fan_out, fan_in), scale=0.07, offset=0.02).requires_grad_(True)
+        W = deterministic((fan_out, fan_in), scale=weight_scale, offset=0.02).requires_grad_(True)
         b = deterministic((fan_out,), scale=0.05, offset=-0.01).requires_grad_(True)
         z = h @ W.t() + b
         act = activations[li]
@@ -107,7 +107,7 @@ def dense_model(name, sizes, activations, loss_kind):
         output = out_pre
     elif loss_kind == "ce":
         # one-hot cíl; MDNN dostává one-hot vektor, torch index třídy
-        cls = 1 % sizes[-1]
+        cls = worst_class if worst_class is not None else 1 % sizes[-1]
         target = torch.zeros(sizes[-1], dtype=torch.float64)
         target[cls] = 1.0
         loss = F.cross_entropy(
@@ -247,6 +247,15 @@ if __name__ == "__main__":
     dense_model("dense_3layer_relu_mse", [5, 6, 4, 2], ["relu", "relu", "linear"], "mse")
     dense_model("dense_2layer_relu_softmax_ce", [4, 6, 3], ["relu", "softmax"], "ce")
     dense_model("dense_sigmoid_mse", [3, 4, 2], ["sigmoid", "sigmoid"], "mse")
+
+    # SATUROVANÝ softmax — případ, kvůli kterému fúze softmax+CE vůbec existuje.
+    # Velké váhy rozeženou logity tak daleko od sebe, že nejmenší pravděpodobnost spadne
+    # k ~1e-20. Obecná cesta (-t/(s+1e-15) → Jacobián) tam gradient ZTRATÍ: epsilon přebije
+    # samotné s. Fúzovaná cesta (s - t) drží. Cíl se schválně dává na NEJMÉNĚ pravděpodobnou
+    # třídu, tedy tam, kde je gradient nejpotřebnější a zároveň nejkřehčí.
+    # Bez tohohle fixture by refaktor backwardu mohl fúzi rozbít, aniž by to sada poznala.
+    dense_model("dense_softmax_ce_saturated", [4, 8, 3], ["tanh", "softmax"], "ce",
+                weight_scale=9.0, worst_class=0)
 
     conv_layer("conv_valid_1ch_1f", 3, 3, 1, 2, 1, "valid", "linear")
     conv_layer("conv_valid_2ch_3f", 5, 5, 2, 3, 3, "valid", "tanh")

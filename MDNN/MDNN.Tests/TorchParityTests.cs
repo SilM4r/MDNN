@@ -106,6 +106,7 @@ public class TorchParityTests
     [InlineData("dense_3layer_relu_mse")]
     [InlineData("dense_2layer_relu_softmax_ce")]
     [InlineData("dense_sigmoid_mse")]
+    [InlineData("dense_softmax_ce_saturated")]
     public void Dense_model_matches_pytorch(string fixture)
     {
         JsonElement fx = Load(fixture);

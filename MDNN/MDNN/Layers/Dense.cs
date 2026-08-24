@@ -426,47 +426,6 @@ namespace My_DNN.Layers
             }
             return e;
         }
-        public override async Task<Tensor> CalculateLayerGradientsAsync(Tensor nextLayerE, Layer nextLayer)
-        {
-
-            if (nextLayerE.Shape.Length > 1)
-            {
-                throw new NotImplementedException();
-            }
-
-            double[] next_layer_e = nextLayerE.Data;
-            double[] gradFromAbove = new double[Neurons.Count()];
-
-            LayerBasedOnNeurons? nextlayer = nextLayer as LayerBasedOnNeurons;
-            if (nextlayer != null)
-            {
-                Task[] tasks = new Task[Neurons.Count()];
-                for (int j = 0; j < Neurons.Count(); j++)
-                {
-                    int index = j;
-                    tasks[index] = Task.Run(() =>
-                    {
-                        double de = 0;
-                        for (int k = 0; k < nextlayer.Neurons.Count(); k++)
-                        {
-                            de += next_layer_e[k] * nextlayer.Neurons[k].Weights[index];
-                        }
-                        gradFromAbove[index] = de;
-                    });
-                }
-                await Task.WhenAll(tasks);
-            }
-            else
-            {
-                for (int j = 0; j < Neurons.Count(); j++)
-                {
-                    gradFromAbove[j] = next_layer_e[j];
-                }
-            }
-
-            // stejná konvence jako v synchronní verzi (vrstvová aktivace dostane celý vektor)
-            return new Tensor(ApplyActivationBackward(gradFromAbove));
-        }
         public override void BackPropagation(Tensor TensorE)
         {
             double[] e = TensorE.Data;
@@ -484,21 +443,6 @@ namespace My_DNN.Layers
 
                 neurons[i].Calculate_gradients_of_W_B(e[i]);
             }
-        }
-        public override async Task BackPropagationAsync(Tensor TensorE)
-        {
-            double[] e = TensorE.Data;
-
-            Task[] tasks = new Task[Neurons.Count()];
-            for (int i = 0; i < neurons.Count(); i++)
-            {
-                int index = i;
-                tasks[index] = Task.Run(() =>
-                {
-                    neurons[index].Calculate_gradients_of_W_B(e[index]);
-                });
-            }
-            await Task.WhenAll(tasks);
         }
         public override void UpdateParams()
         {

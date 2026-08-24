@@ -1349,7 +1349,7 @@ namespace My_DNN
                 int index = i;
                 tasks[index] = Task.Run(async () =>
                 {
-                    await _model.Layers.Layers[index].BackPropagationAsync(layerGradients[index]);
+                    _model.Layers.Layers[index].BackPropagation(layerGradients[index]);
                 });
             }
 

@@ -188,7 +188,11 @@ namespace My_DNN
                 // Žádná příprava aktivace tady — vrstvová aktivace (softmax) se řeší uvnitř
                 // CalculateLayerGradients přes BackwardForLayer, kde je k dispozici celý vektor.
 
-                e[0] = await layers[i].CalculateLayerGradientsAsync(e[1], layers[i + 1]);
+                // Async varianta backwardu ve vrstvách zrušena: pouštěla Task.Run na každý
+                // NEURON, což bylo pomalejší než sekvenční smyčka, a hlavně se rozjížděla
+                // se synchronní cestou (dropout do ní nikdy nedoputoval → špatné gradienty).
+                // Skutečná paralelizace přijde jinudy — přes dávku, ne přes neurony.
+                e[0] = layers[i].CalculateLayerGradients(e[1], layers[i + 1]);
 
             }
             return (e as List<Tensor>).ToArray();
