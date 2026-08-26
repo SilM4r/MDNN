@@ -21,55 +21,111 @@ namespace MDNN.Benchmarks
     internal static class Program
     {
         // ==================================================================================
-        //  ZÁKLAD (baseline) — stav PŘED optimalizacemi datové vrstvy
+        //  ZÁKLAD (baseline) — proti čemu se dnešní běh porovnává
         // ==================================================================================
         //
-        //  Naměřeno 2026-08-12, commit b0168bb, Apple Silicon / 10 jader, .NET 9, Release,
-        //  workstation GC. Slouží k porovnání: profil níž tiskne u každého řádku, o kolik
-        //  se čas a alokace posunuly proti těmhle číslům.
+        //  Naměřeno 2026-08-26, Apple Silicon / 10 jader, .NET 9, Release, workstation GC.
+        //  Medián ze tří běhů. Profil níž tiskne u každého řádku, o kolik se čas a alokace
+        //  posunuly proti těmhle číslům.
         //
         //  Absolutní hodnoty závisí na stroji — na jiném počítači bude celý sloupec
         //  "vs základ" posunutý a nic to neznamená. Smysl to dává jen při porovnání
         //  na TOMTÉŽ stroji. Když se změní scénář (jiná architektura, jiný počet vzorků),
         //  je potřeba základ přeměřit, jinak se porovnává neporovnatelné.
         //
-        //  Hlavní zjištění základu: úzkým hrdlem není matematika, ale datová vrstva.
-        //  Tensor.FlattenArray boxuje každý double (foreach nad System.Array) a sype ho
-        //  do List<double>, takže payload 6 KB stojí ~40 KB alokací.
+        //  ⚠️ ALOKACE jsou deterministické (tři běhy dají bit po bitu totéž), ČASY kolísají
+        //  mezi běhy až o 16 %. Sloupec "vs základ" u času má práh šumu 5 %, takže na něm
+        //  uvidíš i výkyvy, které nic neznamenají. Věř spíš alokacím a velkým číslům.
+        //
+        // ----------------------------------------------------------------------------------
+        //  HISTORIE — odkud se to kam posunulo
+        // ----------------------------------------------------------------------------------
+        //
+        //  Předchozí základ: 2026-08-12, commit b0168bb, tentýž stroj. Byl to stav PŘED
+        //  optimalizacemi datové vrstvy (Fáze 5) a před konvencí B. Hlavní zjištění tehdy:
+        //  úzkým hrdlem není matematika, ale datová vrstva — Tensor.FlattenArray boxoval
+        //  každý double (foreach nad System.Array) do List<double>, takže payload 6 KB
+        //  stál ~40 KB alokací.
+        //
+        //   MLP 784-128-10, 32 vzorků            2026-08-12  →  2026-08-26
+        //     fáze/1. forward                 73.5 ms /  1.5 MB  →  76.7 ms / 240 KB
+        //     fáze/2. řetěz gradientů          2.1 ms / 184 KB   ┐ sloučeno konvencí B do
+        //     fáze/3. akumulace vah           70.8 ms / 198 KB   ┘ "2. backward" 73.3 ms / 312 KB
+        //     fáze/4. update parametrů         3.4 ms /     0 B  →   3.4 ms /     0 B
+        //     forward/Dense(128)              72.4 ms /  1.3 MB  →  75.7 ms / 232 KB
+        //     forward/Dense(10)                1.1 ms / 208 KB   →   1.0 ms /   9 KB
+        //     akumulace/Dense(128)            69.8 ms / 198 KB   →  72.2 ms / 269 KB
+        //     akumulace/Dense(10)              0.9 ms /     0 B  →   1.2 ms /  43 KB
+        //
+        //   CNN 28x28 -> conv16 -> pool -> conv32 -> pool -> dense64 -> dense10, 8 vzorků
+        //     fáze/1. forward                 27.9 ms / 31.6 MB  →  10.0 ms / 1.2 MB
+        //     fáze/2. řetěz gradientů         29.7 ms / 32.2 MB  ┐ sloučeno do
+        //     fáze/3. akumulace vah            7.5 ms /     0 B  ┘ "2. backward" 19.8 ms / 2.8 MB
+        //     fáze/4. update parametrů         3.6 ms /    80 B  →   3.7 ms /    80 B
+        //     forward/Conv(16x3)              13.6 ms / 19.2 MB  →   2.8 ms / 726 KB
+        //     forward/Conv(32x3)               9.2 ms /  6.3 MB  →   5.7 ms / 243 KB
+        //     forward/MaxPool                  3.9 ms /  5.8 MB  →   0.7 ms / 221 KB
+        //     forward/Dense(64)                1.1 ms / 332 KB   →   0.9 ms / 4.8 KB
+        //     forward/Dense(10)                0.0 ms /  28 KB   →   0.0 ms / 2.2 KB
+        //     akumulace/Conv(32x3)             4.8 ms /     0 B  →  13.9 ms / 384 KB
+        //     akumulace/Conv(16x3)             1.6 ms /     0 B  →   3.6 ms / 302 KB
+        //     akumulace/Dense(64)              1.0 ms /     0 B  →   1.1 ms /  60 KB
+        //     akumulace/Dense(10)              0.0 ms /     0 B  →   0.0 ms / 6.8 KB
+        //
+        //   Režie datové vrstvy, 20 000 volání
+        //     GetTensorValue([i])            464.0 ms / 963.6 MB →   6.0 ms / 122.1 MB
+        //     Tensor.Data (flatten)          409.0 ms / 800.5 MB →   6.8 ms / 124.4 MB
+        //     Layer_output + .Data           105.0 ms / 125.3 MB →   1.7 ms /  21.4 MB
+        //     Layer_output (getter)            1.6 ms /   4.3 MB →   1.9 ms /  21.4 MB
+        //     new Tensor(double[784])          1.5 ms /   4.3 MB →   1.5 ms /   4.3 MB
+        //
+        //  Jak číst dva řádky, které vypadají jako zhoršení:
+        //
+        //  1. "Layer_output (getter)" zdražil, protože se do něj PŘESUNULA kopie výstupu.
+        //     Dřív vracel okno do pracovního pole vrstvy a kopie se dělala až ve .Data —
+        //     jenže výsledek se do té doby stihl přepsat dalším průchodem. Dvojici je
+        //     potřeba číst dohromady: getter + .Data spadl ze 105 ms na 1.7 ms.
+        //  2. "akumulace/Conv" a "akumulace/Dense" mají nově nenulové alokace i vyšší časy,
+        //     protože konvence B přesunula výpočet ∂L/∂input z fáze "řetěz gradientů"
+        //     do backwardu vrstvy. Práce nepřibyla, jen se účtuje jinam — dřívější
+        //     "řetěz gradientů" (29.7 ms / 32.2 MB u CNN) v tabulce už neexistuje.
+        //
+        //  Celkově proti srpnu: CNN forward -64 % času a -96 % alokací, režie datové
+        //  vrstvy -98 % / -85 %. MLP časy stojí — ten scénář je z 98 % v per-neuronových
+        //  smyčkách Dense, na které míří teprve FastDense (viz ROADMAP).
         // ==================================================================================
         private static readonly Dictionary<string, Cost> Baseline = new()
         {
             // MLP 784-128-10, 32 vzorků
-            ["MLP/fáze/1. forward"] = new(73.5, 1_572_864),
-            ["MLP/fáze/2. řetěz gradientů"] = new(2.1, 188_416),
-            ["MLP/fáze/3. akumulace vah"] = new(70.8, 202_957),
+            ["MLP/fáze/1. forward"] = new(76.7, 246_272),
+            ["MLP/fáze/2. backward"] = new(73.3, 319_744),
             ["MLP/fáze/4. update parametrů"] = new(3.4, 0),
-            ["MLP/forward/Dense(128)"] = new(72.4, 1_363_148),
-            ["MLP/forward/Dense(10)"] = new(1.1, 213_504),
-            ["MLP/akumulace/Dense(128)"] = new(69.8, 202_957),
-            ["MLP/akumulace/Dense(10)"] = new(0.9, 0),
+            ["MLP/forward/Dense(128)"] = new(75.7, 237_312),
+            ["MLP/forward/Dense(10)"] = new(1.0, 8_960),
+            ["MLP/akumulace/Dense(128)"] = new(72.2, 275_712),
+            ["MLP/akumulace/Dense(10)"] = new(1.2, 44_032),
 
             // CNN, 8 vzorků
-            ["CNN/fáze/1. forward"] = new(27.9, 33_135_493),
-            ["CNN/fáze/2. řetěz gradientů"] = new(29.7, 33_764_147),
-            ["CNN/fáze/3. akumulace vah"] = new(7.5, 0),
-            ["CNN/fáze/4. update parametrů"] = new(3.6, 80),
-            ["CNN/forward/Conv(16x3)"] = new(13.6, 20_132_659),
-            ["CNN/forward/Conv(32x3)"] = new(9.2, 6_606_028),
-            ["CNN/forward/MaxPool"] = new(3.9, 6_081_741),
-            ["CNN/forward/Dense(64)"] = new(1.1, 339_866),
-            ["CNN/forward/Dense(10)"] = new(0.0, 28_570),
-            ["CNN/akumulace/Conv(32x3)"] = new(4.8, 0),
-            ["CNN/akumulace/Conv(16x3)"] = new(1.6, 0),
-            ["CNN/akumulace/Dense(64)"] = new(1.0, 0),
-            ["CNN/akumulace/Dense(10)"] = new(0.0, 0),
+            ["CNN/fáze/1. forward"] = new(10.0, 1_225_088),
+            ["CNN/fáze/2. backward"] = new(19.8, 2_918_656),
+            ["CNN/fáze/4. update parametrů"] = new(3.7, 80),
+            ["CNN/forward/Conv(16x3)"] = new(2.8, 743_424),
+            ["CNN/forward/Conv(32x3)"] = new(5.7, 248_640),
+            ["CNN/forward/MaxPool"] = new(0.7, 225_920),
+            ["CNN/forward/Dense(64)"] = new(0.9, 4_864),
+            ["CNN/forward/Dense(10)"] = new(0.0, 2_240),
+            ["CNN/akumulace/Conv(32x3)"] = new(13.9, 393_728),
+            ["CNN/akumulace/Conv(16x3)"] = new(3.6, 309_248),
+            ["CNN/akumulace/MaxPool"] = new(0.9, 2_147_008),
+            ["CNN/akumulace/Dense(64)"] = new(1.1, 61_760),
+            ["CNN/akumulace/Dense(10)"] = new(0.0, 6_912),
 
             // režie datové vrstvy, 20 000 volání
-            ["režie/GetTensorValue([i])"] = new(464.0, 1_010_407_014),
-            ["režie/Tensor.Data (flatten)"] = new(409.0, 839_385_907),
-            ["režie/Layer_output + .Data"] = new(105.0, 131_398_042),
-            ["režie/Layer_output (getter)"] = new(1.6, 4_508_876),
-            ["režie/new Tensor(double[784])"] = new(1.5, 4_508_876),
+            ["režie/GetTensorValue([i])"] = new(6.0, 128_000_000),
+            ["režie/Tensor.Data (flatten)"] = new(6.8, 130_400_000),
+            ["režie/Layer_output + .Data"] = new(1.7, 22_400_000),
+            ["režie/Layer_output (getter)"] = new(1.9, 22_400_000),
+            ["režie/new Tensor(double[784])"] = new(1.5, 4_480_000),
         };
 
         // Jedno měření: čas + kolik bajtů se při tom naalokovalo.
