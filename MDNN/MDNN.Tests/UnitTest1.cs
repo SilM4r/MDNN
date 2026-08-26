@@ -1515,6 +1515,50 @@
       public void ConvertArrayToTensor_accepts_int_multidim()
           => Assert.Equal(new double[] { 1, 2 },
                           Tensor.ConvertArrayToTensor(new int[,] { { 1, 2 } }).Data);
+
+      // Zubaté (nepravidelné) pole nemá tvar, takže z něj tenzor udělat NELZE.
+      // Dřív to dopadlo pro každý typ jinak a ani jednou dobře: `double[][]` spadlo
+      // na IndexOutOfRange z hloubi kopírování, kdežto `int[][]` a `float[][]` prošly
+      // a vyrobily tvar podle DÉLKY PRVNÍHO ŘÁDKU — data se tím tiše zamíchala.
+      //
+      //   int[][] { {1,2}, {3,4,5}, {6} }  ->  tvar [3,2], Data.Length = 6
+      //
+      // Šest prvků se do 3x2 vejde, takže ani délka nic neprozradí.
+      [Theory]
+      [InlineData("double")]
+      [InlineData("int")]
+      [InlineData("float")]
+      public void ConvertArrayToTensor_rejects_ragged_arrays(string type)
+      {
+          Array ragged = type switch
+          {
+              "double" => new double[][] { new double[] { 1, 2 }, new double[] { 3, 4, 5 }, new double[] { 6 } },
+              "int" => new int[][] { new int[] { 1, 2 }, new int[] { 3, 4, 5 }, new int[] { 6 } },
+              _ => new float[][] { new float[] { 1, 2 }, new float[] { 3, 4, 5 }, new float[] { 6 } },
+          };
+
+          ArgumentException ex = Assert.Throws<ArgumentException>(
+              () => Tensor.ConvertArrayToTensor(ragged));
+
+          Assert.Contains("stejně dlouhé", ex.Message);
+      }
+
+      [Fact]
+      public void ConvertArrayToTensor_accepts_deep_ragged_free_arrays()
+      {
+          // Kontrola, že se stráž nechytá na pravidelných vnořených polích.
+          double[][][] cube = new double[2][][];
+          for (int i = 0; i < 2; i++)
+          {
+              cube[i] = new double[3][];
+              for (int j = 0; j < 3; j++) cube[i][j] = new double[] { i, j, i + j, i * j };
+          }
+
+          Tensor tensor = Tensor.ConvertArrayToTensor(cube);
+
+          Assert.Equal(new[] { 2, 3, 4 }, tensor.Shape);
+          Assert.Equal(24, tensor.Data.Length);
+      }
   }
 
   public class EmptyMiniBatchTests : GradientCheckTestBase

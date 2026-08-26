@@ -230,7 +230,15 @@
             // knihovna odmítala — přestože je vlastní chybová hláška slibuje.
             if (elementType == typeof(double))
             {
-                return isjagged ? new Tensor(ConvertJaggedToMulti(array)) : new Tensor(array);
+                // Zubaté pole jde plochou cestou stejně jako int/float. Dřív se tu volalo
+                // ConvertJaggedToMulti, tedy Array.CreateInstance + SetValue po prvcích —
+                // reflexe a boxing na každý double. Změřeno na 5000×784:
+                //   double[][]  360.0 ms / 748.0 MB      <- reflexní cesta
+                //   int[][]      12.9 ms /  29.9 MB      <- plochá cesta
+                // Nativní typ knihovny byl 28× pomalejší než ten, který se převádí.
+                return isjagged
+                    ? new Tensor(FlattenArray(array), GetJaggedShape(array))
+                    : new Tensor(array);
             }
 
             if (elementType == typeof(int) || elementType == typeof(float))
@@ -247,17 +255,63 @@
             throw new Exception("invalid type on input array, it can be only `int`,`double`,`float`");
         }
 
+        // Tvar zubatého pole — a kontrola, že je opravdu PRAVIDELNÉ.
+        //
+        // Tvar se bere z prvního podpole každé úrovně. Bez kontroly se zbytek mlčky
+        // přizpůsobil, takže nepravidelné pole prošlo a data se zamíchala:
+        //   int[][] { {1,2}, {3,4,5}, {6} }  ->  tvar [3,2] nad šesti prvky
+        // Šest prvků se do 3×2 vejde, takže ani délka nic neprozradila. U double[][]
+        // to naopak spadlo na IndexOutOfRange z hloubi kopírování — tři typy, tři různá
+        // chování a ani jedno správné.
         private static int[] GetJaggedShape(Array array)
         {
             List<int> shape = new List<int>();
+            Array? level = array;
 
-            while (array is Array firstDim && firstDim.Length > 0)
+            while (level != null && level.Length > 0)
             {
-                shape.Add(firstDim.Length);
-                array = firstDim.GetValue(0) as Array;
+                shape.Add(level.Length);
+                level = level.GetValue(0) as Array;
             }
 
-            return shape.ToArray();
+            int[] result = shape.ToArray();
+            EnsureRectangular(array, result, 0);
+            return result;
+        }
+
+        // Všechna podpole na téže úrovni musí být stejně dlouhá, jinak pole nemá tvar.
+        private static void EnsureRectangular(Array array, int[] shape, int depth)
+        {
+            if (depth >= shape.Length)
+            {
+                return;
+            }
+
+            if (array.Length != shape[depth])
+            {
+                throw new ArgumentException(
+                    $"Pole není pravidelné: v úrovni {depth} je podpole o délce {array.Length}, " +
+                    $"ale první má {shape[depth]}. Všechna podpole na téže úrovni musí být " +
+                    "stejně dlouhé — jinak pole nemá tvar a nejde z něj udělat tenzor.");
+            }
+
+            if (depth + 1 >= shape.Length)
+            {
+                return;   // poslední úroveň drží skaláry, ne podpole
+            }
+
+            for (int i = 0; i < array.Length; i++)
+            {
+                if (array.GetValue(i) is not Array sub)
+                {
+                    throw new ArgumentException(
+                        $"Pole není pravidelné: v úrovni {depth} je prvek {i} skalár, " +
+                        "zatímco první prvek je podpole. Všechna podpole na téže úrovni " +
+                        "musí být stejně dlouhé.");
+                }
+
+                EnsureRectangular(sub, shape, depth + 1);
+            }
         }
 
         private static void CopyJaggedToMulti(Array jagged, Array multi, int[] indices)
