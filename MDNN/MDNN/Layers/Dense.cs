@@ -176,14 +176,23 @@ namespace My_DNN.Layers
                 {
                     neurons.Add(new Neuron(input_size[0], activation_func, Context?.Random));
                 }
-            }
 
-            // per-model optimizer: každý neuron dostane klon optimizeru z Contextu (nezávislost
-            // modelů). Děje se i při zachovaných vahách — přepojení architektury znamená, že se
-            // stav optimizeru (momenty Adamu) k nové topologii stejně nevztahuje.
-            if (Context != null)
-                foreach (Neuron n in neurons)
-                    n.optimizer = Optimizer.Clone_optimizer(Context.Optimizer);
+                // per-model optimizer: každý neuron dostane VLASTNÍ klon optimizeru z Contextu
+                // (nezávislost modelů, Fáze 3). Konstruktor neuronu si bere klon GLOBÁLNÍHO
+                // optimizeru, takže bez tohohle by model s Adamem trénoval globálním SGD.
+                //
+                // Jen pro čerstvě postavené neurony. Dřív se to dělalo při KAŽDÉ materializaci
+                // a Clone_optimizer staví optimizer znovu z hyperparametrů, takže se tím
+                // zahazovaly momenty Adamu. Stačilo přidat vrstvu — MaterializeAll projde
+                // celý řetěz, takže o rozjetý stav přišly i vrstvy, kterých se to netýkalo.
+                if (Context != null)
+                {
+                    foreach (Neuron n in neurons)
+                    {
+                        n.optimizer = Optimizer.Clone_optimizer(Context.Optimizer);
+                    }
+                }
+            }
         }
 
         // Sedí už postavené neurony přesně na požadovaný tvar?

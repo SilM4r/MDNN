@@ -167,12 +167,16 @@ namespace My_DNN.Layers
                 {
                     neurons.Add(new Neuron(input_size[0] + 1, activation_func, Context?.Random));
                 }
-            }
 
-            // per-model optimizer (nezávislost modelů)
-            if (Context != null)
-                foreach (Neuron n in neurons)
-                    n.optimizer = Optimizer.Clone_optimizer(Context.Optimizer);
+                // per-model optimizer jen pro čerstvé neurony — viz Dense.MaterializeParameters
+                if (Context != null)
+                {
+                    foreach (Neuron n in neurons)
+                    {
+                        n.optimizer = Optimizer.Clone_optimizer(Context.Optimizer);
+                    }
+                }
+            }
         }
 
         private bool NeuronsMatchShape(int neuronCount, int weightsPerNeuron)

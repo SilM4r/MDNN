@@ -239,9 +239,13 @@ namespace My_DNN.Layers
                 new int[] { Kernel[0].Count(), Kernel[0][0].Count(), inputsShape[2] },
                 !kernelShapeMatches);
 
-            // per-model optimizer (nezávislost modelů)
-            if (Context != null)
+            // per-model optimizer jen když se kernely opravdu stavěly znovu — viz
+            // Dense.MaterializeParameters. Klonování při každé materializaci zahazovalo
+            // momenty Adamu i vrstvám, kterých se přepojení netýkalo.
+            if (Context != null && !kernelShapeMatches)
+            {
                 optimizer = Optimizer.Clone_optimizer(Context.Optimizer);
+            }
         }
 
         public override Tensor FeedForward(Tensor TensorValues)
