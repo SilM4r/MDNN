@@ -162,30 +162,22 @@ namespace My_DNN.Layers
 
         public override Tensor FeedForward(Tensor TensorValues)
         {
-            if (TensorValues.Shape.Length == 1)
-            {
-                int rows, cols;
-                ConvertTo2D(TensorValues.Data, out rows, out cols);
-                TensorValues.Reshape(new int[] { rows, cols, 1 });
-            }
-            else if (TensorValues.Shape.Length == 2)
-            {
-                TensorValues.Reshape(new int[] { TensorValues.Shape[0], TensorValues.Shape[1], 1 });
-            }
-            else if (TensorValues.Shape.Length >= 4)
-            {
-                throw new NotSupportedException();
-            }
+            // Stejná stráž jako u Conv: tvar musí sedět na ten zapojený. Dřív menší vstup
+            // přepsal jen roh bufferu a zbytek zůstal z minulého vzorku — MaxPool pak
+            // z okna samých nul vrátil maximum z předchozího obrázku. Rank ≥ 4 tu dřív
+            // padal na NotSupportedException() bez jediného slova v hlášce.
+            // Tvar jen pro tuhle metodu, tenzor volajícího zůstane nedotčený — viz Conv.FeedForward.
+            int[] shape = SpatialShape.RequireWiredShape(TensorValues.Shape, inputsShape, Name);
 
             // plochá cesta místo (double[,,])GetOriginalData() — viz Conv.FeedForward
             double[] inputValues = TensorValues.Data;
 
             int flatIndex = 0;
-            for (int i = 0; i < TensorValues.Shape[0]; i++)
+            for (int i = 0; i < shape[0]; i++)
             {
-                for (int j = 0; j < TensorValues.Shape[1]; j++)
+                for (int j = 0; j < shape[1]; j++)
                 {
-                    for (int k = 0; k < TensorValues.Shape[2]; k++)
+                    for (int k = 0; k < shape[2]; k++)
                     {
                         inputs[i][j][k] = inputValues[flatIndex++];
                     }
@@ -262,28 +254,8 @@ namespace My_DNN.Layers
 
             if (input_Shape != null)
             {
-                if (input_Shape.Length == 1)
-                {
-                    double[] n = new double[input_Shape[0]];
-
-                    for (int i = 0; i < input_Shape[0]; i++)
-                    {
-                        n[i] = 1;
-                    }
-
-                    int rows, cols;
-                    ConvertTo2D(n, out rows, out cols);
-                    inputsShape = new int[] { rows, cols, 1 };
-                }
-                else if (input_Shape.Length == 3)
-                {
-                    inputsShape = input_Shape;
-                }
-                else
-                {
-                    throw new Exception();
-                }
-
+                // tentýž normalizátor jako ve FeedForward — viz SpatialShape
+                inputsShape = SpatialShape.Normalize(input_Shape, Name);
 
                 int outHeight = (inputsShape[0] - poolSize) / poolSize + 1;
                 int outWidth = (inputsShape[1] - poolSize) / poolSize + 1;
@@ -321,19 +293,5 @@ namespace My_DNN.Layers
         public override void MaterializeParameters() { }
 
         public override bool IsMaterialized => true;
-
-        private void ConvertTo2D(double[] array, out int rows, out int cols)
-        {
-            int n = array.Length;
-
-            rows = (int)Math.Ceiling(Math.Sqrt(n));
-
-            while (n % rows != 0)
-            {
-                rows++;
-            }
-
-            cols = n / rows;
-        }
     }
 }

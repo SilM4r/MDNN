@@ -164,27 +164,10 @@ namespace My_DNN.Layers
 
             if (input_Shape != null)
             {
-                if (input_Shape.Length == 1)
-                {
-                    double[] n = new double[input_Shape[0]];
-
-                    for (int i = 0; i < input_Shape[0]; i++)
-                    {
-                        n[i] = 1;
-                    }
-
-                    int rows, cols;
-                    ConvertTo2D(n, out rows, out cols);
-                    inputsShape = new int[] {rows,cols,1 };
-                }
-                else if (input_Shape.Length == 3)
-                {
-                    inputsShape = input_Shape;
-                }
-                else
-                {
-                    throw new Exception();
-                }
+                // Tentýž normalizátor, jaký použije FeedForward. Dřív to byly dvě různé
+                // implementace: tady se uměl rank 1 a 3, ve forwardu navíc rank 2 — takže
+                // model s 2D vstupem se nedal zapojit, přestože průchod by ho zvládl.
+                inputsShape = SpatialShape.Normalize(input_Shape, Name);
 
                 if (padding.ToLower() == "same")
                 {
@@ -259,17 +242,16 @@ namespace My_DNN.Layers
 
         public override Tensor FeedForward(Tensor TensorValues)
         {
-            if (TensorValues.Shape.Length == 2)
-            {
-                TensorValues.Reshape(new int[] { TensorValues.Shape[0], TensorValues.Shape[1], 1 });
-            }
-
-            else if (TensorValues.Shape.Length == 1)
-            {
-                int rows, cols;
-                ConvertTo2D(TensorValues.Data, out rows, out cols);
-                TensorValues.Reshape(new int[] { rows, cols, 1 });
-            }
+            // Tvar musí sedět na ten, na který je vrstva ZAPOJENÁ. Dřív se to nikde
+            // neporovnávalo: kopírovací smyčka níž se řídila tvarem příchozího tenzoru,
+            // ale konvoluce pak jela podle inputsShape/outputShape. Menší vstup proto
+            // přepsal jen svůj roh a zbytek se dopočítal z toho, co v bufferu zbylo
+            // po minulém vzorku — tiše, bez výjimky.
+            //
+            // Tvar se normalizuje jen PRO TUHLE METODU. Dřív se místo toho volalo
+            // TensorValues.Reshape(...), čímž vrstva přepsala tvar tenzoru, který jí dal
+            // volající — po průchodu modelem měl uživatel v ruce jiný Shape, než jaký zadal.
+            int[] shape = SpatialShape.RequireWiredShape(TensorValues.Shape, inputsShape, Name);
 
             // Čte se rovnou z plochých dat. Dřív tu bylo (double[,,])GetOriginalData(),
             // což si vynutilo postavit multidim kopii přes Array.CreateInstance + SetValue
@@ -278,11 +260,11 @@ namespace My_DNN.Layers
             double[] inputValues = TensorValues.Data;
 
             int flatIndex = 0;
-            for (int i = 0; i < TensorValues.Shape[0]; i++)
+            for (int i = 0; i < shape[0]; i++)
             {
-                for (int j = 0; j < TensorValues.Shape[1]; j++)
+                for (int j = 0; j < shape[1]; j++)
                 {
-                    for (int k = 0; k < TensorValues.Shape[2]; k++)
+                    for (int k = 0; k < shape[2]; k++)
                     {
                         inputs[i][j][k] = inputValues[flatIndex++];
                     }
@@ -630,20 +612,6 @@ namespace My_DNN.Layers
             }
 
             return padded;
-        }
-
-        private void ConvertTo2D(double[] array, out int rows, out int cols)
-        {
-            int n = array.Length;
-
-            rows = (int)Math.Ceiling(Math.Sqrt(n));
-
-            while (n % rows != 0)
-            {
-                rows++;
-            }
-
-            cols = n / rows;
         }
 
         private void inicializationK_B_dK_dB(int? number_of_kernels = null, int[]? finall_kernel_Shape = null, bool ChangeKernel = false)
