@@ -116,4 +116,37 @@ public class InputGradientTests
                 $"∂L/∂input[{j}]: analytic {analytic[j]:G17}, numeric {numeric:G17}");
         }
     }
+
+    /// <summary>`computeInputGradient: false` musí vrátit PRÁZDNÝ tenzor u všech vrstev.</summary>
+    ///
+    /// Je to dokumentovaný kontrakt (Layer.cs): „Při false se vrací PRÁZDNÝ tenzor,
+    /// ne nesmyslný" — omyl pak spadne na délce, ne až na tichém špatném výsledku.
+    /// RNN se jako jediná odchylovala: vracela pole nul správné délky, což je přesně
+    /// ten nesmyslný tenzor, kterému se ten kontrakt snaží zabránit.
+    [Theory]
+    [InlineData("dense")]
+    [InlineData("conv")]
+    [InlineData("maxpool")]
+    [InlineData("rnn")]
+    public void Backward_returns_an_empty_tensor_when_the_caller_does_not_want_the_input_gradient(string kind)
+    {
+        var x2d = new Tensor(new double[4, 4, 1]);
+        var flat = new Tensor(new double[] { 0.5, -0.3 });
+
+        (My_DNN.MDNN model, Tensor input) = kind switch
+        {
+            "conv" => (new My_DNN.MDNN(new Conv(2, 2, new Tanh(), "valid"), new SGD(0.01), new MSE(), seed: 5), x2d),
+            "maxpool" => (new My_DNN.MDNN(new MaxPool(2), new SGD(0.01), new MSE(), seed: 5), x2d),
+            "rnn" => (new My_DNN.MDNN(new RNN(3, new Tanh()), new SGD(0.01), new MSE(), seed: 5), flat),
+            _ => (new My_DNN.MDNN(new Dense(3, new Tanh()), new SGD(0.01), new MSE(), seed: 5), flat),
+        };
+
+        Tensor output = model.GetResults(input);
+        Layer layer = model.Layers.Layers[0];
+
+        Tensor gradInput = layer.Backward(
+            new Tensor(new double[output.Data.Length]), computeInputGradient: false);
+
+        Assert.Empty(gradInput.Data);
+    }
 }

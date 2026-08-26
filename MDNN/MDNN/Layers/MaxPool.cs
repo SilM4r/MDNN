@@ -37,7 +37,6 @@ namespace My_DNN.Layers
         }
 
         private double[][][]? output;
-        private double[][][]? dOutput;
         private double[][][]? inputs;
 
         private PoolingIndex[,,] indexes;
@@ -79,15 +78,12 @@ namespace My_DNN.Layers
             indexes = new PoolingIndex[outputShape[0], outputShape[1], outputShape[2]];
 
             output = new double[outputShape[0]][][];
-            dOutput = new double[outputShape[0]][][];
             for (int i = 0; i < outputShape[0]; i++)
             {
                 output[i] = new double[outputShape[1]][];
-                dOutput[i] = new double[outputShape[1]][];
                 for (int j = 0; j < outputShape[1]; j++)
                 {
                     output[i][j] = new double[outputShape[2]];
-                    dOutput[i][j] = new double[outputShape[2]];
                 }
             }
         }
@@ -268,15 +264,12 @@ namespace My_DNN.Layers
             indexes = new PoolingIndex[outputShape[0], outputShape[1], outputShape[2]];
 
             output = new double[outputShape[0]][][];
-            dOutput = new double[outputShape[0]][][];
             for (int i = 0; i < outputShape[0]; i++)
             {
                 output[i] = new double[outputShape[1]][];
-                dOutput[i] = new double[outputShape[1]][];
                 for (int j = 0; j < outputShape[1]; j++)
                 {
                     output[i][j] = new double[outputShape[2]];
-                    dOutput[i][j] = new double[outputShape[2]];
                 }
             }
         }

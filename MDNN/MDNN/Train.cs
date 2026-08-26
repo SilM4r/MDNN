@@ -988,12 +988,6 @@ namespace My_DNN
             _testDataCurrentOutput = data.Targets;
         }
 
-        private void ClearValid()
-        {
-            _validDataInputs = null;
-            _validDataCurrentOutput = null;
-        }
-
         private void ClearTest()
         {
             _testDataInputs = null;

@@ -416,56 +416,6 @@
                 target[written++] = Convert.ToDouble(item);
             }
         }
-        public static Array GetSubTensor(Array source, int[] fixedIndices)
-        {
-
-            if (fixedIndices.Length == source.Rank)
-            {
-                object value = source.GetValue(fixedIndices);
-                Type elementType = source.GetType().GetElementType();
-                Array result = Array.CreateInstance(elementType, 1);
-                result.SetValue(value, 0);
-                return result;
-            }
-            else
-            {
-                int fixedCount = fixedIndices.Length;
-                int remainingRank = source.Rank - fixedCount;
-                int[] newShape = new int[remainingRank];
-                for (int i = 0; i < remainingRank; i++)
-                {
-                    newShape[i] = source.GetLength(fixedCount + i);
-                }
-                Type elemType = source.GetType().GetElementType();
-                Array result = Array.CreateInstance(elemType, newShape);
-                FillSubTensor(source, fixedIndices, result, new int[remainingRank], 0);
-                return result;
-            }
-        }
-        private static void FillSubTensor(Array source, int[] fixedIndices, Array target, int[] targetIndices, int dim)
-        {
-            if (dim == targetIndices.Length)
-            {
-
-                int totalLength = fixedIndices.Length + targetIndices.Length;
-                int[] fullIndices = new int[totalLength];
-                for (int i = 0; i < fixedIndices.Length; i++)
-                    fullIndices[i] = fixedIndices[i];
-                for (int i = 0; i < targetIndices.Length; i++)
-                    fullIndices[fixedIndices.Length + i] = targetIndices[i];
-
-                target.SetValue(source.GetValue(fullIndices), targetIndices);
-            }
-            else
-            {
-                for (int i = 0; i < target.GetLength(dim); i++)
-                {
-                    targetIndices[dim] = i;
-                    FillSubTensor(source, fixedIndices, target, targetIndices, dim + 1);
-                }
-            }
-        }
-
         public static Array BuildMultiDimArray(double[] data, int[] shape, int offset = 0)
         {
             if (shape.Length == 0)

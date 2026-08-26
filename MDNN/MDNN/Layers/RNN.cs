@@ -245,7 +245,12 @@ namespace My_DNN.Layers
             // Pozn.: rekurentní váha se do gradientu vstupu nepromítá — příspěvek zpět
             // v čase RTRL nezachycuje. Je to známé omezení, ne opomenutí (viz README).
             int inputCount = neurons[0].Weights.Length - 1;   // poslední váha je rekurentní
-            double[] gradInput = new double[inputCount];
+
+            // Když volající vstupní gradient nechce, ani ho nealokujeme — a hlavně
+            // vrátíme PRÁZDNÝ tenzor, ne pole nul. Kontrakt v Layer.cs to říká výslovně:
+            // omyl má spadnout na délce, ne až na tichém špatném výsledku. RNN se jako
+            // jediná ze čtyř vrstev odchylovala.
+            double[] gradInput = computeInputGradient ? new double[inputCount] : Array.Empty<double>();
 
             for (int j = 0; j < neurons.Count; j++)
             {
@@ -266,7 +271,7 @@ namespace My_DNN.Layers
                 for (int k = 0; k < inputCount; k++) gradInput[k] += delta * w[k];
             }
 
-            return new Tensor(gradInput);
+            return computeInputGradient ? new Tensor(gradInput) : Tensor.Empty;
         }
 
         public override void UpdateParams()
