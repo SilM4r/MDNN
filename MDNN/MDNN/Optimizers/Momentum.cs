@@ -22,7 +22,8 @@
 
         public override double Update(double w, double gradient, int i)
         {
-            if (velocity.Length <= i) Array.Resize(ref velocity, i + 1);  
+            // Zdvojnásobení kapacity místo růstu po jedné — viz Adam.Update.
+            if (velocity.Length <= i) Array.Resize(ref velocity, Math.Max(i + 1, velocity.Length * 2));
             velocity[i] = a * velocity[i] + L * gradient;
             return w - velocity[i];
         }
