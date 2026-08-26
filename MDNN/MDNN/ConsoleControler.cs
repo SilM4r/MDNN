@@ -184,8 +184,14 @@ namespace My_DNN
                 subTime = timeNow - model.Train.LastReportTime;
                 estimatedCompletionTime = (subTime * remainingEpochs) / pastEpochs;
             }
+            // Stejná stráž jako u Percent(): TotalEpoch == 0 je legitimní (ruční trénink
+            // přes Fit/UpdateParams epochy nemá), a dělením nulou z toho vycházelo „NaN %".
+            string progress = model.Train.TotalEpoch > 0
+                ? $"{(double)model.Train.CurrentEpoch / model.Train.TotalEpoch * 100:0.00} %"
+                : "—";
+
             Console.WriteLine("########################################################################");
-            Console.WriteLine($"Epoch: {model.Train.CurrentEpoch} / {model.Train.TotalEpoch} {(model.Train.CurrentEpoch / (float)model.Train.TotalEpoch) * 100} %");
+            Console.WriteLine($"Epoch: {model.Train.CurrentEpoch} / {model.Train.TotalEpoch} {progress}");
             Console.WriteLine();
             if(trainLoss == null )
             {
@@ -224,11 +230,22 @@ namespace My_DNN
             model.Train.LastReportTime = DateTime.Now;
         }
 
+        // Úspěšnost v procentech. Prázdná sada je legitimní stav (uživatel vypnul závěrečné
+        // testování, nebo mu sada vyšla prázdná) — bez téhle stráže dalo 0/0 hodnotu NaN
+        // a výpis hlásil „Precision: NaN%".
+        //
+        // Počítá se v `double`. Dřív tu byl trojitý cast na `float` jen kvůli výpisu, což
+        // ubíralo cifry a plodilo hodnoty jako „60.000004 %".
+        private static string Percent(int part, int whole)
+            => whole > 0
+                ? $"{(double)part / whole * 100:0.00} %"
+                : "nelze spočítat (žádné vzorky)";
+
         public static void ShowScoreOfmodel(int score,int maxScore)
         {
             Console.WriteLine();
             Console.WriteLine("------------- Model Score ------------- ");
-            Console.WriteLine($"Precision: {(float)((float)(score) / (float)(maxScore)) * 100}%");
+            Console.WriteLine($"Precision: {Percent(score, maxScore)}");
             Console.WriteLine($"Total number of samples tested: {maxScore}");
             Console.WriteLine($"Number of correctly guessed tested samples: {score}");
             Console.WriteLine($"Number of mistyped samples tested: {maxScore - score}");
@@ -245,7 +262,7 @@ namespace My_DNN
             if (test != null)
             {
                 (int correct, int total) = test.Value;
-                Console.WriteLine($"Precision on test dataset: {(float)((float)(correct) / (float)(total)) * 100}%");
+                Console.WriteLine($"Precision on test dataset: {Percent(correct, total)}");
                 Console.WriteLine($"Total number of samples tested on test dataset: {total}");
                 Console.WriteLine($"Number of correctly guessed tested samples on test dataset: {correct}");
                 Console.WriteLine($"Number of mistyped samples tested on test dataset: {total - correct}");
@@ -256,8 +273,8 @@ namespace My_DNN
             }
 
             Console.WriteLine();
-            Console.WriteLine($"Precision on train dataset: {(float)((float)(train.Item1) / (float)(train.Item2)) * 100}%");
-            Console.WriteLine($"Precision on valid dataset: {(float)((float)(valid.Item1) / (float)(valid.Item2)) * 100}%");
+            Console.WriteLine($"Precision on train dataset: {Percent(train.Item1, train.Item2)}");
+            Console.WriteLine($"Precision on valid dataset: {Percent(valid.Item1, valid.Item2)}");
             Console.WriteLine();
         }
 
