@@ -36,6 +36,10 @@ namespace My_DNN
         // (po 5 epochách zůstalo 5 i pro další trénink na 5000 epoch).
         private uint _reportInterval = 1;
 
+        // internal kvůli testům: „kolik reportů za běh" je jinak vidět jen v konzoli,
+        // a scrapovat Console.Out by bylo křehké (testy běží paralelně).
+        internal uint ReportInterval => _reportInterval;
+
         // Stav pro odhad zbývajícího času. DŘÍV to byly statiky v ConsoleControleru →
         // druhý trénink v procesu viděl hodnoty z prvního, vyšlo pastEpochs == 0 a
         // (subTime * n) / 0 hodilo OverflowException. Per-instance + reset na začátku běhu.
@@ -437,7 +441,9 @@ namespace My_DNN
                 _model.info();
             }
             
-            for (uint epoch = this._epoch; epoch < _totalEpoch; epoch++)
+            uint firstEpoch = this._epoch;
+
+            for (uint epoch = firstEpoch; epoch < _totalEpoch; epoch++)
             {
                 _model.Context.Loss.ResetAverageLossPerIteration();
 
@@ -453,7 +459,8 @@ namespace My_DNN
                 // kterých je na epochu tolik, kolik je dávek.
                 _epoch = epoch + 1;
 
-                if (epoch % _reportInterval == 0)
+                // od začátku BĚHU, ne od nuly — viz SimpleTrainLoop
+                if ((epoch - firstEpoch) % _reportInterval == 0)
                 {
                     TrainLoopControlFunc();
                     if (_stopEarly)
@@ -491,9 +498,12 @@ namespace My_DNN
             }
 
             this._sizeOfMiniBatch = sizeOfMiniBatch;
-            _totalEpoch = numberOfEpoch;
-            
-            ResolveReportInterval();
+
+            // POČET epoch tohohle běhu, ne cílová epocha — viz PreparationForTrainLoop
+            uint firstEpoch = epoch;
+            _totalEpoch = firstEpoch + numberOfEpoch;
+
+            ResolveReportInterval(numberOfEpoch);
 
 
             _model.Context.InputShape = [inputsValues[0].Length];
@@ -522,7 +532,10 @@ namespace My_DNN
 
                 _epoch = epoch + 1;
 
-                if (epoch % _reportInterval == 0)
+                // Modulo se počítá od začátku BĚHU, ne od nuly — jinak by u navazujícího
+                // tréninku reporty padaly na absolutní násobky a první epocha běhu by
+                // se nenahlásila.
+                if ((epoch - firstEpoch) % _reportInterval == 0)
                 {
                     double loss = _model.Context.Loss.GetAverageLossPerIteration();
 
@@ -631,7 +644,13 @@ namespace My_DNN
             }
 
             this._sizeOfMiniBatch = sizeOfMiniBatch;
-            _totalEpoch = numberOfEpoch;
+
+            // `numberOfEpoch` je POČET epoch tohohle běhu, ne cílová epocha modelu.
+            // Dřív se ukládal přímo do _totalEpoch, takže druhé volání TrainLoop(5) na
+            // modelu s pěti hotovými epochami tiše neudělalo nic — smyčka jede od _epoch
+            // a 5 < 5 neplatí. Na čerstvém modelu (_epoch == 0) vychází obojí stejně,
+            // proto si toho nikdo nevšiml. README to celou dobu popisuje jako počet.
+            _totalEpoch = _epoch + numberOfEpoch;
 
             _lowestLoss = double.MaxValue;
             _bestEpoch = 0;
@@ -639,13 +658,17 @@ namespace My_DNN
             _reportsWithoutImprovement = 0;
             _stopEarly = false;
 
-            ResolveReportInterval();
+            ResolveReportInterval(numberOfEpoch);
         }
 
         // Přeloží uživatelské „kolikrát chci report" na „po kolika epochách reportovat".
         // Klamp jde do privátního _reportInterval, veřejné nastavení zůstane nedotčené.
         // Zároveň reset stavu ETA, aby druhý trénink nepočítal z časů toho prvního.
-        private void ResolveReportInterval()
+        //
+        // Počítá se z DÉLKY TOHOHLE BĚHU, ne z absolutní cílové epochy. U navazujícího
+        // tréninku (100 hotových epoch + 10 nových) by jinak `NumberOfShowEpochInConsole`
+        // vztahovalo počet reportů ke 110, takže by na těch 10 nových vyšel jeden jediný.
+        private void ResolveReportInterval(uint epochsInThisRun)
         {
             uint reports = NumberOfShowEpochInConsole;
 
@@ -653,12 +676,12 @@ namespace My_DNN
             {
                 reports = 1;
             }
-            else if (reports > _totalEpoch)
+            else if (reports > epochsInThisRun)
             {
-                reports = _totalEpoch;
+                reports = epochsInThisRun;
             }
 
-            _reportInterval = (_totalEpoch == 0 || reports == 0) ? 1 : Math.Max(1u, _totalEpoch / reports);
+            _reportInterval = (epochsInThisRun == 0 || reports == 0) ? 1 : Math.Max(1u, epochsInThisRun / reports);
 
             LastReportTime = DateTime.MinValue;
             LastReportEpoch = 0;
