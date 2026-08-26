@@ -12,9 +12,13 @@ namespace My_DNN.Layers
 
         public override int[] Output_size_and_shape => outputShape;
 
-        public override Tensor Layer_output => new Tensor(output);
+        // Tentýž tvar jako vrací FeedForward. Dřív tu bylo `new Tensor(output)` nad jagged
+        // polem: `double[][][]` má Rank 1, takže Shape vyšel jako [outH] místo [h,w,kanály].
+        // Data byla správně, Shape ne — a projeví se to jen tehdy, když je Conv výstupní
+        // vrstva a někdo si Shape přečte. Navíc to bylo okno do pracovního pole, ne snímek.
+        public override Tensor Layer_output => Tensor.FromJagged3D(output, outputShape);
 
-        public override Tensor Layer_raw_output => new Tensor(raw_output);
+        public override Tensor Layer_raw_output => Tensor.FromJagged3D(raw_output, outputShape);
 
         public override Activation_func Activation_Func
         {

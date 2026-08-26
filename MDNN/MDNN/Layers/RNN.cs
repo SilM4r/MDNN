@@ -10,10 +10,11 @@ namespace My_DNN.Layers
         public override List<Neuron> Neurons => neurons;
         public override string Name => "Rnn";
 
-        public override Tensor Layer_output => new Tensor(output);
+        // Snímek, ne okno do pracovního pole — viz Tensor.FromVector.
+        public override Tensor Layer_output => Tensor.FromVector(output);
         public override int[] Input_size_and_shape => input_size;
         public override int[] Output_size_and_shape => new int[] { output.Length };
-        public override Tensor Layer_raw_output => new Tensor(raw_output);
+        public override Tensor Layer_raw_output => Tensor.FromVector(raw_output);
         public override Activation_func Activation_Func
         {
             get { return activation_func; }
@@ -211,7 +212,7 @@ namespace My_DNN.Layers
                 sB[i] = actD * (1.0 + r * sB[i]);                                     // ∂z/∂bias = 1
             }
 
-            return new Tensor(output);
+            return Tensor.FromVector(output);
         }
 
         // ---------------------------------------------------------------- konvence B

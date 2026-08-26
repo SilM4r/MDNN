@@ -10,8 +10,9 @@ namespace My_DNN.Layers
     {
         public override List<Neuron> Neurons => neurons;
         public override string Name => "Dense";
-        public override Tensor Layer_output => new Tensor(output);
-        public override Tensor Layer_raw_output => new Tensor(raw_output);
+        // Snímek, ne okno do pracovního pole — viz Tensor.FromVector.
+        public override Tensor Layer_output => Tensor.FromVector(output);
+        public override Tensor Layer_raw_output => Tensor.FromVector(raw_output);
         public override int[] Input_size_and_shape => input_size;
         public override int[] Output_size_and_shape => new int[] { output.Length };
         public override Activation_func Activation_Func
@@ -247,7 +248,7 @@ namespace My_DNN.Layers
 
             ApplyDropoutMask();
 
-            return new Tensor(output);
+            return Tensor.FromVector(output);
         }
 
         // Vylosuje masku pro tento vzorek. null = dropout se neuplatní vůbec (vypnutý,
@@ -443,7 +444,7 @@ namespace My_DNN.Layers
                 neurons[j].output = output[j];
             }
 
-            return new Tensor(output);
+            return Tensor.FromVector(output);
         }
     }
 }

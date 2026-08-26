@@ -10,6 +10,9 @@ namespace My_DNN.Layers
 
         public override int[] Output_size_and_shape => outputShape;
 
+        // Snímek se správným tvarem — stejně jako to vrací FeedForward. Dřív `new Tensor(output)`
+        // nad jagged polem dalo Shape [outH] místo [h,w,kanály] (Rank jagged pole je 1)
+        // a ukazovalo do pracovního pole, které se přepisuje dalším průchodem.
         public override Tensor? Layer_output
         {
             get
@@ -20,24 +23,13 @@ namespace My_DNN.Layers
                 }
                 else
                 {
-                    return new Tensor(output);
+                    return Tensor.FromJagged3D(output, outputShape);
                 }
             }
         }
-        public override Tensor? Layer_raw_output
-        {
-            get
-            {
-                if (output == null)
-                {
-                    return null;
-                }
-                else
-                {
-                    return new Tensor(output);
-                }
-            }
-        }
+
+        // MaxPool nemá vlastní aktivaci, takže „raw" a výstup je totéž.
+        public override Tensor? Layer_raw_output => Layer_output;
 
         public int PoolSize
         {
