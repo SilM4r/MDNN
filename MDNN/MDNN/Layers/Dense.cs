@@ -245,7 +245,7 @@ namespace My_DNN.Layers
             // spočítá všechno a maska se uplatní až na hotový výstup.
             bool canSkip = dropoutMask != null && !activation_func.Apply_to_layer;
 
-            for (int i = 0; i < neurons.Count(); i++)
+            for (int i = 0; i < neurons.Count; i++)
             {
                 if (canSkip && dropoutMask![i] == 0.0)
                 {
@@ -273,7 +273,7 @@ namespace My_DNN.Layers
 
                 output = layerActivationFunc.ApplyToLayer(raw_output);
 
-                for (int i = 0; i < neurons.Count(); i++)
+                for (int i = 0; i < neurons.Count; i++)
                 {
                     neurons[i].output = output[i];
                 }
@@ -306,14 +306,14 @@ namespace My_DNN.Layers
             }
 
             if (FreezeDropoutMaskForTests && dropoutMask != null
-                && dropoutMask.Length == neurons.Count())
+                && dropoutMask.Length == neurons.Count)
             {
                 return;
             }
 
-            if (dropoutMask == null || dropoutMask.Length != neurons.Count())
+            if (dropoutMask == null || dropoutMask.Length != neurons.Count)
             {
-                dropoutMask = new double[neurons.Count()];
+                dropoutMask = new double[neurons.Count];
             }
 
             // Zesílení přeživších drží střední hodnotu výstupu stejnou jako bez dropoutu
@@ -415,8 +415,8 @@ namespace My_DNN.Layers
                 return layerActivationFunc.BackwardForLayer(raw_output, gradFromAbove);
             }
 
-            double[] e = new double[Neurons.Count()];
-            for (int j = 0; j < Neurons.Count(); j++)
+            double[] e = new double[Neurons.Count];
+            for (int j = 0; j < Neurons.Count; j++)
             {
                 Neuron neuron = Neurons[j];
                 e[j] = gradFromAbove[j] * neuron.activation_func.Derivative(neuron.raw_output);
@@ -432,7 +432,7 @@ namespace My_DNN.Layers
         }
         private Tensor FeedForwardViaGpu(double[] values)
         {
-            int quantity = neurons.Count();
+            int quantity = neurons.Count;
             float[] weights = new float[quantity * input_size[0]];
             float[] bias = new float[quantity];
 
@@ -466,7 +466,7 @@ namespace My_DNN.Layers
                 output = layerActivationFunc.ApplyToLayer(raw_output);
             }
 
-            for (int j = 0; j < neurons.Count(); j++)
+            for (int j = 0; j < neurons.Count; j++)
             {
 
                 neurons[j].raw_output = raw_output[j];

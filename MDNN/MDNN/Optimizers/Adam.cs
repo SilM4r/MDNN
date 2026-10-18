@@ -45,9 +45,40 @@
             t[i]++;
             m[i] = b1 * m[i] + (1 - b1) * gradient;
             v[i] = b2 * v[i] + (1 - b2) * gradient * gradient;
-            double mHat = m[i] / (1 - Math.Pow(b1, t[i]));   
-            double vHat = v[i] / (1 - Math.Pow(b2, t[i]));
+            double mHat = m[i] / BiasCorrection1(t[i]);
+            double vHat = v[i] / BiasCorrection2(t[i]);
             return w - L * mHat / (Math.Sqrt(vHat) + 1e-8);
+        }
+
+        // Korekce zkreslení 1 − β^t. Dřív se počítala přes Math.Pow DVAKRÁT NA KAŽDOU VÁHU,
+        // a to byla zhruba třetina času UpdateParams. Přitom t mají všechny váhy jednoho
+        // neuronu stejné (Update je volá v jedné smyčce za sebou), takže stačí si pamatovat
+        // poslední t a jeho hodnotu — Math.Pow se pak počítá jednou na neuron a krok.
+        //
+        // Hodnota je přesně tatáž, jen se nepočítá znovu. Proto ne průběžné násobení β^t:
+        // to by bylo ještě levnější, ale posunulo by zaokrouhlení a výsledky by se proti
+        // dřívějšku (i proti PyTorchi) rozešly v posledních cifrách.
+        private int cachedT1 = -1, cachedT2 = -1;
+        private double correction1, correction2;
+
+        private double BiasCorrection1(int step)
+        {
+            if (step != cachedT1)
+            {
+                cachedT1 = step;
+                correction1 = 1 - Math.Pow(b1, step);
+            }
+            return correction1;
+        }
+
+        private double BiasCorrection2(int step)
+        {
+            if (step != cachedT2)
+            {
+                cachedT2 = step;
+                correction2 = 1 - Math.Pow(b2, step);
+            }
+            return correction2;
         }
     }
 }

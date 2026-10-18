@@ -217,7 +217,7 @@ namespace My_DNN.Layers
 
             EnsureSensitivities();
 
-            for (int i = 0; i < neurons.Count(); i++)
+            for (int i = 0; i < neurons.Count; i++)
             {
                 newValues[values.Length] = output[i];   // rekurentní vstup = h_i(t-1) = předchozí výstup
 

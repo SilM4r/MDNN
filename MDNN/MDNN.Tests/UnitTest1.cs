@@ -830,6 +830,37 @@
           // s bias correction: první krok ≈ L·sign(g) nezávisle na velikosti g → 1 - 0.05 = 0.95
           Assert.Equal(0.95, w, 6);
       }
+
+      [Fact]
+      public void Adam_bias_correction_follows_each_parameters_own_step()
+      {
+          // Korekce 1 − β^t se pamatuje pro poslední t (v tréninku mají všechny váhy
+          // neuronu stejné t). Tady se t střídá — parametr 0 je ve 3. kroku, parametr 1
+          // v 1. — a cache se nesmí splést: parametr 1 musí dostat korekci PRVNÍHO kroku.
+          //
+          // Očekávané hodnoty se počítají nezávisle přímo ze vzorce (ne druhou instancí
+          // Adamu — ta by měla tutéž chybu) a gradient se mění: při konstantním gradientu
+          // vyjde korigovaný krok pořád stejně a špatná korekce by se neprojevila.
+          const double lr = 0.05, b1 = 0.9, b2 = 0.999;
+          double Expected(double[] grads)
+          {
+              double m = 0, v = 0;
+              foreach (double g in grads) { m = b1 * m + (1 - b1) * g; v = b2 * v + (1 - b2) * g * g; }
+              int t = grads.Length;
+              return 1.0 - lr * (m / (1 - Math.Pow(b1, t))) / (Math.Sqrt(v / (1 - Math.Pow(b2, t))) + 1e-8);
+          }
+
+          var adam = new Adam(lr);
+          adam.Update(1.0, 1.0, 0);
+          adam.Update(1.0, 3.0, 0);
+          adam.Update(1.0, -2.0, 0);
+
+          double first = adam.Update(1.0, 5.0, 1);    // parametr 1, krok 1
+          double fourth = adam.Update(1.0, 4.0, 0);   // parametr 0, krok 4
+
+          Assert.Equal(Expected(new[] { 5.0 }), first, 12);
+          Assert.Equal(Expected(new[] { 1.0, 3.0, -2.0, 4.0 }), fourth, 12);
+      }
   }
 
   public class IndependenceTests : GradientCheckTestBase
