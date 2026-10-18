@@ -33,21 +33,24 @@ namespace My_DNN.Layers
         private Activation_func activation_func;
 
         // RTRL: citlivosti ∂h_i/∂param, akumulované DOPŘEDU v čase
-        private double[][] sW;   // sW[neuron][váha]  (poslední váha = rekurentní)
-        private double[] sB;     // sB[neuron]        (bias)
-        private double[] gImm;   // okamžitý gradient shora vůči h_i (mezi CalcGrad → BackProp)
+        // Alokují se líně (EnsureSensitivities), až je známý počet vah; prázdné pole = ještě ne.
+        private double[][] sW = Array.Empty<double[]>();   // sW[neuron][váha]  (poslední váha = rekurentní)
+        private double[] sB = Array.Empty<double>();       // sB[neuron]        (bias)
+        private double[] gImm = Array.Empty<double>();     // okamžitý gradient shora vůči h_i
 
 
         public RNN(ExportRnnLayer layer)
         {
             activation_func = Activation_func.inicialization_activation_func(layer.Name_of_activation_function);
             CheckIsActivationFuncIsNotApplyToLayer();
-            output = new double[layer.Neurons.Count()];
-            raw_output = new double[layer.Neurons.Count()];
+            List<ExportNeuron> saved = BaseExportLayer.Required(layer.Neurons, Name, nameof(layer.Neurons));
+
+            output = new double[saved.Count];
+            raw_output = new double[saved.Count];
 
             neurons = new List<Neuron>();
 
-            foreach (ExportNeuron neuron in layer.Neurons)
+            foreach (ExportNeuron neuron in saved)
             {
                 neurons.Add(new Neuron(neuron, activation_func));
             }
@@ -116,7 +119,7 @@ namespace My_DNN.Layers
         // (neurony se přebudují až ve Fit → SetInputSizeForFirstLayer, po ResetSequence)
         private void EnsureSensitivities()
         {
-            if (sW == null || sW.Length != neurons.Count
+            if (sW.Length != neurons.Count
                 || (neurons.Count > 0 && sW[0].Length != neurons[0].Weights.Length))
                 AllocateSensitivities();
         }

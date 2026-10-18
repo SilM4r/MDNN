@@ -11,6 +11,16 @@ namespace My_DNN.Save_neural_network
             set; 
         }
 
+        // Povinné pole vrstvy ze souboru. Pole jsou nullable, protože v JSON chybět MŮŽOU —
+        // dřív se s nimi ale pracovalo, jako by tam byla vždycky, takže poškozený soubor
+        // (třeba bez "Kernel") spadl na NullReferenceException hluboko v konstruktoru vrstvy.
+        internal static T Required<T>(T? value, string layerType, string field) where T : class
+            => value ?? throw new ModelFileCorruptedException(
+                $"Vrstva {layerType} v souboru s modelem nemá pole „{field}\".");
+
+        internal static T Required<T>(T? value, string layerType, string field) where T : struct
+            => value ?? throw new ModelFileCorruptedException(
+                $"Vrstva {layerType} v souboru s modelem nemá pole „{field}\".");
     }
 
     public class ExportDenseLayer : BaseExportLayer

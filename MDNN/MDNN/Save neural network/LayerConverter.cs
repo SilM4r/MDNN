@@ -12,7 +12,7 @@ namespace My_DNN.Save_neural_network
                 var root = jsonDoc.RootElement;
                 var layerType = root.GetProperty("LayerType").GetString();
 
-                return layerType switch
+                BaseExportLayer? layer = layerType switch
                 {
                     "Dense" => JsonSerializer.Deserialize<ExportDenseLayer>(root.GetRawText(), options),
                     "Conv" => JsonSerializer.Deserialize<ExportCNNLayer>(root.GetRawText(), options),
@@ -20,6 +20,9 @@ namespace My_DNN.Save_neural_network
                     "MaxPool" => JsonSerializer.Deserialize<ExportMaxPoolLayer>(root.GetRawText(), options),
                     _ => throw new NotSupportedException($"Unknown layer type: {layerType}")
                 };
+
+                // `null` v poli vrstev — soubor je poškozený
+                return layer ?? throw new ModelFileCorruptedException($"Vrstva {layerType} v souboru s modelem je prázdná.");
             }
         }
 
@@ -38,7 +41,8 @@ namespace My_DNN.Save_neural_network
                 var layers = new List<BaseExportLayer>();
                 foreach (var element in jsonDoc.RootElement.EnumerateArray())
                 {
-                    layers.Add(JsonSerializer.Deserialize<BaseExportLayer>(element.GetRawText(), options));
+                    layers.Add(JsonSerializer.Deserialize<BaseExportLayer>(element.GetRawText(), options)
+                               ?? throw new ModelFileCorruptedException("Seznam vrstev v souboru s modelem obsahuje prázdnou položku."));
                 }
                 return layers;
             }

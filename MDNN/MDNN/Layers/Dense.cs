@@ -114,12 +114,14 @@ namespace My_DNN.Layers
             if (layer.DropoutRate != null) ValidateDropout(layer.DropoutRate.Value);
             dropout = layer.DropoutRate;
 
-            output = new double[layer.Neurons.Count()];
-            raw_output = new double[layer.Neurons.Count()];
+            List<ExportNeuron> saved = BaseExportLayer.Required(layer.Neurons, Name, nameof(layer.Neurons));
+
+            output = new double[saved.Count];
+            raw_output = new double[saved.Count];
 
             neurons = new List<Neuron>();
 
-            foreach (ExportNeuron neuron in layer.Neurons)
+            foreach (ExportNeuron neuron in saved)
             {
                 neurons.Add(new Neuron(neuron, activation_func));
             }

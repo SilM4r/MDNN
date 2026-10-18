@@ -43,15 +43,18 @@ namespace My_DNN.Layers
             get { return padding; }
         }
 
-        private double[][][][] kernels;
-        internal double[][][][] dKernels;   // internal kvůli gradient-check testům
-        private double[] biases;
-        internal double[] dBiases;           // internal kvůli gradient-check testům
-        private double[][][] dOutput;
+        // Prázdné výchozí hodnoty: buffery se alokují až při zapojení (WireShapes), kernely
+        // při materializaci. Všechny konstruktory je přepíšou; prázdné pole je tu jen proto,
+        // aby pole nikdy nebylo null.
+        private double[][][][] kernels = Array.Empty<double[][][]>();
+        internal double[][][][] dKernels = Array.Empty<double[][][]>();   // internal kvůli gradient-check testům
+        private double[] biases = Array.Empty<double>();
+        internal double[] dBiases = Array.Empty<double>();                // internal kvůli gradient-check testům
+        private double[][][] dOutput = Array.Empty<double[][]>();
         private string padding;
-        private double[][][] output;
-        private double[][][] raw_output;
-        private double[][][] inputs;
+        private double[][][] output = Array.Empty<double[][]>();
+        private double[][][] raw_output = Array.Empty<double[][]>();
+        private double[][][] inputs = Array.Empty<double[][]>();
 
         private int[] inputsShape;
         private int[] outputShape;
@@ -74,11 +77,11 @@ namespace My_DNN.Layers
 
         public Conv(ExportCNNLayer layer)
         {
-            kernels = layer.Kernel;
-            biases = layer.Biases;
+            kernels = BaseExportLayer.Required(layer.Kernel, Name, nameof(layer.Kernel));
+            biases = BaseExportLayer.Required(layer.Biases, Name, nameof(layer.Biases));
             activation_func = Activation_func.inicialization_activation_func(layer.Name_of_activation_function);
             CheckIsActivationFuncIsNotApplyToLayer();
-            padding = layer.Padding;
+            padding = BaseExportLayer.Required(layer.Padding, Name, nameof(layer.Padding));
 
             optimizer = Optimizer.Clone_optimizer(GeneralNeuralNetworkSettings.optimizer);
 
@@ -88,7 +91,7 @@ namespace My_DNN.Layers
                 optimizer.ImportState(layer.OptimizerState);
             }
 
-            inputsShape = layer.InputShape;
+            inputsShape = BaseExportLayer.Required(layer.InputShape, Name, nameof(layer.InputShape));
 
             if (padding.ToLower() == "same")
             {

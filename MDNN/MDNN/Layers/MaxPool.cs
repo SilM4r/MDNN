@@ -56,8 +56,8 @@ namespace My_DNN.Layers
         }
         public MaxPool(ExportMaxPoolLayer layer)
         {
-            inputsShape = layer.InputsShape ;
-            poolSize = (int)layer.PoolSize;
+            inputsShape = BaseExportLayer.Required(layer.InputsShape, Name, nameof(layer.InputsShape));
+            poolSize = BaseExportLayer.Required(layer.PoolSize, Name, nameof(layer.PoolSize));
 
             int outHeight = (inputsShape[0] - poolSize) / poolSize + 1;
             int outWidth = (inputsShape[1] - poolSize) / poolSize + 1;
@@ -156,6 +156,14 @@ namespace My_DNN.Layers
             // padal na NotSupportedException() bez jediného slova v hlášce.
             // Tvar jen pro tuhle metodu, tenzor volajícího zůstane nedotčený — viz Conv.FeedForward.
             int[] shape = SpatialShape.RequireWiredShape(TensorValues.Shape, inputsShape, Name);
+
+            // Buffery vzniknou při zapojení (WireShapes). Bez něj by forward spadl na
+            // NullReferenceException; takhle řekne, co chybí.
+            if (inputs == null || output == null)
+            {
+                throw new InvalidOperationException(
+                    "MaxPool: vrstva ještě není zapojená do modelu — neznám tvar vstupu.");
+            }
 
             // plochá cesta místo (double[,,])GetOriginalData() — viz Conv.FeedForward
             double[] inputValues = TensorValues.Data;

@@ -6,14 +6,15 @@ namespace My_DNN.Save_neural_network
 {
     public class NetworkSaveLoadManager
     {
-        public string Note { get; set; }
+        public string Note { get; set; } = "";
         public double Valid_Loss { get; set; }
-        public string Schema { get; set; }
+        public string Schema { get; set; } = "";
         public uint Current_epoch { get; set; }
         public uint Target_epoch { get; set; }
         public uint Mini_batch { get; set; }
 
-        public string Loss_functions { get; set; }
+        // Chybějící jméno odmítne až Loss.ResolveForLoad (prázdný řetězec = „chybí").
+        public string Loss_functions { get; set; } = "";
 
         // Provenience: čím a kdy model vznikl.
         // Seed se dosud NEUKLÁDAL, takže z uloženého modelu nešlo zjistit, jak ho zopakovat.
@@ -31,10 +32,13 @@ namespace My_DNN.Save_neural_network
         public double L2 { get; set; }
         public double Dropout { get; set; }
 
-        public ExportOptimizer Optimizer { get; set; }
+        // `null!` jen do doby, než deserializace pole vyplní — LoadFromString hned potom
+        // ověří, že v souboru opravdu byla (RequireComplete), jinak by se poškozený soubor
+        // projevil až NullReferenceException při stavbě modelu.
+        public ExportOptimizer Optimizer { get; set; } = null!;
 
         [JsonConverter(typeof(LayerListConverter))]
-        public List<BaseExportLayer> Layers { get; set; }
+        public List<BaseExportLayer> Layers { get; set; } = null!;
 
     
         public NetworkSaveLoadManager(MDNN model, bool includeOptimizerState = true)
@@ -180,6 +184,7 @@ namespace My_DNN.Save_neural_network
 
             if (model != null)
             {
+                model.RequireComplete();
                 return model;
             }
 
@@ -187,6 +192,15 @@ namespace My_DNN.Save_neural_network
             {
                 throw new ArgumentException("Bad format of file");
             }
+        }
+
+        // Pole, bez kterých model postavit nejde (viz deklarace Optimizer/Layers).
+        private void RequireComplete()
+        {
+            if ((object?)Optimizer == null)
+                throw new ModelFileCorruptedException("Soubor s modelem neobsahuje sekci „Optimizer\".");
+            if ((object?)Layers == null)
+                throw new ModelFileCorruptedException("Soubor s modelem neobsahuje sekci „Layers\".");
         }
 
         // Vrátí JSON vlastního modelu. Nový formát rozbalí a ověří kontrolní součet,
