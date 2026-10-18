@@ -301,6 +301,11 @@ Co je dobré vědět:
   (`isSequence: true`; mimo něj teče skrytý stav z jednoho vzorku do dalšího) a paralelní
   trénink nejde kombinovat s GPU. Všechny tři případy vyhodí `NotSupportedException`, místo
   aby se tiše trénovalo jinak.
+- **Paralelně běží i validace a test** — validace mezi epochami, `TestNeuralNetwork()`
+  i závěrečný test v `TrainLoop()`. Jde jen o dopředné průchody: výstupy se spočítají
+  paralelně a loss a skóre se z nich pak sečtou v pořadí vzorků, takže vyjdou **bit po bitu
+  stejně** jako při `Workers = 1` — a s nimi i výběr nejlepšího modelu a early stopping.
+  Změřeno: 3,5× se 4 vlákny, až 5,8× s 10.
 - Vlastní smyčka s `Fit()` a `UpdateParams()` běží vždy sekvenčně.
 
 ### `Fit()` a `UpdateParams()`

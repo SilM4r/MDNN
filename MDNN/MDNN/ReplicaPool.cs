@@ -27,7 +27,9 @@ namespace My_DNN
         private readonly MDNN _original;
         private readonly MDNN[] _replicas;
 
-        public ReplicaPool(MDNN original, int workers)
+        // `training` = repliky budou trénovat (RunBatch). false = jen vyhodnocovat (Map):
+        // forward bez dropoutu, takže generátor náhody nepotřebují vůbec.
+        public ReplicaPool(MDNN original, int workers, bool training = true)
         {
             if (original.Context.CalculationViaGpu)
             {
@@ -55,7 +57,10 @@ namespace My_DNN
             // Bez dropoutu se z generátoru originálu NEČERPÁ — každé čerpání by posunulo
             // jeho stav a další epocha by zamíchala data jinak než při Workers = 1. Zapnout
             // paralelismus by pak změnilo trénink víc než o zaokrouhlení.
-            bool needsRandom = original.Layers.Layers.Any(l => l is Layers.Dense d && d.UsesDropout);
+            // Při vyhodnocování dropout neběží, takže se nečerpá nikdy — validace mezi
+            // epochami by jinak posunula generátor a změnila pořadí dat další epochy.
+            bool needsRandom = training
+                               && original.Layers.Layers.Any(l => l is Layers.Dense d && d.UsesDropout);
 
             for (int w = 0; w < workers; w++)
             {
@@ -77,13 +82,35 @@ namespace My_DNN
             }
         }
 
-        // Spočítá vzorky order[start..end) a nasčítá jejich gradienty do originálu.
-        // `fitOne` dostane Train repliky a index vzorku — tentýž kód, jaký se volá
-        // v sekvenční cestě nad originálem.
-        public void RunBatch(int[] order, int start, int end, Action<Train, int> fitOne)
+        // Pro každý index 0..count-1 zavolá `run(replika, index)` a výsledky vrátí V POŘADÍ
+        // INDEXŮ, ne v pořadí doběhnutí. Jen čtení modelu (forward pro validaci a test):
+        // nic se nesčítá do originálu, takže výsledek nezávisí na tom, jak se práce rozdělí.
+        // Volající pak výsledky zpracuje sekvenčně, a tedy stejně jako při Workers = 1.
+        public T[] Map<T>(int count, Func<MDNN, int, T> run)
         {
-            int count = end - start;
+            var results = new T[count];
             int used = Math.Min(_replicas.Length, count);
+            if (used == 0) return results;
+
+            SyncReplicas(used);
+
+            RunOnReplicas(used, w =>
+            {
+                int from = count * w / used;
+                int to = count * (w + 1) / used;
+
+                for (int k = from; k < to; k++)
+                {
+                    results[k] = run(_replicas[w], k);
+                }
+            });
+
+            return results;
+        }
+
+        // Před prací: přenést do replik parametry, které nesdílí odkazem (biasy neuronů).
+        private void SyncReplicas(int used)
+        {
             List<Layer> originalLayers = _original.Layers.Layers;
 
             for (int w = 0; w < used; w++)
@@ -94,19 +121,13 @@ namespace My_DNN
                     originalLayers[i].SyncReplica(replicaLayers[i]);
                 }
             }
+        }
 
+        private static void RunOnReplicas(int used, Action<int> body)
+        {
             try
             {
-                Parallel.For(0, used, new ParallelOptions { MaxDegreeOfParallelism = used }, w =>
-                {
-                    int from = start + count * w / used;
-                    int to = start + count * (w + 1) / used;
-
-                    for (int k = from; k < to; k++)
-                    {
-                        fitOne(_replicas[w].Train, order[k]);
-                    }
-                });
+                Parallel.For(0, used, new ParallelOptions { MaxDegreeOfParallelism = used }, body);
             }
             catch (AggregateException e)
             {
@@ -115,6 +136,29 @@ namespace My_DNN
                 ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw();
                 throw;
             }
+        }
+
+        // Spočítá vzorky order[start..end) a nasčítá jejich gradienty do originálu.
+        // `fitOne` dostane Train repliky a index vzorku — tentýž kód, jaký se volá
+        // v sekvenční cestě nad originálem.
+        public void RunBatch(int[] order, int start, int end, Action<Train, int> fitOne)
+        {
+            int count = end - start;
+            int used = Math.Min(_replicas.Length, count);
+            List<Layer> originalLayers = _original.Layers.Layers;
+
+            SyncReplicas(used);
+
+            RunOnReplicas(used, w =>
+            {
+                int from = start + count * w / used;
+                int to = start + count * (w + 1) / used;
+
+                for (int k = from; k < to; k++)
+                {
+                    fitOne(_replicas[w].Train, order[k]);
+                }
+            });
 
             // Pevné pořadí 0, 1, 2, … — ne podle toho, kdo doběhne dřív.
             for (int w = 0; w < used; w++)

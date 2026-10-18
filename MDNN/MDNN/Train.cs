@@ -327,55 +327,23 @@ namespace My_DNN
             int score = 0;
             int maxScore = 0;
 
+            // Výstupy se nejdřív spočítají všechny (při Workers > 1 paralelně), skóre se pak
+            // sečte sekvenčně v pořadí vzorků — viz PredictSamples.
             if (_model.Context.SequenceTrain)
             {
-                for (int i = 0; i < inputsValues.Shape[0]; i++)
+                double[][][] outputs = PredictSequences(inputsValues);
+
+                for (int i = 0; i < outputs.Length; i++)
                 {
-                    _model.ResetSequence();
-                    for (int j = 0; j < inputsValues.Shape[1]; j++)
+                    for (int j = 0; j < outputs[i].Length; j++)
                     {
-                        Tensor outputTensor = _model.GetResults(inputsValues.GetTensorValue([i, j]));
-
-                        double[] output = outputTensor.Data;
-
                         // Počítáme ČASOVÉ KROKY, ne výstupní neurony. Dřív tu bylo
                         // `maxScore += output.Length`, zatímco score se zvyšovalo o 1 za krok
                         // → poměr score/maxScore byl v sekvenčním režimu nesmyslné číslo
                         // (dělilo se počtem neuronů). Nesekvenční větev to měla správně.
                         maxScore++;
 
-                        bool zeroError = true;
-
-                        // upravit na softMax
-                        if (_model.Layers.Layers[_model.Layers.Layers.Count() - 1].Activation_Func.Apply_to_layer)
-                        {
-                            double maxOutputValue = output.Max();
-                            int maxOutputIndex = output.ToList().IndexOf(maxOutputValue);
-
-                            double maxCurrentOutputValue = ((double[])currentOutputValues.GetValue([i,j])).Max();
-                            int maxCurrentOutputIndex = ((double[])currentOutputValues.GetValue([i,j])).ToList().IndexOf(maxCurrentOutputValue);
-
-                            if (maxCurrentOutputIndex != maxOutputIndex)
-                            {
-                                zeroError = false;
-                            }
-
-                        }
-                        else
-                        {
-                            for (int k = 0; k < output.Length; k++)
-                            {
-                                if (Math.Abs(Math.Round(output[k]) - Math.Round(((double[])currentOutputValues.GetValue(
-                                        [i,j]))[k])) > 0.1)
-                                {
-                                    zeroError = false;
-                                    break;
-                                }
-                            }
-                        }
-
-
-                        if (zeroError)
+                        if (IsPredictionCorrect(outputs[i][j], currentOutputValues.GetTensorValue([i, j]).Data))
                         {
                             score++;
                         }
@@ -386,45 +354,12 @@ namespace My_DNN
 
             else
             {
-                for (int i = 0; i < inputsValues.Shape[0]; i++)
+                double[][] outputs = PredictSamples(inputsValues);
+                maxScore = outputs.Length;
+
+                for (int i = 0; i < outputs.Length; i++)
                 {
-                    Tensor outputTensor = _model.GetResults(inputsValues.GetTensorValue([i]));
-
-                    double[] output = outputTensor.Data;
-                    double[] currentOutput = currentOutputValues.GetTensorValue([i]).Data;
-
-                    bool zeroError = true;
-                    maxScore = inputsValues.Shape[0];
-
-                    // upravit na softMax
-                    if (_model.Layers.Layers[_model.Layers.Layers.Count() - 1].Activation_Func.Apply_to_layer)
-                    {
-                        double maxOutputValue = output.Max();
-                        int maxOutputIndex = output.ToList().IndexOf(maxOutputValue);
-
-                        double maxCurrentOutputValue = currentOutput.Max();
-                        int maxCurrentOutputIndex = currentOutput.ToList().IndexOf(maxCurrentOutputValue);
-
-                        if (maxCurrentOutputIndex != maxOutputIndex)
-                        {
-                            zeroError = false;
-                        }
-
-                    }
-                    else
-                    {
-                        for (int j = 0; j < output.Length; j++)
-                        {
-                            if (Math.Abs(Math.Round(output[j]) - Math.Round(currentOutput[j])) > 0.1)
-                            {
-                                zeroError = false;
-                                break;
-                            }
-                        }
-                    }
-
-
-                    if (zeroError)
+                    if (IsPredictionCorrect(outputs[i], currentOutputValues.GetTensorValue([i]).Data))
                     {
                         score++;
                     }
@@ -1092,6 +1027,75 @@ namespace My_DNN
         // Shodná logika jako v TestNeuralNetwork: u klasifikace (softmax / apply-to-layer)
         // se porovná argmax výstupu s argmaxem targetu, u regrese zaokrouhlené hodnoty.
         // Sdílené, aby průběžná accuracy počítala stejně jako závěrečný TestNeuralNetwork.
+        // Výstup modelu pro každý vzorek, v pořadí vzorků. Jen forward (bez dropoutu),
+        // takže při Workers > 1 se vzorky rozdělí mezi repliky a výsledek je přesto
+        // bit po bitu stejný: forward jednoho vzorku na stejných vahách dá totéž, ať ho
+        // spočítá kdokoli. Sčítání (loss, skóre) dělá volající sekvenčně nad výsledkem.
+        private double[][] PredictSamples(Tensor inputs)
+        {
+            int count = inputs.Shape[0];
+            Func<MDNN, int, double[]> predict = (model, i) => model.GetResults(inputs.GetTensorValue([i])).Data;
+
+            ReplicaPool? pool = CreateEvaluationPool(inputs);
+            if (pool != null)
+            {
+                return pool.Map(count, predict);
+            }
+
+            var outputs = new double[count][];
+            for (int i = 0; i < count; i++)
+            {
+                outputs[i] = predict(_model, i);
+            }
+            return outputs;
+        }
+
+        // Totéž pro sekvence: [sekvence][krok]. Celá sekvence jde vždy jednou replikou,
+        // skrytý stav se nuluje na jejím začátku — stejně jako v tréninku.
+        private double[][][] PredictSequences(Tensor inputs)
+        {
+            int count = inputs.Shape[0];
+            int steps = inputs.Shape[1];
+
+            Func<MDNN, int, double[][]> predict = (model, i) =>
+            {
+                model.ResetSequence();
+                var sequence = new double[steps][];
+                for (int j = 0; j < steps; j++)
+                {
+                    sequence[j] = model.GetResults(inputs.GetTensorValue([i, j])).Data;
+                }
+                return sequence;
+            };
+
+            ReplicaPool? pool = CreateEvaluationPool(inputs);
+            if (pool != null)
+            {
+                return pool.Map(count, predict);
+            }
+
+            var outputs = new double[count][][];
+            for (int i = 0; i < count; i++)
+            {
+                outputs[i] = predict(_model, i);
+            }
+            return outputs;
+        }
+
+        // Repliky pro vyhodnocení, nebo null = sekvenčně. Vyhodnocovací režim nečerpá
+        // z generátoru modelu (dropout při predikci neběží), takže validace mezi epochami
+        // nemění pořadí dat další epochy.
+        private ReplicaPool? CreateEvaluationPool(Tensor inputs)
+        {
+            if (_workers == 1 || inputs.Shape[0] < 2)
+            {
+                return null;
+            }
+
+            _ = inputs.Data;   // líné zploštění ještě sekvenčně — viz RunOneEpoch
+            return new ReplicaPool(_model, _workers, training: false);
+        }
+
         private bool IsPredictionCorrect(double[] output, double[] target)
         {
             if (_model.Layers.Layers[_model.Layers.Layers.Count() - 1].Activation_Func.Apply_to_layer)
@@ -1128,17 +1132,20 @@ namespace My_DNN
             int correct = 0;
             int total = 0;
 
+            // Výstupy nejdřív všechny (při Workers > 1 paralelně), loss a úspěšnost pak
+            // sekvenčně v pořadí vzorků — součet loss tak vyjde bit po bitu stejně jako
+            // při Workers = 1, a s ním i výběr nejlepšího modelu a early stopping.
             if (_model.Context.SequenceTrain)
             {
-                for (int i = 0; i < validInputs.Shape[0]; i++)
+                double[][][] outputs = PredictSequences(validInputs);
+
+                for (int i = 0; i < outputs.Length; i++)
                 {
-                    _model.ResetSequence();
-                    for (int j = 0; j < validInputs.Shape[1]; j++)
+                    for (int j = 0; j < outputs[i].Length; j++)
                     {
-                        Tensor output = _model.GetResults(validInputs.GetTensorValue([i, j]));
                         double[] target = validOutputs.GetTensorValue([i, j]).Data;
-                        lossFunc.CalculateLoss(output.Data, target);
-                        if (IsPredictionCorrect(output.Data, target)) correct++;
+                        lossFunc.CalculateLoss(outputs[i][j], target);
+                        if (IsPredictionCorrect(outputs[i][j], target)) correct++;
                         total++;
                     }
                 }
@@ -1146,12 +1153,13 @@ namespace My_DNN
 
             else
             {
-                for (int i = 0; i < validInputs.Shape[0]; i++)
+                double[][] outputs = PredictSamples(validInputs);
+
+                for (int i = 0; i < outputs.Length; i++)
                 {
-                    Tensor output = _model.GetResults(validInputs.GetTensorValue([i]));
                     double[] target = validOutputs.GetTensorValue([i]).Data;
-                    lossFunc.CalculateLoss(output.Data, target);
-                    if (IsPredictionCorrect(output.Data, target)) correct++;
+                    lossFunc.CalculateLoss(outputs[i], target);
+                    if (IsPredictionCorrect(outputs[i], target)) correct++;
                     total++;
                 }
             }

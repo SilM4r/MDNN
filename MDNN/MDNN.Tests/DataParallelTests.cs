@@ -238,6 +238,122 @@ public class DataParallelTests
         AssertClose(Parameters(sequential), Parameters(parallel));
     }
 
+    // ------------------------------------------------------------ vyhodnocení (valid, test)
+    //
+    // Validace a test jsou jen forward, a výstupy se při Workers > 1 jen spočítají
+    // paralelně — loss a skóre se z nich sčítají sekvenčně v pořadí vzorků. Výsledek
+    // proto musí být bit po bitu stejný jako při Workers = 1, ne jen „blízko".
+
+    private static My_DNN.MDNN Classifier()
+    {
+        var model = new My_DNN.MDNN(new Dense(3, new Softmax()), new Adam(0.02), new CrossEntropy(), seed: 13);
+        model.Layers.Add(new Dense(6, new Tanh()));
+        Quiet(model).Train.NumberOfShowEpochInConsole = 100;   // report každou epochu → validace pokaždé
+        return model;
+    }
+
+    private static (double[][] x, double[][] y) Classes(int n = 30)
+    {
+        var x = new double[n][];
+        var y = new double[n][];
+        for (int i = 0; i < n; i++)
+        {
+            double a = Math.Sin(i * 1.7), b = Math.Cos(i * 0.9);
+            x[i] = new[] { a, b };
+            y[i] = new double[3];
+            y[i][a > 0.3 ? 0 : b > 0 ? 1 : 2] = 1;
+        }
+        return (x, y);
+    }
+
+    [Fact]
+    public void Validation_is_bit_identical_to_sequential()
+    {
+        // Při dávce 1 je i trénink bit po bitu stejný (vzorek spočítá jedna replika a
+        // 0 + x je přesné), takže se tu dá porovnávat PŘESNĚ: kdyby paralelní validace
+        // dala jinou valid loss, jinak by se vybral nejlepší model a lišily by se i váhy.
+        var (x, y) = Classes();
+        var sequential = Classifier();
+        var parallel = Classifier();
+        parallel.Train.Workers = 3;
+
+        sequential.Train.TrainLoop(x, y, 8, 1);
+        parallel.Train.TrainLoop(x, y, 8, 1);
+
+        Assert.Equal(sequential.Train.LowestValidLoss, parallel.Train.LowestValidLoss);
+        Assert.Equal(sequential.Train.BestEpoch, parallel.Train.BestEpoch);
+        Assert.Equal(Parameters(sequential), Parameters(parallel));
+    }
+
+    [Fact]
+    public void Test_scores_are_identical_to_sequential()
+    {
+        var (x, y) = Classes();
+        var model = Classifier();
+        model.Train.SimpleTrainLoop(x, y, 5, 4);
+
+        Tensor inputs = Tensor.ConvertArrayToTensor(x);
+        Tensor targets = Tensor.ConvertArrayToTensor(y);
+
+        var expected = model.Train.TestNeuralNetwork(inputs, targets, showInConsole: false);
+        model.Train.Workers = 4;
+        var actual = model.Train.TestNeuralNetwork(inputs, targets, showInConsole: false);
+
+        Assert.Equal(expected, actual);
+        Assert.Equal(30, actual.Item2);
+    }
+
+    [Fact]
+    public void Sequence_test_scores_are_identical_to_sequential()
+    {
+        // Celá sekvence jde jednou replikou a skrytý stav se nuluje na jejím začátku.
+        var x = new double[9, 4, 2];
+        var y = new double[9, 4, 1];
+        for (int s = 0; s < 9; s++)
+        for (int t = 0; t < 4; t++)
+        {
+            x[s, t, 0] = Math.Sin(s + t);
+            x[s, t, 1] = Math.Cos(s - t);
+            y[s, t, 0] = x[s, t, 0] > 0 ? 1 : 0;
+        }
+
+        var model = Rnn();
+        model.Train.TrainLoop(x, y, 2, 1, isSequence: true);
+
+        Tensor inputs = Tensor.ConvertArrayToTensor(x);
+        Tensor targets = Tensor.ConvertArrayToTensor(y);
+
+        var expected = model.Train.TestNeuralNetwork(inputs, targets, showInConsole: false);
+        model.Train.Workers = 3;
+        var actual = model.Train.TestNeuralNetwork(inputs, targets, showInConsole: false);
+
+        Assert.Equal(expected, actual);
+        Assert.Equal(9 * 4, actual.Item2);
+    }
+
+    [Fact]
+    public void Evaluation_does_not_draw_from_the_models_random_generator()
+    {
+        // Trénovací repliky si při dropoutu berou seedy z generátoru modelu. Vyhodnocovací
+        // nesmí: validace běží mezi epochami a posunutý generátor by zamíchal další epochu
+        // jinak než při Workers = 1.
+        var (x, y) = Classes();
+        My_DNN.MDNN WithDropout()
+        {
+            var m = new My_DNN.MDNN(new Dense(3, new Softmax()), new Adam(0.02), new CrossEntropy(), seed: 13);
+            m.Layers.Add(new Dense(6, new Tanh(), dropout: 0.3));
+            m.GetResults(new Tensor(x[0]));
+            return m;
+        }
+
+        var untouched = WithDropout();
+        var evaluated = WithDropout();
+        evaluated.Train.Workers = 3;
+        evaluated.Train.TestNeuralNetwork(Tensor.ConvertArrayToTensor(x), Tensor.ConvertArrayToTensor(y), showInConsole: false);
+
+        Assert.Equal(untouched.Context.Random.Next(), evaluated.Context.Random.Next());
+    }
+
     // ------------------------------------------------------------ determinismus
 
     private static double[] TrainWithDropout(int workers)
