@@ -22,6 +22,16 @@
 
         public override Optimizer CreateFresh() => new Momentum(L, a);
 
+        public override Dictionary<string, double[]> ExportState() => new()
+        {
+            ["velocity"] = (double[])velocity.Clone(),
+        };
+
+        public override void ImportState(Dictionary<string, double[]> state)
+        {
+            velocity = RequireState(state, "velocity", null);
+        }
+
         // Přesná velikost — viz Adam.EnsureCapacity.
         public override void EnsureCapacity(int parameterCount)
         {

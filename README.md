@@ -101,7 +101,7 @@ Supported loss functions: `MSE`, `CrossEntropy`.
 
 Each model owns its own configuration, so multiple independent models can coexist in the same process.
 
-You can also create custom optimizers or loss functions by inheriting the corresponding base class (for example `Optimizer` or `Loss`) and implementing its abstract members. A custom optimizer's `CreateFresh()` must return a new instance with the same hyperparameters and empty state — every neuron gets its own copy. A model with a custom optimizer, loss or activation cannot be loaded from a saved file yet: loading looks them up by name and only knows the built-in ones. It fails with an `ArgumentException` rather than silently substituting a different function.
+You can also create custom optimizers or loss functions by inheriting the corresponding base class (for example `Optimizer` or `Loss`) and implementing its abstract members. A custom optimizer's `CreateFresh()` must return a new instance with the same hyperparameters and empty state — every neuron gets its own copy. Override `ExportState()` and `ImportState()` as well if its state should survive saving and loading; without them it is loaded with empty state. Loading builds only the built-in optimizers and losses by name — for a custom one pass an instance: `MDNN.LoadModel(path, optimizer: new MyOptimizer(…), loss: new MyLoss())`. A custom activation cannot be loaded yet. Either way it fails with an `ArgumentException` rather than silently substituting a different function.
 
 Note on `CrossEntropy`: it is intended to be paired with a `Softmax` output layer. It computes the fused softmax + categorical cross-entropy gradient (`output − target`), which is the numerically stable form. Using `CrossEntropy` without a `Softmax` output layer raises an exception.
 
@@ -447,6 +447,31 @@ anyone who edits the file can recompute the hash. Files written by older version
 `LoadModel(path, seed)` lets you set the seed for continued training; without it the seed
 stored in the file is restored.
 
+**Optimizer state is saved too**, so training can be interrupted and resumed seamlessly: the
+moments and step count of `Adam` and the velocity of `Momentum` are stored with every neuron
+and `Conv` layer. Training N steps, saving, loading and training M more gives a bit-identical
+result to N + M steps without the interruption. (Without the state, `Adam` would start over
+with zeroed moments, and its first steps after loading would be as large as at the very start
+of training.) The state roughly triples the file size; for a model used only for prediction:
+
+```csharp
+model.SaveAsJson("model", includeOptimizerState: false);
+```
+
+Files without the state (older ones, or saved this way) load with an empty optimizer state,
+and files with it can still be read by older versions of the library, which ignore it.
+
+To continue training with different hyperparameters — say a lower learning rate — pass the
+optimizer to `LoadModel`; it has to be the same kind as in the file, and the saved state is
+loaded into it:
+
+```csharp
+MDNN model = MDNN.LoadModel("model", optimizer: new Adam(0.0001));
+```
+
+The best model restored at the end of `TrainLoop()` keeps the optimizer state of the epoch it
+comes from, so training can carry on from it directly.
+
 ## Supporting utilities
 
 ### Tensor
@@ -474,7 +499,7 @@ Each model owns a `NetworkContext` (`model.Context`) that holds its runtime conf
 
 | Member | Meaning |
 |---|---|
-| `Loss`, `Optimizer` | the loss function and optimizer for this model |
+| `Loss`, `Optimizer` | the loss function and optimizer for this model. Assigning a different optimizer later reaches every layer — each gets a fresh copy with empty state |
 | `Seed`, `Random` | the model's own random generator — see [Reproducibility](#reproducibility) |
 | `L2` | L2 weight decay coefficient, `0` = off |
 | `Dropout` | default dropout rate for hidden layers, `0` = off |

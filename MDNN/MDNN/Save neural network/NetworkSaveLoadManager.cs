@@ -17,8 +17,9 @@ namespace My_DNN.Save_neural_network
 
         // Provenience: čím a kdy model vznikl.
         // Seed se dosud NEUKLÁDAL, takže z uloženého modelu nešlo zjistit, jak ho zopakovat.
-        // Pozn.: seed sám o sobě NEumožní bezešvé navázání tréninku — k tomu by byla potřeba
-        // i pozice v generátoru a stav optimizeru (momenty Adamu). Je to údaj o původu.
+        // Pozn.: seed sám o sobě NEumožní bezešvé navázání tréninku — k tomu je potřeba
+        // i stav optimizeru (ukládá se u neuronů a Conv vrstev, viz ExportNeuron) a pozice
+        // v generátoru (ta se neukládá). Je to údaj o původu.
         public int? Seed { get; set; }
 
         // UTC + ISO-8601 ("O") přes JsonSerializer, ať to nezávisí na lokalizaci stroje.
@@ -36,7 +37,7 @@ namespace My_DNN.Save_neural_network
         public List<BaseExportLayer> Layers { get; set; }
 
     
-        public NetworkSaveLoadManager(MDNN model)
+        public NetworkSaveLoadManager(MDNN model, bool includeOptimizerState = true)
         {
             Schema = model.Schema;
             Current_epoch = model.Train.CurrentEpoch;
@@ -56,15 +57,15 @@ namespace My_DNN.Save_neural_network
             {
                 if (layer is Dense)
                 {
-                    Layers.Add(new ExportDenseLayer((Dense)layer));
+                    Layers.Add(new ExportDenseLayer((Dense)layer, includeOptimizerState));
                 }
                 else if (layer is RNN)
                 {
-                    Layers.Add(new ExportRnnLayer((RNN)layer));
+                    Layers.Add(new ExportRnnLayer((RNN)layer, includeOptimizerState));
                 }
                 else if (layer is Conv)
                 {
-                    Layers.Add(new ExportCNNLayer((Conv)layer));
+                    Layers.Add(new ExportCNNLayer((Conv)layer, includeOptimizerState));
                 }
                 else if (layer is MaxPool)
                 {

@@ -22,6 +22,7 @@ namespace My_DNN
         public LayerManager(Layer Output_Layer, NetworkContext context)
         {
             this.context = context;
+            context.OptimizerChanged = ReplaceOptimizer;
             Output_Layer.Context = context;
             layersList = new List<Layer> { Output_Layer };
             MarkLayerRoles();
@@ -29,6 +30,7 @@ namespace My_DNN
         public LayerManager(List<BaseExportLayer> exportLayers, NetworkContext context)
         {
             this.context = context;
+            context.OptimizerChanged = ReplaceOptimizer;
             layersList = new List<Layer>();
 
             foreach (BaseExportLayer layer in exportLayers)
@@ -72,6 +74,15 @@ namespace My_DNN
             layersList = layers;
             foreach (Layer layer in layers) layer.Context = context;
             MarkLayerRoles();
+        }
+
+        // Model dostal jiný optimizer — každá vrstva si vezme jeho čerstvý klon.
+        private void ReplaceOptimizer(My_DNN.Optimizers.Optimizer prototype)
+        {
+            foreach (Layer layer in layersList)
+            {
+                layer.ReplaceOptimizer(prototype);
+            }
         }
 
         public void SetInputSizeForFirstLayer(int[]? input_size = null)

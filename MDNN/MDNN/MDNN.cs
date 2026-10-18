@@ -36,7 +36,7 @@ namespace My_DNN
         {
             get { return context.Optimizer; }
         }
-        private MDNN(NetworkSaveLoadManager loadModel, int? seed = null)
+        private MDNN(NetworkSaveLoadManager loadModel, int? seed = null, Optimizer? optimizer = null, Loss? loss = null)
         {
             // Váhy se načítají ze souboru, takže seed neovlivní inicializaci — zato ovlivní
             // míchání datasetu a výběr vzorků, což u dotrénování načteného modelu chceš.
@@ -56,12 +56,13 @@ namespace My_DNN
             context.L2 = loadModel.L2;
             context.Dropout = loadModel.Dropout;
 
-            context.Optimizer = Optimizer.Refactor_optimizer(loadModel.Optimizer);
+            // Vestavěné se postaví ze souboru; vlastní nebo přebité předá volající.
+            context.Optimizer = Optimizer.ResolveForLoad(loadModel.Optimizer, optimizer, ownWins: true);
             GeneralNeuralNetworkSettings.optimizer = context.Optimizer;   // export-konstrukce neuronů klonuje static
 
             layerManager = new LayerManager(loadModel.Layers, context);
             train = new Train(this, loadModel.Current_epoch, loadModel.Target_epoch, loadModel.Mini_batch);
-            context.Loss = Loss.inicialization_Loss_func(loadModel.Loss_functions);
+            context.Loss = Loss.ResolveForLoad(loadModel.Loss_functions, loss, ownWins: true);
             Note = loadModel.Note;
         }
         // `seed` = reprodukovatelnost. Ovlivní inicializaci vah, míchání datasetu i výběr
@@ -135,17 +136,25 @@ namespace My_DNN
                 }
             }
         }
-        public void SaveAsJson(string fileName)
+        // `includeOptimizerState` = uložit i stav optimizeru (u Adamu momenty a krok), aby šlo
+        // plynule navázat v tréninku. U Adamu to soubor zhruba zčtyřnásobí; pro model jen
+        // na predikci stačí false.
+        public void SaveAsJson(string fileName, bool includeOptimizerState = true)
         {
             CreateSchema();
-            
-            NetworkSaveLoadManager NSLM = new NetworkSaveLoadManager(this);
+
+            NetworkSaveLoadManager NSLM = new NetworkSaveLoadManager(this, includeOptimizerState);
             NSLM.Save(fileName);
         }
-        public static MDNN LoadModel(string fullPath, int? seed = null)
+
+        // `optimizer` / `loss` = vlastní instance pro model uložený s vlastním optimizerem
+        // nebo loss (načtení je podle jména postavit neumí). Musí nést stejné jméno jako
+        // v souboru. Jde tím i přebít vestavěný — třeba Adam s nižším learning rate pro
+        // dotrénování; stav optimizeru ze souboru se načte do předané instance.
+        public static MDNN LoadModel(string fullPath, int? seed = null, Optimizer? optimizer = null, Loss? loss = null)
         {
             NetworkSaveLoadManager loadModel = NetworkSaveLoadManager.Load(fullPath);
-            return new MDNN(loadModel, seed);
+            return new MDNN(loadModel, seed, optimizer, loss);
         }
         // Replika pro paralelní trénink (viz ReplicaPool): hotové vrstvy, vlastní kontext
         // a vlastní Train, aby šlo volat Fit nezávisle na originálu.
@@ -158,10 +167,10 @@ namespace My_DNN
         }
 
         // serializace TOHOTO modelu do JSON stringu (pro in-memory snapshot nejlepšího modelu)
-        public string SaveAsJsonString()
+        public string SaveAsJsonString(bool includeOptimizerState = true)
         {
             CreateSchema();
-            return new NetworkSaveLoadManager(this).SaveToString();
+            return new NetworkSaveLoadManager(this, includeOptimizerState).SaveToString();
         }
 
         // In-place načtení uloženého modelu do TÉTO instance: přepíše vrstvy/optimizer/loss
@@ -182,9 +191,16 @@ namespace My_DNN
 
         private void ApplyLoaded(NetworkSaveLoadManager loaded)
         {
-            context.Optimizer = Optimizer.Refactor_optimizer(loaded.Optimizer);
+            // Vrstvy se vzápětí postaví znovu ze souboru — změnu optimizeru nemá smysl
+            // propisovat do těch dosavadních.
+            context.OptimizerChanged = null;
+
+            // Vlastní optimizer/loss, které podle jména postavit neumíme, převezme model
+            // ze svého kontextu. Bez toho TrainLoop s vlastním optimizerem nebo loss spadl
+            // na konci při obnově nejlepšího modelu ze snapshotu.
+            context.Optimizer = Optimizer.ResolveForLoad(loaded.Optimizer, context.Optimizer, ownWins: false);
             GeneralNeuralNetworkSettings.optimizer = context.Optimizer;   // export-konstrukce neuronů klonuje static
-            context.Loss = Loss.inicialization_Loss_func(loaded.Loss_functions);
+            context.Loss = Loss.ResolveForLoad(loaded.Loss_functions, context.Loss, ownWins: false);
 
             layerManager = new LayerManager(loaded.Layers, context);
             Note = loaded.Note;

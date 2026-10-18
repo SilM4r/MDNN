@@ -26,6 +26,26 @@
 
         public override Optimizer CreateFresh() => new Adam(L, b1, b2);
 
+        // t je celé číslo, v souboru ale jako double — do 2^53 je to přesné.
+        public override Dictionary<string, double[]> ExportState() => new()
+        {
+            ["m"] = (double[])m.Clone(),
+            ["v"] = (double[])v.Clone(),
+            ["t"] = t.Select(step => (double)step).ToArray(),
+        };
+
+        public override void ImportState(Dictionary<string, double[]> state)
+        {
+            double[] newM = RequireState(state, "m", null);
+            double[] newV = RequireState(state, "v", newM.Length);
+            double[] newT = RequireState(state, "t", newM.Length);
+
+            m = newM;
+            v = newV;
+            t = newT.Select(step => (int)step).ToArray();
+            cachedT1 = cachedT2 = -1;   // korekce zkreslení se spočítá znovu pro načtené t
+        }
+
         // Přesná velikost, žádná rezerva navíc: přebytečná kapacita (dřív zdvojnásobování,
         // 785 → 1024 na neuron) stála ~3 % v každém UpdateParams kvůli větší paměti.
         public override void EnsureCapacity(int parameterCount)

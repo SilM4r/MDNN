@@ -75,6 +75,12 @@ namespace My_DNN
             inicializationGradients();
             optimizer = Optimizer.Clone_optimizer(GeneralNeuralNetworkSettings.optimizer);
             activation_func = activation_function;
+
+            // Navázání tréninku: optimizer pokračuje se stavem, se kterým se model uložil.
+            if (exportNeuron.OptimizerState != null)
+            {
+                optimizer.ImportState(exportNeuron.OptimizerState);
+            }
         }
 
 

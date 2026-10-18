@@ -31,7 +31,7 @@ namespace My_DNN.Save_neural_network
             LayerType = "Dense";
         }
 
-        public ExportDenseLayer(Dense layer)
+        public ExportDenseLayer(Dense layer, bool includeOptimizerState = true)
         {
             LayerType = "Dense";
 
@@ -42,7 +42,7 @@ namespace My_DNN.Save_neural_network
 
             foreach (Neuron neuron in layer.Neurons)
             {
-                this.Neurons.Add(new ExportNeuron(neuron));
+                this.Neurons.Add(new ExportNeuron(neuron, includeOptimizerState));
             }
         }
     }
@@ -56,13 +56,18 @@ namespace My_DNN.Save_neural_network
         public double[]? Biases { get; set; }
         public int[]? InputShape { get; set; }
 
+        // Stav optimizeru vrstvy (Conv má jeden optimizer pro kernely i biasy) — viz
+        // ExportNeuron.OptimizerState.
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public Dictionary<string, double[]>? OptimizerState { get; set; }
+
         [JsonConstructor]
         public ExportCNNLayer()
         {
             LayerType = "Conv";
         }
 
-        public ExportCNNLayer(Conv layer)
+        public ExportCNNLayer(Conv layer, bool includeOptimizerState = true)
         {
             LayerType = "Conv";
             Kernel = layer.Kernel;
@@ -74,6 +79,7 @@ namespace My_DNN.Save_neural_network
             Name_of_activation_function = layer.Activation_Func.Name;
             Padding = layer.Padding;
             InputShape = layer.Input_size_and_shape;
+            OptimizerState = includeOptimizerState ? layer.OptimizerForSave.ExportState() : null;
         }
     }
 
@@ -108,7 +114,7 @@ namespace My_DNN.Save_neural_network
             LayerType = "RNN";
         }
 
-        public ExportRnnLayer(RNN layer)
+        public ExportRnnLayer(RNN layer, bool includeOptimizerState = true)
         {
             LayerType = "RNN";
 
@@ -118,7 +124,7 @@ namespace My_DNN.Save_neural_network
 
             foreach (Neuron neuron in layer.Neurons)
             {
-                this.Neurons.Add(new ExportNeuron(neuron));
+                this.Neurons.Add(new ExportNeuron(neuron, includeOptimizerState));
             }
         }
     }

@@ -14,6 +14,14 @@
             }
         }
 
+        internal override void ReplaceOptimizer(My_DNN.Optimizers.Optimizer prototype)
+        {
+            foreach (Neuron neuron in Neurons)
+            {
+                neuron.optimizer = My_DNN.Optimizers.Optimizer.Clone_optimizer(prototype);
+            }
+        }
+
         internal override void TakeGradientsFrom(Layer replica)
         {
             List<Neuron> replicaNeurons = ((LayerBasedOnNeurons)replica).Neurons;

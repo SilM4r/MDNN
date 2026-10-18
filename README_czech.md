@@ -101,7 +101,7 @@ Podporované ztrátové funkce: `MSE`, `CrossEntropy`.
 
 Každý model vlastní svou konfiguraci, takže v jednom procesu může existovat více nezávislých modelů.
 
-Vlastní optimizér nebo ztrátovou funkci lze vytvořit zděděním odpovídající bázové třídy (například `Optimizer` nebo `Loss`) a implementací jejích abstraktních členů. `CreateFresh()` vlastního optimizéru musí vrátit novou instanci se stejnými hyperparametry a prázdným stavem — každý neuron dostane vlastní kopii. Model s vlastním optimizérem, loss nebo aktivací zatím nejde načíst ze souboru: načítání je hledá podle jména a zná jen vestavěné. Skončí výjimkou `ArgumentException`, místo aby tiše dosadilo jinou funkci.
+Vlastní optimizér nebo ztrátovou funkci lze vytvořit zděděním odpovídající bázové třídy (například `Optimizer` nebo `Loss`) a implementací jejích abstraktních členů. `CreateFresh()` vlastního optimizéru musí vrátit novou instanci se stejnými hyperparametry a prázdným stavem — každý neuron dostane vlastní kopii. Má-li jeho stav přežít uložení a načtení, přepište i `ExportState()` a `ImportState()`; bez nich se načte s prázdným stavem. Načítání podle jména postaví jen vestavěné optimizéry a loss — pro vlastní předejte instanci: `MDNN.LoadModel(cesta, optimizer: new MujOptimizer(…), loss: new MojeLoss())`. Vlastní aktivaci zatím načíst nejde. V obou případech to skončí výjimkou `ArgumentException`, místo aby se tiše dosadila jiná funkce.
 
 Poznámka k `CrossEntropy`: je určená pro použití se softmax výstupní vrstvou. Počítá fúzovaný gradient softmax + kategorická cross-entropy (`výstup − cíl`), což je numericky stabilní forma. Použití `CrossEntropy` bez softmax výstupní vrstvy vyhodí výjimku.
 
@@ -441,6 +441,30 @@ načtou dál, jen bez ověření.
 `LoadModel(path, seed)` umožňuje nastavit seed pro pokračování v tréninku; bez něj se obnoví
 seed uložený v souboru.
 
+**Ukládá se i stav optimizéru**, takže trénink jde přerušit a plynule navázat: momenty a počet
+kroků `Adam` i rychlost `Momentum` se ukládají u každého neuronu a každé vrstvy `Conv`.
+N kroků, uložení, načtení a dalších M kroků dá bit po bitu stejný výsledek jako N + M kroků bez
+přerušení. (Bez stavu by `Adam` začínal znovu s vynulovanými momenty a jeho první kroky po
+načtení by byly velké jako na úplném začátku tréninku.) Stav soubor zhruba ztrojnásobí; pro
+model jen na predikci:
+
+```csharp
+model.SaveAsJson("model", includeOptimizerState: false);
+```
+
+Soubory bez stavu (starší, nebo uložené takhle) se načtou s prázdným stavem optimizéru a soubory
+se stavem přečtou i starší verze knihovny, které ho ignorují.
+
+Pro pokračování s jinými hyperparametry — třeba s nižším learning rate — předejte optimizér do
+`LoadModel`; musí být stejného druhu jako v souboru a uložený stav se načte do něj:
+
+```csharp
+MDNN model = MDNN.LoadModel("model", optimizer: new Adam(0.0001));
+```
+
+Nejlepší model, který `TrainLoop()` na konci obnoví, si nese stav optimizéru z epochy, ze které
+pochází, takže se z něj dá rovnou trénovat dál.
+
 ## Podpůrné nástroje
 
 ### Tensor
@@ -468,7 +492,7 @@ Každý model vlastní `NetworkContext` (`model.Context`), který drží jeho b�
 
 | Člen | Význam |
 |---|---|
-| `Loss`, `Optimizer` | ztrátová funkce a optimizér tohoto modelu |
+| `Loss`, `Optimizer` | ztrátová funkce a optimizér tohoto modelu. Pozdější přiřazení jiného optimizéru se propíše do všech vrstev — každá dostane čerstvou kopii s prázdným stavem |
 | `Seed`, `Random` | vlastní generátor náhody modelu — viz [Reprodukovatelnost](#reprodukovatelnost) |
 | `L2` | koeficient L2 weight decay, `0` = vypnuto |
 | `Dropout` | výchozí dropout pro skryté vrstvy, `0` = vypnuto |

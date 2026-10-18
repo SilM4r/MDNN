@@ -1,4 +1,6 @@
-﻿namespace My_DNN.Layers.classes
+﻿using My_DNN.Optimizers;
+
+namespace My_DNN.Layers.classes
 {
     public abstract class Layer
     {
@@ -97,6 +99,10 @@
 
         // Po dávce: přičíst gradienty repliky k vlastním a repliku vynulovat.
         internal virtual void TakeGradientsFrom(Layer replica) { }
+
+        // Model dostal jiný optimizer (NetworkContext.Optimizer) — vrstva si vezme jeho
+        // čerstvý klon. Vrstvy bez parametrů nemají co měnit.
+        internal virtual void ReplaceOptimizer(Optimizer prototype) { }
 
     }
 }

@@ -109,6 +109,32 @@
             replica.losses = null;
         }
 
+        internal static bool IsBuiltIn(string? name) => name is "Cross Entropy" or "MSE";
+
+        // Loss pro načítaný model — stejná pravidla jako Optimizer.ResolveForLoad.
+        internal static Loss ResolveForLoad(string? savedName, Loss? own, bool ownWins)
+        {
+            if (own != null && own.Name == savedName && (ownWins || !IsBuiltIn(savedName)))
+            {
+                return own;
+            }
+
+            if (own != null && ownWins)
+            {
+                throw new ArgumentException(
+                    $"Model se ukládal s loss funkcí „{savedName}\", předaná je „{own.Name}\".");
+            }
+
+            if (!IsBuiltIn(savedName) && !string.IsNullOrEmpty(savedName))
+            {
+                throw new ArgumentException(
+                    $"Loss funkce „{savedName}\" není vestavěná, načtení ji podle jména neumí postavit. " +
+                    "Předej její instanci: MDNN.LoadModel(cesta, loss: new …).");
+            }
+
+            return inicialization_Loss_func(savedName);
+        }
+
         // Loss podle jména uloženého v souboru s modelem. Dřív neznámé jméno tiše propadlo
         // do MSE: model s vlastní loss se načetl bez chyby a dotrénoval úplně jinou účelovou
         // funkcí. Stejná chyba jako u optimizeru, jen bez výjimky. Teď je to chyba.

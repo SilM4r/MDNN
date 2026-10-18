@@ -59,6 +59,14 @@ namespace My_DNN.Layers
         private int mini_batch_size;
         private Optimizer optimizer;
 
+        // Pro uložení stavu optimizeru do souboru (ExportCNNLayer).
+        internal Optimizer OptimizerForSave => optimizer;
+
+        internal override void ReplaceOptimizer(Optimizer prototype)
+        {
+            optimizer = Optimizer.Clone_optimizer(prototype);
+        }
+
         // Kolik filtrů si vyžádalo poslední WireShapes; MaterializeParameters podle toho staví.
         private int? requestedKernelCount;
 
@@ -73,6 +81,12 @@ namespace My_DNN.Layers
             padding = layer.Padding;
 
             optimizer = Optimizer.Clone_optimizer(GeneralNeuralNetworkSettings.optimizer);
+
+            // navázání tréninku — viz Neuron(ExportNeuron, …)
+            if (layer.OptimizerState != null)
+            {
+                optimizer.ImportState(layer.OptimizerState);
+            }
 
             inputsShape = layer.InputShape;
 

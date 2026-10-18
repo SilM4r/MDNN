@@ -8,7 +8,29 @@ namespace My_DNN
     public class NetworkContext
     {
         public Loss Loss { get; set; } = new MSE();
-        public Optimizer Optimizer { get; set; } = new SGD(0.0001);
+        private Optimizer _optimizer = new SGD(0.0001);
+
+        // Optimizer modelu. Každý neuron (a každá Conv vrstva) má vlastní klon — stav je
+        // per-parametr. Změna po sestavení modelu se PROPÍŠE do všech vrstev: dostanou nový
+        // optimizer s prázdným stavem. Dřív se nepropsala vůbec — vrstvy trénovaly dál
+        // původním, ale do souboru se uložil nový, takže po načtení model trénoval jiným
+        // optimizerem než před uložením. Přiřazení téže instance nic nedělá (stav zůstane).
+        public Optimizer Optimizer
+        {
+            get => _optimizer;
+            set
+            {
+                ArgumentNullException.ThrowIfNull(value);
+                if (ReferenceEquals(value, _optimizer)) return;
+
+                _optimizer = value;
+                OptimizerChanged?.Invoke(value);
+            }
+        }
+
+        // Kdo se má o změnu optimizeru dozvědět — LayerManager modelu. Jedno místo, ne
+        // událost: při znovunačtení vrstev se přepíše, takže starý správce nezůstane viset.
+        internal Action<Optimizer>? OptimizerChanged { get; set; }
 
         // Zdroj náhody pro CELÝ model: inicializace vah/kernelů, míchání datasetu i výběr
         // vzorků v minibatchi. Dřív to byly tři nezávislé zdroje
