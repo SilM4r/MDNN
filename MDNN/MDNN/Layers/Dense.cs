@@ -23,7 +23,7 @@ namespace My_DNN.Layers
                 activation_func = value;
                 foreach (Neuron neuron in neurons)
                 {
-                    neuron.activation_func = activation_func;
+                    neuron.Activation_Func = activation_func;
                 }
             }
         }
@@ -196,7 +196,7 @@ namespace My_DNN.Layers
                 {
                     foreach (Neuron n in rebuilt)
                     {
-                        n.optimizer = Optimizer.Clone_optimizer(Context.Optimizer);
+                        n.Optimizer = Optimizer.Clone_optimizer(Context.Optimizer);
                     }
                 }
 
@@ -255,13 +255,13 @@ namespace My_DNN.Layers
                     // nezůstanou hodnoty z minulého vzorku.
                     output[i] = 0;
                     raw_output[i] = 0;
-                    neurons[i].output = 0;
-                    neurons[i].raw_output = 0;
+                    neurons[i].Output = 0;
+                    neurons[i].RawOutput = 0;
                     continue;
                 }
 
                 output[i] = neurons[i].feedForward(values);
-                raw_output[i] = neurons[i].raw_output;
+                raw_output[i] = neurons[i].RawOutput;
             }
 
             if (activation_func.Apply_to_layer)
@@ -277,7 +277,7 @@ namespace My_DNN.Layers
 
                 for (int i = 0; i < neurons.Count; i++)
                 {
-                    neurons[i].output = output[i];
+                    neurons[i].Output = output[i];
                 }
             }
 
@@ -338,7 +338,7 @@ namespace My_DNN.Layers
             for (int i = 0; i < output.Length; i++)
             {
                 output[i] *= dropoutMask[i];
-                neurons[i].output = output[i];
+                neurons[i].Output = output[i];
             }
         }
         // ---------------------------------------------------------------- konvence B
@@ -421,7 +421,7 @@ namespace My_DNN.Layers
             for (int j = 0; j < Neurons.Count; j++)
             {
                 Neuron neuron = Neurons[j];
-                e[j] = gradFromAbove[j] * neuron.activation_func.Derivative(neuron.raw_output);
+                e[j] = gradFromAbove[j] * neuron.Activation_Func.Derivative(neuron.RawOutput);
             }
             return e;
         }
@@ -446,7 +446,7 @@ namespace My_DNN.Layers
                 }
 
                 bias[j] = (float)neurons[j].Bias;
-                neurons[j].inputs = values;
+                neurons[j].Inputs = values;
             }
 
             float[] gpuOutput = new float[quantity];
@@ -471,12 +471,12 @@ namespace My_DNN.Layers
             for (int j = 0; j < neurons.Count; j++)
             {
 
-                neurons[j].raw_output = raw_output[j];
+                neurons[j].RawOutput = raw_output[j];
                 if (!activation_func.Apply_to_layer)
                 {
                     output[j] = activation_func.Apply(raw_output[j]);
                 }
-                neurons[j].output = output[j];
+                neurons[j].Output = output[j];
             }
 
             return Tensor.FromVector(output);

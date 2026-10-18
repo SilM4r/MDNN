@@ -184,13 +184,13 @@ public class OptimizerSaveTests
         foreach (Layer layer in model.Layers.Layers)
         {
             if (layer is LayerBasedOnNeurons byNeurons)
-                Assert.All(byNeurons.Neurons, n => Assert.IsType<Adam>(n.optimizer));
+                Assert.All(byNeurons.Neurons, n => Assert.IsType<Adam>(n.Optimizer));
         }
         Assert.IsType<Adam>(model.Layers.Layers.OfType<Conv>().Single().OptimizerForSave);
 
         // a uložený model s ním opravdu pokračuje
         var loaded = SaveAndLoad(model);
-        Assert.All(((Dense)loaded.Layers.Layers[^1]).Neurons, n => Assert.IsType<Adam>(n.optimizer));
+        Assert.All(((Dense)loaded.Layers.Layers[^1]).Neurons, n => Assert.IsType<Adam>(n.Optimizer));
     }
 
     [Fact]
@@ -199,11 +199,11 @@ public class OptimizerSaveTests
         var model = Mlp(new Adam(0.05));
         Steps(model, X, T, 3);
         var neuron = ((Dense)model.Layers.Layers[0]).Neurons[0];
-        double[] before = neuron.optimizer.ExportState()!["m"];
+        double[] before = neuron.Optimizer.ExportState()!["m"];
 
         model.Context.Optimizer = model.Context.Optimizer;
 
-        Assert.Equal(before, neuron.optimizer.ExportState()!["m"]);
+        Assert.Equal(before, neuron.Optimizer.ExportState()!["m"]);
     }
 
     // ------------------------------------------------------------ vlastní optimizer a loss
@@ -271,10 +271,10 @@ public class OptimizerSaveTests
         // Dotrénování s nižším learning rate: hyperparametry z předané instance, stav ze souboru.
         var model = Mlp(new Adam(0.05));
         Steps(model, X, T, 3);
-        double[] m = ((Dense)model.Layers.Layers[0]).Neurons[0].optimizer.ExportState()!["m"];
+        double[] m = ((Dense)model.Layers.Layers[0]).Neurons[0].Optimizer.ExportState()!["m"];
 
         var loaded = SaveAndLoad(model, optimizer: new Adam(0.001));
-        var optimizer = ((Dense)loaded.Layers.Layers[0]).Neurons[0].optimizer;
+        var optimizer = ((Dense)loaded.Layers.Layers[0]).Neurons[0].Optimizer;
 
         Assert.Equal(0.001, optimizer.Hyperparameters[0]);
         Assert.Equal(m, optimizer.ExportState()!["m"]);
@@ -295,6 +295,6 @@ public class OptimizerSaveTests
         model.Train.TrainLoop(x, y, 5, 4);   // TestNeuralNetworkAfterTraining zůstává zapnutý
 
         Assert.IsType<HalfMse>(model.Loss);
-        Assert.IsType<Heavy>(((Dense)model.Layers.Layers[0]).Neurons[0].optimizer);
+        Assert.IsType<Heavy>(((Dense)model.Layers.Layers[0]).Neurons[0].Optimizer);
     }
 }

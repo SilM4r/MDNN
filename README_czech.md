@@ -548,6 +548,29 @@ MDNN (model)
 - `Tensor` je nosič dat předávaný mezi vrstvami (ploché pole `Data` plus `Shape`).
 - `NetworkContext` (`model.Context`) drží stav modelu. Protože tento stav není globální, dva modely v jednom procesu jsou plně nezávislé.
 
+Každý neuron jde prohlédnout, což se hodí, když se člověk učí, jak síť počítá. Po průchodu
+modelem si navíc každý neuron pamatuje, co v tom průchodu dostal a co spočítal:
+
+```csharp
+foreach (Layer layer in model.Layers.Layers)
+{
+    if (layer is LayerBasedOnNeurons byNeurons)   // Dense, RNN
+    {
+        for (int i = 0; i < byNeurons.Neurons.Count; i++)
+        {
+            Neuron n = byNeurons.Neurons[i];
+            Console.WriteLine($"{layer.Name} #{i}: bias {n.Bias}, váhy [{string.Join(", ", n.Weights)}]");
+            Console.WriteLine($"   vstup [{string.Join(", ", n.Inputs)}] -> w·x+b = {n.RawOutput} " +
+                              $"-> {n.Activation_Func.Name} -> {n.Output}");
+        }
+    }
+}
+```
+
+Stav jde zvenku jen číst (`Output`, `RawOutput`, `Inputs`, `Activation_Func`, `Optimizer`);
+zapisuje do něj jen knihovna, takže ho nejde omylem změnit mimo pořadí, ve kterém trénink
+počítá. `Weights` vrací přímo pole vah.
+
 ### Odvození tvaru vstupu (lazy)
 
 Vrstvy se vytvářejí bez znalosti velikosti vstupu — zadává se jen počet neuronů (nebo kernelů). Při prvním dopředném průchodu model zaznamená tvar vstupu do `Context.InputShape` a zavolá `Layers.SetInputSizeForFirstLayer()`, která projde vrstvy a každé zavolá `LayerAdjustment()`. Každá vrstva si odvodí skutečnou velikost vstupu z výstupu předchozí vrstvy a teprve pak alokuje parametry (neurony, kernely). Proto váhy vrstvy neexistují, dokud model poprvé neuvidí data.

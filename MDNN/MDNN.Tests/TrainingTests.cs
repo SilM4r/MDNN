@@ -159,8 +159,8 @@
           b.Train.Fit(new Tensor(new double[] { 0.5, 0.3, 0.2 }), new Tensor(new double[] { 0.0, 1.0, 0.0 }));
 
           // per-model optimizer: A má SGD, B má Adam (dřív sdílený static → šláply by si)
-          Assert.IsType<SGD>(((Dense)a.Layers.Layers[0]).Neurons[0].optimizer);
-          Assert.IsType<Adam>(((Dense)b.Layers.Layers[0]).Neurons[0].optimizer);
+          Assert.IsType<SGD>(((Dense)a.Layers.Layers[0]).Neurons[0].Optimizer);
+          Assert.IsType<Adam>(((Dense)b.Layers.Layers[0]).Neurons[0].Optimizer);
 
           // po trénování obou: každý si drží svou architekturu i loss (nešlapou si po sobě)
           Assert.Equal(1, a.GetResults(new Tensor(new double[] { 0.5 })).Data.Length);

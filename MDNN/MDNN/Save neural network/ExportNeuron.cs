@@ -24,7 +24,7 @@ namespace My_DNN.Save_neural_network
         {
             Weights = neuron.Weights;
             Bias = neuron.Bias;
-            OptimizerState = includeOptimizerState ? neuron.optimizer.ExportState() : null;
+            OptimizerState = includeOptimizerState ? neuron.Optimizer.ExportState() : null;
         }
     }
 }

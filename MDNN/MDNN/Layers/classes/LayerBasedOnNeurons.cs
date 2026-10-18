@@ -18,7 +18,7 @@
         {
             foreach (Neuron neuron in Neurons)
             {
-                neuron.optimizer = My_DNN.Optimizers.Optimizer.Clone_optimizer(prototype);
+                neuron.Optimizer = My_DNN.Optimizers.Optimizer.Clone_optimizer(prototype);
             }
         }
 

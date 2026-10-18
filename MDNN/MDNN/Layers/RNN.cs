@@ -177,7 +177,7 @@ namespace My_DNN.Layers
                 {
                     foreach (Neuron n in rebuilt)
                     {
-                        n.optimizer = Optimizer.Clone_optimizer(Context.Optimizer);
+                        n.Optimizer = Optimizer.Clone_optimizer(Context.Optimizer);
                     }
                 }
 
@@ -225,10 +225,10 @@ namespace My_DNN.Layers
                 newValues[values.Length] = output[i];   // rekurentní vstup = h_i(t-1) = předchozí výstup
 
                 output[i] = neurons[i].feedForward(newValues);
-                raw_output[i] = neurons[i].raw_output;   // z_i(t)
+                raw_output[i] = neurons[i].RawOutput;   // z_i(t)
 
                 // RTRL: posuň citlivosti o krok dopředu
-                double actD = neurons[i].activation_func.Derivative(raw_output[i]);   // act'(z_i)
+                double actD = neurons[i].Activation_Func.Derivative(raw_output[i]);   // act'(z_i)
                 double r = neurons[i].Weights[newValues.Length - 1];                  // rekurentní váha
                 for (int k = 0; k < newValues.Length; k++)                            // ∂z/∂w_k = newValues[k]
                     sW[i][k] = actD * (newValues[k] + r * sW[i][k]);
@@ -283,7 +283,7 @@ namespace My_DNN.Layers
                 // Do vrstvy pod sebou ale act' patří: ∂L/∂z_j = g_imm_j · act'(z_j).
                 if (!computeInputGradient) continue;
 
-                double delta = gImmJ * neurons[j].activation_func.Derivative(neurons[j].raw_output);
+                double delta = gImmJ * neurons[j].Activation_Func.Derivative(neurons[j].RawOutput);
                 if (delta == 0.0) continue;
 
                 double[] w = neurons[j].Weights;

@@ -556,6 +556,29 @@ MDNN (model)
 - `Tensor` is the data carrier passed between layers (a flat `Data` array plus a `Shape`).
 - `NetworkContext` (`model.Context`) holds the per-model state. Because this state is not global, two models in the same process are fully independent.
 
+Every neuron can be inspected, which is handy when learning how the network computes. After a
+pass through the model each neuron also holds what it saw and produced on that pass:
+
+```csharp
+foreach (Layer layer in model.Layers.Layers)
+{
+    if (layer is LayerBasedOnNeurons byNeurons)   // Dense, RNN
+    {
+        for (int i = 0; i < byNeurons.Neurons.Count; i++)
+        {
+            Neuron n = byNeurons.Neurons[i];
+            Console.WriteLine($"{layer.Name} #{i}: bias {n.Bias}, weights [{string.Join(", ", n.Weights)}]");
+            Console.WriteLine($"   input [{string.Join(", ", n.Inputs)}] -> w·x+b = {n.RawOutput} " +
+                              $"-> {n.Activation_Func.Name} -> {n.Output}");
+        }
+    }
+}
+```
+
+The state is read-only from outside (`Output`, `RawOutput`, `Inputs`, `Activation_Func`,
+`Optimizer`); only the library writes to it, so it cannot be changed out of step with training
+by accident. `Weights` returns the weight array itself.
+
 ### Lazy shape inference
 
 Layers are constructed without knowing their input size — you only specify the number of neurons (or kernels). On the first forward pass the model records the input shape into `Context.InputShape` and calls `Layers.SetInputSizeForFirstLayer()`, which walks the layers calling each one's `LayerAdjustment()`. Every layer derives its real input size from the previous layer's output size and only then allocates its parameters (neurons, kernels). This is why a layer's weights do not exist until the model first sees data.

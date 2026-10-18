@@ -16,12 +16,17 @@ namespace My_DNN
         }
 
         
-        public double output;
-        public double raw_output;
-        public double[] inputs;
+        // Stav neuronu jde zvenku ČÍST (výpis vah, výstupů… při učení se, jak síť počítá),
+        // ale zapisuje do něj jen knihovna. Dřív to byla veřejná pole a kdo nastavil třeba
+        // `inputs` nebo `optimizer` mimo pořadí, které vrstva čeká, dostal tiše špatný výpočet.
+        //
+        // Výstup a vstupy jsou z POSLEDNÍHO průchodu neuronem.
+        public double Output { get; internal set; }
+        public double RawOutput { get; internal set; }   // před aktivací (w · x + b)
+        public double[] Inputs { get; internal set; }
 
-        public Activation_func activation_func;
-        public Optimizer optimizer;
+        public Activation_func Activation_Func { get; internal set; }
+        public Optimizer Optimizer { get; internal set; }
 
         private double[] weights;
         private double bias;
@@ -41,10 +46,10 @@ namespace My_DNN
             Random rnd = random ?? GeneralNeuralNetworkSettings.rnd;
 
             weights = new double[Number_of_input];
-            inputs = new double[Number_of_input];
+            Inputs = new double[Number_of_input];
             gradientsW = new double[Number_of_input];
 
-            output = 0;
+            Output = 0;
 
             // limit je pro všechny váhy stejný → počítat ho ve smyčce bylo zbytečné
             double limit = Number_of_input > 0 ? Math.Sqrt(6.0 / Number_of_input) : 0;
@@ -57,29 +62,29 @@ namespace My_DNN
             bias = 0;
 
             inicializationGradients();
-            optimizer = Optimizer.Clone_optimizer(GeneralNeuralNetworkSettings.optimizer);
-            activation_func = activation_function;
+            Optimizer = Optimizer.Clone_optimizer(GeneralNeuralNetworkSettings.optimizer);
+            Activation_Func = activation_function;
         }
 
         public Neuron(ExportNeuron exportNeuron, Activation_func activation_function)
         {
 
             weights = exportNeuron.Weights;
-            inputs = new double[Weights.Length];
+            Inputs = new double[Weights.Length];
             gradientsW = new double[Weights.Length];
 
             bias = exportNeuron.Bias;
 
-            output = 0;
+            Output = 0;
 
             inicializationGradients();
-            optimizer = Optimizer.Clone_optimizer(GeneralNeuralNetworkSettings.optimizer);
-            activation_func = activation_function;
+            Optimizer = Optimizer.Clone_optimizer(GeneralNeuralNetworkSettings.optimizer);
+            Activation_Func = activation_function;
 
             // Navázání tréninku: optimizer pokračuje se stavem, se kterým se model uložil.
             if (exportNeuron.OptimizerState != null)
             {
-                optimizer.ImportState(exportNeuron.OptimizerState);
+                Optimizer.ImportState(exportNeuron.OptimizerState);
             }
         }
 
@@ -101,7 +106,7 @@ namespace My_DNN
 
         public double feedForward(double[] values)
         {
-            inputs = values;
+            Inputs = values;
 
             // Skalární součin w · x. Dvě věci, obě kvůli rychlosti:
             //
@@ -130,10 +135,10 @@ namespace My_DNN
                 sum += values[i] * weights[i];
             }
 
-            raw_output = sum + bias;
-            output = activation_func.Apply(raw_output);
+            RawOutput = sum + bias;
+            Output = Activation_Func.Apply(RawOutput);
 
-            return output;
+            return Output;
         }
 
         public void backPropagation(double e, double L)
@@ -141,7 +146,7 @@ namespace My_DNN
 
             for (int i = 0; i < Weights.Length; i++)
             {
-                Weights[i] -= L * e * inputs[i];
+                Weights[i] -= L * e * Inputs[i];
             }
             bias -= L * e * 1;
         }
@@ -155,9 +160,9 @@ namespace My_DNN
         internal Neuron CreateReplica()
         {
             Neuron replica = (Neuron)MemberwiseClone();
-            replica.inputs = new double[weights.Length];
-            replica.output = 0;
-            replica.raw_output = 0;
+            replica.Inputs = new double[weights.Length];
+            replica.Output = 0;
+            replica.RawOutput = 0;
             replica.gradientsW = new double[weights.Length];
             replica.gradientsB = 0;
             replica.mini_batch_size = 0;
@@ -200,7 +205,7 @@ namespace My_DNN
 
             for (int i = 0; i < Weights.Length; i++)
             {
-                gradientsW[i] += e * inputs[i];
+                gradientsW[i] += e * Inputs[i];
             }
             gradientsB += e ;
 
@@ -231,19 +236,19 @@ namespace My_DNN
             }
 
             // váhy + bias (bias má index Weights.Length, viz níž)
-            optimizer.EnsureCapacity(Weights.Length + 1);
+            Optimizer.EnsureCapacity(Weights.Length + 1);
 
             for (int i = 0; i < Weights.Length; i++)
             {
                 // L2 se přičítá k UŽ ZPRŮMĚROVANÉMU gradientu, ne k součtu přes dávku —
                 // jinak by síla regularizace závisela na velikosti minibatche.
                 double gradient = gradientsW[i] / mini_batch_size + weightDecay * Weights[i];
-                Weights[i] = optimizer.Update(Weights[i], gradient, i);
+                Weights[i] = Optimizer.Update(Weights[i], gradient, i);
             }
 
             // Bias se NEregularizuje: netvaruje rozhodovací hranici, jen ji posouvá,
             // takže jeho tažení k nule model nezjednoduší — jen zhorší.
-            bias = optimizer.Update(bias, gradientsB / mini_batch_size,Weights.Length);
+            bias = Optimizer.Update(bias, gradientsB / mini_batch_size,Weights.Length);
 
             mini_batch_size = 0;
 

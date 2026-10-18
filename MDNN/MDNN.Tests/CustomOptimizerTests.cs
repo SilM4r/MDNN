@@ -67,7 +67,7 @@ public class CustomOptimizerTests
         model.Train.Fit(X, T);
         model.Train.UpdateParams();
 
-        Assert.IsType<SignStep>(neuron.optimizer);
+        Assert.IsType<SignStep>(neuron.Optimizer);
         Assert.Equal(0.25, Math.Abs(neuron.Weights[0] - before), 12);   // krok přesně 0.25, ne SGD
     }
 
@@ -78,8 +78,8 @@ public class CustomOptimizerTests
         model.GetResults(X);
         var neurons = ((Dense)model.Layers.Layers[0]).Neurons;
 
-        Assert.NotSame(neurons[0].optimizer, neurons[1].optimizer);
-        Assert.NotSame(model.Optimizer, neurons[0].optimizer);
+        Assert.NotSame(neurons[0].Optimizer, neurons[1].Optimizer);
+        Assert.NotSame(model.Optimizer, neurons[0].Optimizer);
     }
 
     [Fact]

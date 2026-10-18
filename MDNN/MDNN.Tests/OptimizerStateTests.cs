@@ -48,7 +48,7 @@ public class OptimizerStateTests
         => ((Dense)model.Layers.Layers[layer]).Neurons[0].Weights[0];
 
     private static Optimizer OptimizerOf(My_DNN.MDNN model, int layer)
-        => ((Dense)model.Layers.Layers[layer]).Neurons[0].optimizer;
+        => ((Dense)model.Layers.Layers[layer]).Neurons[0].Optimizer;
 
     // ------------------------------------------------------------ přepojení, které nic nemění
 
