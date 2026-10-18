@@ -39,12 +39,37 @@
         private Array? _originalInput = null;
         private double[]? _data = null;
 
+        // Přijme jakékoli pravidelné pole double/int/float — 1D, multidim i zubaté.
         public Tensor(Array input)
         {
-            OriginalInput = input;
-            Shape = Enumerable.Range(0, input.Rank)
-                              .Select(input.GetLength)
-                              .ToArray();
+            Type scalarType = ScalarType(input, out bool isJagged);
+
+            // double[], double[,,] … — tvar řekne Rank, data se zkopírují líně při prvním .Data
+            if (!isJagged && scalarType == typeof(double))
+            {
+                OriginalInput = input;
+                Shape = Enumerable.Range(0, input.Rank)
+                                  .Select(input.GetLength)
+                                  .ToArray();
+                return;
+            }
+
+            // Zubaté pole má vždycky Rank 1, takže tvar se z Ranku vyčíst NEDÁ. Dřív to tak
+            // konstruktor dělal: z double[4][4][1] vznikl Shape [4] nad 16 prvky a Conv nad
+            // tím tiše vrátil nesmysl ([1,1,2] místo [3,3,2]), Dense spadl na IndexOutOfRange.
+            // Správně to uměl jen ConvertArrayToTensor — a na ten člověk nemusí přijít.
+            // GetJaggedShape zároveň odmítne nepravidelné pole.
+            //
+            // Plochou cestou, ne přes ConvertJaggedToMulti (Array.CreateInstance + SetValue
+            // po prvcích = reflexe a boxing na každý double). Změřeno na 5000×784:
+            //   double[][]  360.0 ms / 748.0 MB      <- reflexní cesta
+            //   int[][]      12.9 ms /  29.9 MB      <- plochá cesta
+            //
+            // int/float se převedou na double rovnou, aby OriginalInput byl double jako všude jinde.
+            Shape = isJagged
+                ? GetJaggedShape(input)
+                : Enumerable.Range(0, input.Rank).Select(input.GetLength).ToArray();
+            _data = FlattenArray(input);
         }
 
         public Tensor(double[] Data, int[] Shape)
@@ -203,56 +228,38 @@
             return multiArray;
         }
 
+        // Dnes totéž co `new Tensor(array)` — konstruktor umí všechny vstupy sám.
+        // Zůstává kvůli zpětné kompatibilitě.
         public static Tensor ConvertArrayToTensor(Array array)
         {
-            Type type = array.GetType();
-            Type? elementType = type.GetElementType();
+            return new Tensor(array);
+        }
 
-            bool isjagged = false;
+        // Typ skalárů v poli. Rozbalí VŠECHNY úrovně jagged pole, ne jen jednu. Dřív se
+        // odloupla jedna, takže `double[][]` prošlo, ale `double[][][]` skončilo na hlášce
+        // „invalid type on input array" — a to je přesně tvar sekvenčních dat
+        // ([sekvence][krok][rys]), tedy případ, kvůli kterému sekvenční trénink existuje.
+        private static Type ScalarType(Array array, out bool isJagged)
+        {
+            Type elementType = array.GetType().GetElementType()!;
+            isJagged = false;
 
-            if (elementType == null)
+            while (elementType.IsArray)
             {
-                throw new Exception("input array is null");
-            }
-
-            // Rozbalit VŠECHNY úrovně jagged pole, ne jen jednu. Dřív se odloupla jedna,
-            // takže `double[][]` prošlo, ale `double[][][]` skončilo na hlášce
-            // „invalid type on input array" — a to je přesně tvar sekvenčních dat
-            // ([sekvence][krok][rys]), tedy případ, kvůli kterému sekvenční trénink existuje.
-            while (elementType != null && elementType.IsArray)
-            {
-                elementType = elementType.GetElementType();
-                isjagged = true;
+                elementType = elementType.GetElementType()!;
+                isJagged = true;
             }
 
             // Porovnání na typ, ne na název: .NET jména jsou "Int32"/"Single"/"Double",
             // takže dřívější test na "Int"/"Float" nikdy neprošel a int i float vstupy
             // knihovna odmítala — přestože je vlastní chybová hláška slibuje.
-            if (elementType == typeof(double))
+            if (elementType != typeof(double) && elementType != typeof(int) && elementType != typeof(float))
             {
-                // Zubaté pole jde plochou cestou stejně jako int/float. Dřív se tu volalo
-                // ConvertJaggedToMulti, tedy Array.CreateInstance + SetValue po prvcích —
-                // reflexe a boxing na každý double. Změřeno na 5000×784:
-                //   double[][]  360.0 ms / 748.0 MB      <- reflexní cesta
-                //   int[][]      12.9 ms /  29.9 MB      <- plochá cesta
-                // Nativní typ knihovny byl 28× pomalejší než ten, který se převádí.
-                return isjagged
-                    ? new Tensor(FlattenArray(array), GetJaggedShape(array))
-                    : new Tensor(array);
+                throw new ArgumentException(
+                    $"Tenzor jde vytvořit jen z pole typu double, int nebo float, ne {elementType.Name}.");
             }
 
-            if (elementType == typeof(int) || elementType == typeof(float))
-            {
-                // int/float převedeme na double: tvar + plochá data (vnitřně počítáme v double,
-                // a Conv/MaxPool si přetypovávají GetOriginalData() na double[,,]).
-                int[] shape = isjagged
-                    ? GetJaggedShape(array)
-                    : Enumerable.Range(0, array.Rank).Select(array.GetLength).ToArray();
-
-                return new Tensor(FlattenArray(array), shape);
-            }
-
-            throw new Exception("invalid type on input array, it can be only `int`,`double`,`float`");
+            return elementType;
         }
 
         // Tvar zubatého pole — a kontrola, že je opravdu PRAVIDELNÉ.

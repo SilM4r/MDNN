@@ -385,8 +385,7 @@ After training, a model can be saved to JSON and later loaded for inference. No 
 model.SaveAsJson("save"); // writes save.json
 
 MDNN loaded = MDNN.LoadModel("save.json");   // "save" works too — the extension is optional
-Tensor input = new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset));
-Tensor result = loaded.GetResults(input);
+Tensor result = loaded.GetResults(new Tensor(inputsDataset[0]));   // one sample
 ```
 
 The file carries a `FormatVersion`, the seed the model was created with, the time it was
@@ -418,7 +417,7 @@ stored in the file is restored.
 - an equivalent flat array (`Data`) for faster computation,
 - and the shape as a list of dimensions (`Shape`).
 
-It supports reshaping via `Reshape(int[] newShape)`, along with convenient element access and conversions between jagged and multidimensional arrays.
+`new Tensor(array)` accepts any regular `double`, `int` or `float` array — one-dimensional, multidimensional (`double[,,]`) or jagged (`double[][][]`); `int`/`float` are converted to `double` and a ragged array is rejected. It supports reshaping via `Reshape(int[] newShape)`, along with convenient element access and conversions between jagged and multidimensional arrays.
 
 ### Console output
 

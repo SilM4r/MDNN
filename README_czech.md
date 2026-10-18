@@ -276,8 +276,7 @@ Po natrénování lze model uložit do JSON a později načíst pro inference. K
 model.SaveAsJson("save"); // zapíše save.json
 
 MDNN loaded = MDNN.LoadModel("save.json");   // "save" funguje taky — přípona je volitelná
-Tensor input = new Tensor(Tensor.ConvertJaggedToMulti(inputsDataset));
-Tensor result = loaded.GetResults(input);
+Tensor result = loaded.GetResults(new Tensor(inputsDataset[0]));   // jeden vzorek
 ```
 
 Soubor nese `FormatVersion`, seed, se kterým model vznikl, čas uložení a SHA-256 kontrolní
@@ -309,7 +308,7 @@ uložený v souboru.
 - ekvivalentní jednorozměrné pole (`Data`) pro rychlejší výpočty,
 - a tvar jako seznam rozměrů (`Shape`).
 
-Podporuje přetváření přes `Reshape(int[] newShape)` a pohodlný přístup k prvkům i převody mezi jagged a vícerozměrnými poli.
+`new Tensor(pole)` přijme jakékoli pravidelné pole typu `double`, `int` nebo `float` — jednorozměrné, vícerozměrné (`double[,,]`) i jagged (`double[][][]`); `int`/`float` převede na `double` a nepravidelné pole odmítne. Podporuje přetváření přes `Reshape(int[] newShape)` a pohodlný přístup k prvkům i převody mezi jagged a vícerozměrnými poli.
 
 ### Konzolové výstupy
 
