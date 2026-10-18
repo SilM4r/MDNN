@@ -620,9 +620,13 @@ namespace My_DNN
                     currentOutputValues.Reshape([inputsValues.Shape[0], inputsValues.Shape[1], 1]);
                 }
 
+                // [sekvence, krok, vzorek…], kde vzorek má nejvýš 3 rozměry ([h, w, c] pro Conv)
+                // → nejvýš 5D. Podmínka to tak dělala vždycky, jen hláška tvrdila „čtyřrozměrné".
                 else if (inputsValues.Shape.Length >= 6)
                 {
-                    throw new Exception("for sequential training, the maximum input is a four-dimensional array.");
+                    throw new ArgumentException(
+                        "For sequential training the input can have at most five dimensions " +
+                        "[sequence, step, height, width, channels].");
                 }
 
                 _model.Context.InputShape = inputsValues.GetTensorValue([0, 0]).Shape;
@@ -637,9 +641,14 @@ namespace My_DNN
                     currentOutputValues.Reshape([inputsValues.Shape[0], 1]);
                 }
 
-                else if (inputsValues.Shape.Length >= 4)
+                // [vzorek, …], kde vzorek má nejvýš 3 rozměry → nejvýš 4D. Dřív tu stálo >= 4,
+                // takže dataset obrázků s kanály [n, h, w, c] — přesně to, co Conv bere —
+                // TrainLoop odmítl a šlo to jen obejít zploštěním na [n, h·w·c].
+                else if (inputsValues.Shape.Length >= 5)
                 {
-                    throw new Exception("for non-sequential training, the maximum input is a three-dimensional array.");
+                    throw new ArgumentException(
+                        "For non-sequential training the input can have at most four dimensions " +
+                        "[sample, height, width, channels].");
                 }
 
                 _model.Context.InputShape = inputsValues.GetTensorValue([0]).Shape;

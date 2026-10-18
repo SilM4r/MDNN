@@ -145,15 +145,15 @@ public class DataParallelTests
         Assert.Equal(expected, actual, 12);
     }
 
-    // [vzorek, výška, šířka] — Conv si 2D vzorek doplní na [6, 6, 1]. (4D dataset
-    // [n, h, w, c] TrainLoop dnes odmítá, viz nález v ROADMAP.)
-    private static double[,,] Images(int n)
+    // [vzorek, výška, šířka, kanály] — dva kanály, ať se replikují i vícekanálové kernely.
+    private static double[,,,] Images(int n)
     {
-        var img = new double[n, 6, 6];
+        var img = new double[n, 6, 6, 2];
         for (int s = 0; s < n; s++)
         for (int i = 0; i < 6; i++)
         for (int j = 0; j < 6; j++)
-            img[s, i, j] = Math.Sin(s + i * 0.7 + j * 0.3);
+        for (int c = 0; c < 2; c++)
+            img[s, i, j, c] = Math.Sin(s + i * 0.7 + j * 0.3 + c);
         return img;
     }
 
