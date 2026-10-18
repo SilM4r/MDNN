@@ -9,10 +9,34 @@ namespace My_DNN
         public abstract double Derivative(double value);
         public abstract bool Apply_to_layer { get; }
 
-        public static Activation_func inicialization_activation_func(string name_of_activation_function)
+        // Aktivace podle jména uloženého v souboru s modelem.
+        //
+        // Dřív všechno neznámé tiše propadlo do `default: return new Linear()`. Vlastní
+        // aktivace se tak po načtení stala lineární, a stejně dopadly staré soubory s Conv
+        // vrstvou: ta jméno ukládala přes ToString(), tedy celé jméno typu
+        // „My_DNN.Activation_functions.ReLu" (opraveno v 2c-9). Model se načetl bez chyby
+        // a predikoval jinou funkcí, než se trénoval.
+        //
+        // Teď: celé jméno typu se zkrátí na samotné jméno třídy (staré Conv soubory se tím
+        // načtou SPRÁVNĚ, ne lineárně) a neznámé jméno je chyba, ne Linear.
+        public static Activation_func inicialization_activation_func(string? name_of_activation_function)
         {
-            switch (name_of_activation_function.ToLower())
+            if (string.IsNullOrEmpty(name_of_activation_function))
             {
+                throw new ArgumentException("V souboru s modelem chybí jméno aktivační funkce vrstvy.");
+            }
+
+            string name = name_of_activation_function;
+            int lastDot = name.LastIndexOf('.');
+            if (lastDot >= 0)
+            {
+                name = name.Substring(lastDot + 1);
+            }
+
+            switch (name.ToLower())
+            {
+                case "linear":
+                    return new Linear();
                 case "sigmoid":
                     return new Sigmoid();
                 case "tanh":
@@ -23,7 +47,11 @@ namespace My_DNN
                     return new Leak_ReLu();
                 case "softmax":
                     return new Softmax();
-                default: return new Linear();
+                default:
+                    throw new ArgumentException(
+                        $"Aktivační funkce „{name_of_activation_function}\" není vestavěná. Model " +
+                        "s vlastní aktivací zatím nejde načíst ze souboru — načítání ji hledá " +
+                        "podle jména a zná jen Linear, Sigmoid, Tanh, ReLu, Leak_ReLu a Softmax.");
             }
         }
 

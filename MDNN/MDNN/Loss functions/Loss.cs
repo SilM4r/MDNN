@@ -109,7 +109,10 @@
             replica.losses = null;
         }
 
-        public static Loss inicialization_Loss_func(string name_of_loss_function)
+        // Loss podle jména uloženého v souboru s modelem. Dřív neznámé jméno tiše propadlo
+        // do MSE: model s vlastní loss se načetl bez chyby a dotrénoval úplně jinou účelovou
+        // funkcí. Stejná chyba jako u optimizeru, jen bez výjimky. Teď je to chyba.
+        public static Loss inicialization_Loss_func(string? name_of_loss_function)
         {
             switch (name_of_loss_function)
             {
@@ -117,7 +120,13 @@
                     return new CrossEntropy();
                 case "MSE":
                     return new MSE();
-                default: return new MSE();
+                case null or "":
+                    throw new ArgumentException("V souboru s modelem chybí jméno loss funkce.");
+                default:
+                    throw new ArgumentException(
+                        $"Loss funkce „{name_of_loss_function}\" není vestavěná. Model s vlastní " +
+                        "loss zatím nejde načíst ze souboru — načítání ji hledá podle jména " +
+                        "a zná jen MSE a Cross Entropy.");
             }
         }
 
