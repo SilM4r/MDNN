@@ -104,7 +104,7 @@ namespace My_DNN
             bias = newBias;
         }
 
-        public double feedForward(double[] values)
+        public double FeedForward(double[] values)
         {
             Inputs = values;
 

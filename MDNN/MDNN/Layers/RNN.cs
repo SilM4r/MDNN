@@ -224,7 +224,7 @@ namespace My_DNN.Layers
             {
                 newValues[values.Length] = output[i];   // rekurentní vstup = h_i(t-1) = předchozí výstup
 
-                output[i] = neurons[i].feedForward(newValues);
+                output[i] = neurons[i].FeedForward(newValues);
                 raw_output[i] = neurons[i].RawOutput;   // z_i(t)
 
                 // RTRL: posuň citlivosti o krok dopředu

@@ -7,7 +7,7 @@ using My_DNN.Activation_functions;
 namespace MDNN.Tests;
 
 /// <summary>
-/// Skalární součin v <c>Neuron.feedForward</c> sčítá ve čtyřech nezávislých řetězcích
+/// Skalární součin v <c>Neuron.FeedForward</c> sčítá ve čtyřech nezávislých řetězcích
 /// (kvůli rychlosti) a zbytek, když počet vstupů není dělitelný čtyřmi, dopočítá zvlášť.
 ///
 /// Většina ostatních testů má 2–3 vstupy, takže by prošla jen zbytkovou smyčkou a hlavní
@@ -41,7 +41,7 @@ public class NeuronDotProductTests
         for (int i = 0; i < inputs; i++) expected += w[i] * x[i];
 
         // Jiné pořadí sčítání → může se lišit v posledních bitech, ne víc.
-        Assert.Equal(expected, neuron.feedForward(x), 12);
+        Assert.Equal(expected, neuron.FeedForward(x), 12);
     }
 
     [Fact]
@@ -57,6 +57,6 @@ public class NeuronDotProductTests
         neuron.SetParamsForTests(w, 0);
 
         double expected = Enumerable.Range(1, inputs).Sum(i => (double)i * i * i);   // Σ i³
-        Assert.Equal(expected, neuron.feedForward(x));
+        Assert.Equal(expected, neuron.FeedForward(x));
     }
 }

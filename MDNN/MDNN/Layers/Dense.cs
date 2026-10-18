@@ -260,7 +260,7 @@ namespace My_DNN.Layers
                     continue;
                 }
 
-                output[i] = neurons[i].feedForward(values);
+                output[i] = neurons[i].FeedForward(values);
                 raw_output[i] = neurons[i].RawOutput;
             }
 
