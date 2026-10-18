@@ -10,6 +10,8 @@ MDNN je knihovna pro návrh a trénování neuronových sítí v jazyce C#. Umo�
 - [Příklady](#příklady)
 - [Konfigurace modelu](#konfigurace-modelu)
 - [Přidávání vrstev](#přidávání-vrstev)
+- [Regularizace](#regularizace)
+- [Reprodukovatelnost](#reprodukovatelnost)
 - [Trénování modelu](#trénování-modelu)
 - [GPU akcelerace](#gpu-akcelerace)
 - [Ukládání a načítání modelů](#ukládání-a-načítání-modelů)
@@ -29,11 +31,12 @@ Podporované typy vrstev:
 Další možnosti:
 
 - Škála aktivačních funkcí, optimizérů a ztrátových funkcí
+- Regularizace: L2 weight decay a dropout
+- Reprodukovatelné běhy z jednoho seedu
 - Snadná integrace do projektů v C#
 - Volitelný výpočet na GPU
-- Asynchronní trénování a inference
 - Ukládání a načítání modelů ve formátu JSON
-- Předdefinované trénovací smyčky
+- Předdefinované trénovací smyčky, volitelně paralelní přes minibatch
 
 ## Instalace
 
@@ -98,7 +101,7 @@ Podporované ztrátové funkce: `MSE`, `CrossEntropy`.
 
 Každý model vlastní svou konfiguraci, takže v jednom procesu může existovat více nezávislých modelů.
 
-Vlastní optimizér nebo ztrátovou funkci lze vytvořit zděděním odpovídající bázové třídy (například `Optimizer` nebo `Loss`) a implementací jejích abstraktních členů. `CreateFresh()` vlastního optimizéru musí vrátit novou instanci se stejnými hyperparametry a prázdným stavem — každý neuron dostane vlastní kopii. Model s vlastním optimizérem zatím nejde načíst ze souboru: načítání hledá optimizér podle jména a zná jen `SGD`, `Adam` a `Momentum`.
+Vlastní optimizér nebo ztrátovou funkci lze vytvořit zděděním odpovídající bázové třídy (například `Optimizer` nebo `Loss`) a implementací jejích abstraktních členů. `CreateFresh()` vlastního optimizéru musí vrátit novou instanci se stejnými hyperparametry a prázdným stavem — každý neuron dostane vlastní kopii. Model s vlastním optimizérem, loss nebo aktivací zatím nejde načíst ze souboru: načítání je hledá podle jména a zná jen vestavěné. Skončí výjimkou `ArgumentException`, místo aby tiše dosadilo jinou funkci.
 
 Poznámka k `CrossEntropy`: je určená pro použití se softmax výstupní vrstvou. Počítá fúzovaný gradient softmax + kategorická cross-entropy (`výstup − cíl`), což je numericky stabilní forma. Použití `CrossEntropy` bez softmax výstupní vrstvy vyhodí výjimku.
 
@@ -131,6 +134,80 @@ Vlastní vrstvu lze vytvořit zděděním jedné z abstraktních tříd `Layer`,
 
 Dostupné aktivační funkce: `Linear`, `ReLu`, `Leak_ReLu`, `Sigmoid`, `Tanh`, `Softmax`.
 
+## Regularizace
+
+Obě techniky jsou ve výchozím stavu vypnuté a nastavují se na `model.Context`.
+
+### L2 weight decay
+
+K účelové funkci přičte `λ/2 · Σw²`, což v gradientu znamená `+ λ·w` — velké váhy se
+penalizují, takže model je tlačen k jednodušším řešením.
+
+```csharp
+model.Context.L2 = 0.001;   // 0 = vypnuto (výchozí)
+```
+
+Co je dobré vědět:
+
+- Uplatňuje se na **váhy a konvoluční kernely, nikdy na biasy**. Bias netvaruje rozhodovací
+  hranici, jen ji posouvá, takže jeho zmenšování model nezjednoduší.
+- Přičítá se k **už zprůměrovanému** gradientu, takže síla regularizace se nemění se
+  změnou velikosti minibatche.
+- Loss vypisovaná během tréninku člen `λ/2 · Σw²` **neobsahuje** — stejná konvence, jakou
+  PyTorch používá pro `weight_decay`. Vidíte jen chybu predikce.
+- Jde o klasické L2 (přičtené ke gradientu, takže u `Adam` projde i adaptivním škálováním).
+  Oddělený weight decay ve stylu AdamW je jiná věc a implementovaný není.
+
+### Dropout
+
+Během tréninku se náhodně vypne část neuronů, takže se síť nemůže spolehnout na žádný
+jednotlivý a musí si k odpovědi vybudovat několik nezávislých cest.
+
+```csharp
+model.Context.Dropout = 0.5;                        // výchozí pro každou skrytou vrstvu
+model.Layers.Add(new Dense(64, new ReLu()));        // zdědí 0.5
+model.Layers.Add(new Dense(32, new ReLu(), 0.2));   // vlastní hodnota má přednost
+model.Layers.Add(new Dense(16, new ReLu(), 0.0));   // výslovně vypnuto
+```
+
+Hodnota zadaná na vrstvě vždy přebije globální, včetně `0.0` pro vypnutí. Hodnota vrstvy je
+k dispozici i později jako `DropoutRate` (`null` znamená „zdědit").
+
+- **Globální hodnota se nikdy neuplatní na výstupní vrstvu.** Zahazovat vlastní výstupy sítě
+  není regularizace, je to poškozování, takže ho jeden globální přepínač nesmí tiše zavést.
+  Explicitně zadaná hodnota na výstupní vrstvě funguje, pokud o to opravdu stojíte.
+- Dropout je aktivní **jen uvnitř `Fit()`** (a tedy uvnitř trénovacích smyček).
+  `GetResults()` běží bez něj, takže predikce je deterministická — stejný vstup dá vždy
+  stejnou odpověď.
+- Přeživší neurony se během tréninku škálují `1/(1-p)` („inverted dropout"), což drží
+  střední hodnotu výstupu beze změny, a inference proto nepotřebuje žádnou korekci.
+- Vypnuté neurony se **přeskakují, nenásobí nulou**. Jejich skalární součiny se vůbec
+  nepočítají, ve forwardu ani v backwardu. Na síti 512-512 trvá trénink s `dropout: 0.5`
+  asi 82 % času tréninku bez dropoutu — dropout tu trénink *zrychluje*, což knihovny
+  postavené na GPU nedokážou.
+- Zatím je podporovaný jen na vrstvách `Dense`.
+
+Obě nastavení se ukládají s modelem, takže model, který se načte a trénuje dál, si zachová
+regularizaci, se kterou byl trénovaný.
+
+## Reprodukovatelnost
+
+Předejte konstruktoru seed a dva běhy téhož programu dají bit po bitu stejný výsledek —
+inicializace vah, pořadí vzorků, míchání datasetu i masky dropoutu čerpají z jednoho generátoru.
+
+```csharp
+MDNN model = new MDNN(new Dense(3, new Softmax()), new Adam(0.01), new CrossEntropy(), seed: 42);
+
+int? used = model.Context.Seed;   // jde přečíst zpět a ukládá se s modelem
+```
+
+Seed nastavte **v konstruktoru**. Přiřazení `Context.Seed` nebo `Context.Random` poté, co se
+z generátoru už čerpalo, vyhodí `InvalidOperationException`: váhy výstupní vrstvy se losují
+už při skládání modelu, takže později nastavený seed by dal model reprodukovatelný jen zčásti
+— horší než zjevná chyba, protože to vypadá, že to fungovalo.
+
+Bez seedu knihovna použije sdílený globální generátor, přesně jako dřív.
+
 ## Trénování modelu
 
 Trénování řídí třída `Train`. K dispozici jsou čtyři úrovně kontroly, od plně automatické po plně ruční.
@@ -139,27 +216,30 @@ Trénování řídí třída `Train`. K dispozici jsou čtyři úrovně kontroly
 
 Nejúplnější trénovací procedura. Poskytuje:
 
-- Automatické ukládání modelu s nejlepší validací (early-stopping checkpoint)
-- Automatické zamíchání a rozdělení datasetu na trénovací, validační a testovací část
-- Průběžný výpis do konzole
+- Automatické ukládání modelu s nejlepší validační chybou (checkpoint pro early stopping)
+- Automatické zamíchání a rozdělení datasetu na trénovací, validační a testovací sadu
+- Výpis průběhu do konzole
 - Detekci hodnot `NaN`
-- Automatické vykreslení grafu ztráty napříč epochami
+- Automatické vykreslení grafu loss v průběhu epoch
 
-**Jedna epocha = jeden plný průchod trénovacím setem.** Každou epochu se pořadí vzorků
-znovu zamíchá a data se projdou po minibatchích, s jedním krokem optimizeru na dávku.
-`number_of_epoch` tedy počítá průchody daty, ne kroky optimizeru — ty najdete
+**Jedna epocha = jeden úplný průchod trénovací sadou.** Každou epochu se pořadí vzorků znovu
+zamíchá a data se zpracují po minibatchích, s jedním krokem optimizéru na dávku. Parametr
+`number_of_epoch` tedy počítá průchody daty, ne kroky optimizéru — ty najdete
 v `Train.OptimizerSteps`.
 
 Parametry:
 
 - `Array inputs_values` (povinný) – vstupní dataset. Každý řádek je jeden trénovací vzorek.
+  Vzorek má nejvýš tři rozměry, takže dataset je nejvýš 4D — pro obrázky
+  `[vzorek, výška, šířka, kanály]` — a pro sekvence nejvýš 5D
+  `[sekvence, krok, výška, šířka, kanály]`.
 - `Array current_output_values` (povinný) – odpovídající cíle.
 - `uint number_of_epoch` (povinný) – počet trénovacích epoch.
 - `uint size_of_mini_batch` (volitelný, výchozí `1`) – velikost minibatche.
-- `bool isSequence` (volitelný, výchozí `false`) – nastavte na `true` pro sekvenční data (například časové řady).
+- `bool isSequence` (volitelný, výchozí `false`) – nastavte na `true` pro sekvenční vstupní data (například časové řady).
 
-Tohle přetížení je zkratka: rozdělí předaná data podle poměrů a natrénuje. Když už máte
-vlastní rozdělení, předejte sady napřímo a použijte bezdatové přetížení:
+Tohle přetížení je zkratka: zadaná data rozdělí podle poměrů a trénuje. Pokud už máte vlastní
+rozdělení, předejte sady explicitně a zavolejte přetížení bez dat:
 
 ```csharp
 model.Train.SetDatasets(
@@ -170,18 +250,18 @@ model.Train.SetDatasets(
 model.Train.TrainLoop(numberOfEpoch: 50, sizeOfMiniBatch: 32);
 ```
 
-Co nedodáte, to se ukrojí:
+Co vynecháte, to se ukrojí za vás:
 
 | Volání | Chování |
 |---|---|
-| `SetDatasets(train)` | valid i test se ukrojí z trainu (0,7 / 0,15 / 0,15) |
-| `SetDatasets(train, valid)` | test se ukrojí z validu; train zůstane celý |
-| `SetDatasets(train, null, test)` | valid se ukrojí z trainu; testovací sada se nikdy nedotkne |
-| `SetDatasets(train, valid, test)` | nic se nekrájí |
+| `SetDatasets(train)` | valid a test se ukrojí z train (0.7 / 0.15 / 0.15) |
+| `SetDatasets(train, valid)` | test se ukrojí z valid; train zůstane celý |
+| `SetDatasets(train, null, test)` | valid se ukrojí z train; testovací sady se nikdo nedotkne |
+| `SetDatasets(train, valid, test)` | nic se nekrojí |
 
-Z testovací sady se nekrájí nikdy — je to finální nezaujatý odhad. Nastavením
-`TestNeuralNetworkAfterTraining = false` navíc zabráníte i tomu, aby se testovací sada
-ukrajovala z vaší validační; ta pak zůstane celá.
+Z testovací sady se nikdy nekrojí — je to konečný nestranný odhad. Nastavení
+`TestNeuralNetworkAfterTraining = false` navíc zabrání tomu, aby se testovací sada ukrojila
+z vaší validační, takže validační sada zůstane celá.
 
 ### `SimpleTrainLoop()`
 
@@ -225,7 +305,7 @@ Co je dobré vědět:
 
 ### `Fit()` a `UpdateParams()`
 
-Středně pokročilý přístup, který umožňuje napsat vlastní trénovací smyčku. `Fit()` provede dopředný výpočet i zpětnou propagaci, ale gradienty pouze akumuluje; `UpdateParams()` akumulované gradienty aplikuje. Volání obou funkcí bezprostředně po sobě odpovídá trénování po jednom vzorku; akumulace více `Fit()` před jedním `UpdateParams()` odpovídá trénování s minibatchem.
+Prostřední cesta, která umožňuje napsat si vlastní trénovací smyčku. `Fit()` provede dopředný průchod a zpětnou propagaci, ale gradienty místo aplikace akumuluje; `UpdateParams()` naakumulované gradienty aplikuje. Volání jedno po druhém odpovídá tréninku po jednom vzorku; několik volání `Fit()` před jedním `UpdateParams()` odpovídá tréninku po minibatchích.
 
 ```csharp
 double[][] inputsDataset = { /* vstupní data */ };
@@ -242,7 +322,7 @@ int[] order = Enumerable.Range(0, inputsDataset.Length).ToArray();
 
 for (int epoch = 0; epoch < numberOfEpochs; epoch++)
 {
-    // jednou za epochu zamíchat a projít CELÝ set — přesně to dělá TrainLoop
+    // jednou za epochu zamíchat a projít celou sadu — totéž, co dělá TrainLoop
     for (int i = order.Length - 1; i > 0; i--)
     {
         int j = rnd.Next(i + 1);
@@ -259,19 +339,37 @@ for (int epoch = 0; epoch < numberOfEpochs; epoch++)
             model.Train.Fit(new Tensor(inputsDataset[num]), new Tensor(currentOutputDataset[num]));
         }
 
-        model.Train.UpdateParams();   // jeden krok optimizeru na dávku
+        model.Train.UpdateParams();   // jeden krok optimizéru na dávku
     }
 }
 ```
 
-Pozor: ruční smyčka žádné epochy nemá — `Train.CurrentEpoch` zůstane `0` a posouvá se
-jen `Train.OptimizerSteps`.
+Vlastní smyčka nemá žádné epochy: `Train.CurrentEpoch` zůstává `0` a posouvá se jen
+`Train.OptimizerSteps`.
 
 ### `FeedForward()` a `BackPropagation()`
 
-Nejgranulárnější přístup, který dělí `Fit()` na samostatný dopředný výpočet (`FeedForward()`) a zpětnou propagaci (`BackPropagation()`). Dává plnou kontrolu nad jednotlivými kroky trénování, což je vhodné pro výzkum nebo pokročilé optimalizace. Po zpětné propagaci je nutné zavolat `UpdateParams()`.
+Nejjemnější úroveň, která rozdělí `Fit()` na samostatný dopředný průchod (`FeedForward()`)
+a zpětnou propagaci (`BackPropagation(target)`). Dává plnou kontrolu nad jednotlivými kroky
+tréninku, což se hodí pro výzkum nebo pokročilou optimalizaci. Po zpětné propagaci zavolejte
+`UpdateParams()`, aby se změny aplikovaly.
 
-`BackPropagation()` má dvě přetížení: jedno bere cílové hodnoty (a gradienty vrstev spočítá interně) a druhé bere předpočítané gradienty jednotlivých vrstev.
+```csharp
+model.Train.FeedForward(new Tensor(sample));
+model.Train.BackPropagation(new Tensor(target));   // akumuluje, neaplikuje
+model.Train.UpdateParams();                        // jeden krok optimizéru
+```
+
+Tyhle dvě metody jsou přesně dvě poloviny `Fit()`, a je to záruka, ne náhoda:
+`Train.FeedForward()` přepne model na dobu průchodu do trénovacího režimu, takže dropout se
+chová stejně jako uvnitř `Fit()`. (Pro predikci použijte `model.GetResults()` — ta dropout
+záměrně nechává vypnutý, takže stejný vstup dá vždy stejnou odpověď.)
+
+**Odstraněno:** `BackPropagation()` mívala druhé přetížení, které bralo předpočítané gradienty
+jednotlivých vrstev. Je pryč a nikdy nefungovalo tak, jak signatura slibovala — `Dense`
+argument respektovala, zatímco `Conv` a `RNN` ho ignorovaly a četly vnitřní stav. Každá vrstva
+má teď jediný vstupní bod do backwardu (viz [Zpětný průchod](#zpětný-průchod)), takže zvenku
+už není co předávat.
 
 ## GPU akcelerace
 
@@ -283,28 +381,43 @@ Výpočty sítě mohou volitelně běžet na NVIDIA GPU přes doprovodnou knihov
 model.Context.CalculationViaGpu = true;
 ```
 
-Podpora aktuálně cílí pouze na NVIDIA GPU.
+Podpora aktuálně cílí jen na NVIDIA GPU a `gpu.dll` se načítá bez náhradní cesty — tahle
+cesta je tedy jen pro Windows s CUDA.
+
+**GPU cesta počítá ve `float`, CPU cesta v `double`.** Hodnoty se na vstupu převádějí a na
+výstupu zase zpět, takže tentýž model nedá na obou cestách stejná čísla — počítejte se shodou
+zhruba na 7 platných cifer místo 16. U GPU kernelů je to běžné, ale je dobré to vědět, než
+začnete výsledky obou cest porovnávat. GPU cestu používají jen vrstvy `Dense`; všechno ostatní
+běží na CPU bez ohledu na tenhle přepínač.
 
 ### Odstraněné `...Async` API
 
 Dřívější verze měly asynchronní protějšky (`TrainLoopAsync()`, `FitAsync()`,
-`GetResultsAsync()`). **Byly odstraněny**: byly `async` bez jediného `await` a paralelizovaly
-po neuronech přes `Task.Run`, což je pomalejší než obyčejná smyčka. Paralelismus se vrátil
-přes **dávku** — viz [Paralelní trénink](#paralelní-trénink-workers).
+`GetResultsAsync()`). **Byly odstraněny** a nic se tím neztratilo — byly `async` bez jediného
+`await`, takže vlákno nikdy neuvolnily. Paralelismus, o který se pokoušely, byl `Task.Run`
+po neuronech, a to je *pomalejší* než obyčejná smyčka: režie naplánování na neuron je vyšší
+než samotný výpočet.
+
+Horší bylo, že šlo o druhou cestu k témuž výpočtu, která se od první potichu rozešla. Dropout
+přibyl jen do synchronní cesty, takže asynchronní tiše počítala špatné gradienty, dokud to
+neodhalilo právě odstranění.
+
+Paralelismus se vrátil, ale přes **dávku**, ne přes neurony — to je osa, na které je opravdu
+co dělit. Viz [Paralelní trénink](#paralelní-trénink-workers).
 
 ## Ukládání a načítání modelů
 
-Po natrénování lze model uložit do JSON a později načíst pro inference. K použití uloženého modelu není třeba opětovné trénování.
+Po tréninku lze model uložit do JSON a později načíst k inferenci. K použití uloženého modelu není potřeba nové trénování.
 
 ```csharp
 model.SaveAsJson("save"); // zapíše save.json
 
-MDNN loaded = MDNN.LoadModel("save.json");   // "save" funguje taky — přípona je volitelná
+MDNN loaded = MDNN.LoadModel("save.json");   // funguje i "save" — přípona je volitelná
 Tensor result = loaded.GetResults(new Tensor(inputsDataset[0]));   // jeden vzorek
 ```
 
-Soubor nese `FormatVersion`, seed, se kterým model vznikl, čas uložení a SHA-256 kontrolní
-součet dat modelu:
+Soubor nese `FormatVersion`, seed, se kterým model vznikl, čas uložení a kontrolní součet
+SHA-256 dat modelu:
 
 ```json
 {
@@ -314,13 +427,13 @@ součet dat modelu:
 }
 ```
 
-Nesouhlasný součet vyhodí `ModelFileCorruptedException`. Pozor na to, co dokazuje a co ne:
-detekuje **poškozený nebo omylem upravený** soubor, ne cíleně pozměněný — kdo soubor upraví,
-přepočítá si i hash. Soubory ze starších verzí (bez `FormatVersion`) se načtou dál, jen bez
-ověření.
+Nesouhlasící kontrolní součet vyhodí `ModelFileCorruptedException`. Pozor, co to dokazuje
+a co ne: odhalí **poškozený nebo omylem upravený** soubor, ne záměrně změněný — kdo soubor
+upraví, může hash přepočítat. Soubory zapsané staršími verzemi (bez `FormatVersion`) se
+načtou dál, jen bez ověření.
 
-`LoadModel(path, seed)` umožní nastavit seed pro další trénování; bez něj se obnoví seed
-uložený v souboru.
+`LoadModel(path, seed)` umožňuje nastavit seed pro pokračování v tréninku; bez něj se obnoví
+seed uložený v souboru.
 
 ## Podpůrné nástroje
 
@@ -329,72 +442,107 @@ uložený v souboru.
 `Tensor` je univerzální datový typ pro vícerozměrná pole. Uchovává:
 
 - původní vícerozměrné pole (`OriginalInput`),
-- ekvivalentní jednorozměrné pole (`Data`) pro rychlejší výpočty,
+- ekvivalentní ploché pole (`Data`) pro rychlejší výpočty,
 - a tvar jako seznam rozměrů (`Shape`).
 
 `new Tensor(pole)` přijme jakékoli pravidelné pole typu `double`, `int` nebo `float` — jednorozměrné, vícerozměrné (`double[,,]`) i jagged (`double[][][]`); `int`/`float` převede na `double` a nepravidelné pole odmítne. Podporuje přetváření přes `Reshape(int[] newShape)` a pohodlný přístup k prvkům i převody mezi jagged a vícerozměrnými poli.
 
 ### Konzolové výstupy
 
-Statická třída `ConsoleControler` zajišťuje výstupy do konzole:
+Statická třída `ConsoleControler` obstarává výpisy do konzole:
 
 - `ShowModelInfo()` – vypíše podrobné informace o modelu
-- `ShowEpochInfo()` – vypíše informace o aktuální epoše během trénování
+- `ShowEpochInfo()` – vypíše informace o aktuální epoše během tréninku
 - `ShowScoreOfmodel()` – vypíše přesnost modelu
-- `ErrorHandler()` – vypíše chybové hlášky
+- `ErrorHandler()` – vypisuje chybové hlášky
 
 ### NetworkContext
 
-Každý model vlastní `NetworkContext` (`model.Context`), který drží jeho konfiguraci za běhu: ztrátovou funkci, optimizér, tvar vstupu, příznak sekvenčního trénování a příznak GPU. Protože je tento stav per-model, dva modely v jednom procesu se navzájem neovlivňují.
+Každý model vlastní `NetworkContext` (`model.Context`), který drží jeho běhovou konfiguraci. Protože je tento stav per-model, dva modely v jednom procesu si navzájem nepřekážejí.
 
-`GeneralNeuralNetworkSettings` drží už jen procesní výchozí hodnoty (výchozí aktivační funkce a sdílený generátor náhodných čísel).
+| Člen | Význam |
+|---|---|
+| `Loss`, `Optimizer` | ztrátová funkce a optimizér tohoto modelu |
+| `Seed`, `Random` | vlastní generátor náhody modelu — viz [Reprodukovatelnost](#reprodukovatelnost) |
+| `L2` | koeficient L2 weight decay, `0` = vypnuto |
+| `Dropout` | výchozí dropout pro skryté vrstvy, `0` = vypnuto |
+| `IsTraining` | běží trénovací průchod? Zapíná ho `Fit()` na dobu svého dopředného průchodu; právě tím se zapíná a vypíná dropout |
+| `InputShape` | tvar vstupu modelu, odvozený při prvním průchodu |
+| `SequenceTrain` | režim sekvenčního tréninku (časové řady) |
+| `CalculationViaGpu` | přepínač GPU |
+
+`GeneralNeuralNetworkSettings` drží už jen výchozí hodnoty platné pro celý proces (výchozí aktivační funkce a sdílený generátor náhody).
 
 ### Tvorba grafů
 
-Třída `GraphPlotter` vizualizuje průběh trénování. Její metoda `ShowLossGraph()` vygeneruje graf trénovací a validační ztráty v závislosti na počtu epoch a uloží ho jako `loss.png` do kořenového adresáře aplikace. To usnadňuje odhalení přeučení (overfitting) nebo nedostatečného trénování. K vykreslení se používá knihovna ScottPlot.
+Třída `GraphPlotter` vizualizuje průběh tréninku. Její metoda `ShowLossGraph()` vytvoří graf trénovací a validační loss v průběhu epoch a uloží ho jako `loss.png` do kořenového adresáře aplikace. Snadno se tak odhalí přeučení nebo nedotrénování. Grafy používají knihovnu ScottPlot.
 
 ## Jak to funguje uvnitř
 
-Tato sekce popisuje, co se děje pod kapotou. Pro použití knihovny ji není nutné číst, ale vysvětluje návrh a hodí se při rozšiřování knihovny.
+Tahle sekce popisuje, co se děje pod kapotou. K používání knihovny ji číst není nutné, ale vysvětluje návrh a hodí se při jejím rozšiřování.
 
 ### Objektový model
 
 ```
 MDNN (model)
-├── NetworkContext        konfigurace za běhu per-model (loss, optimizér, tvar vstupu, příznaky)
-├── LayerManager (Layers) seřazený seznam vrstev + odvození tvaru vstupu
+├── NetworkContext        běhová konfigurace modelu (loss, optimizér, tvar vstupu, přepínače)
+├── LayerManager (Layers) seřazený seznam vrstev + líné odvození tvaru
 │   └── Layer             Dense · Conv · MaxPool · RNN
 │       └── Neuron        váhy + bias + vlastní optimizér   (Dense, RNN)
-└── Train                 trénovací smyčky a vstupní body pro forward/backward
+└── Train                 trénovací smyčky a vstupní body forward/backward
 ```
 
-- `MDNN` je vrcholový objekt. Vlastní `NetworkContext`, `LayerManager` (přístupný jako `model.Layers`) a pomocníka `Train` (`model.Train`).
-- `Layer` je abstraktní báze pro každý typ vrstvy. `Dense` a `RNN` jsou postavené z objektů `Neuron` (dědí z `LayerBasedOnNeurons`); `Conv` drží přímo kernely a biasy; `MaxPool` nemá žádné trénovatelné parametry a jen si pamatuje, které pozice byly vybrány.
+- `MDNN` je objekt nejvyšší úrovně. Vlastní `NetworkContext`, `LayerManager` (dostupný jako `model.Layers`) a pomocníka `Train` (`model.Train`).
+- `Layer` je abstraktní předek všech typů vrstev. `Dense` a `RNN` jsou složené z objektů `Neuron` (dědí z `LayerBasedOnNeurons`); `Conv` drží kernely a biasy přímo; `MaxPool` nemá trénovatelné parametry a jen si pamatuje, které pozice vyhrály.
 - `Neuron` drží své váhy, bias, naakumulované gradienty a **vlastní** instanci optimizéru.
-- `Tensor` je datový nosič předávaný mezi vrstvami (jednorozměrné pole `Data` plus `Shape`).
-- `NetworkContext` (`model.Context`) drží stav per-model. Protože tento stav není globální, dva modely v jednom procesu jsou plně nezávislé.
+- `Tensor` je nosič dat předávaný mezi vrstvami (ploché pole `Data` plus `Shape`).
+- `NetworkContext` (`model.Context`) drží stav modelu. Protože tento stav není globální, dva modely v jednom procesu jsou plně nezávislé.
 
 ### Odvození tvaru vstupu (lazy)
 
-Vrstvy se vytvářejí, aniž by znaly velikost svého vstupu — zadáváte jen počet neuronů (nebo kernelů). Při prvním dopředném průchodu si model zaznamená tvar vstupu do `Context.InputShape` a zavolá `Layers.SetInputSizeForFirstLayer()`, které projde vrstvy a u každé zavolá `LayerAdjustment()`. Každá vrstva si odvodí skutečnou velikost vstupu z výstupní velikosti předchozí vrstvy a teprve pak alokuje své parametry (neurony, kernely). Proto váhy vrstvy neexistují, dokud model poprvé neuvidí data.
+Vrstvy se vytvářejí bez znalosti velikosti vstupu — zadává se jen počet neuronů (nebo kernelů). Při prvním dopředném průchodu model zaznamená tvar vstupu do `Context.InputShape` a zavolá `Layers.SetInputSizeForFirstLayer()`, která projde vrstvy a každé zavolá `LayerAdjustment()`. Každá vrstva si odvodí skutečnou velikost vstupu z výstupu předchozí vrstvy a teprve pak alokuje parametry (neurony, kernely). Proto váhy vrstvy neexistují, dokud model poprvé neuvidí data.
 
 ### Dopředný průchod
 
-`model.GetResults(input)` protáhne `Tensor` vrstvami v pořadí a u každé zavolá `FeedForward()`. Vrstva `Dense` počítá pro každý neuron `w · x + b` následované aktivací; celovrstvové aktivace jako `Softmax` se aplikují na celou vrstvu najednou.
+`model.GetResults(input)` provleče `Tensor` vrstvami v pořadí a každé zavolá `FeedForward()`. Vrstva `Dense` spočítá pro každý neuron `w · x + b` a pak aktivaci; aktivace působící na celou vrstvu, jako `Softmax`, se aplikují na celou vrstvu naráz.
 
 ### Zpětný průchod
 
-Zpětnou propagaci řídí `Gradient.GetGradients(target, model)`:
+Zpětnou propagaci řídí `Gradient.RunBackward(target, model)` a každá vrstva nabízí jediný
+vstupní bod:
 
-1. Chyba výstupní vrstvy se spočítá z derivace loss funkce. U prvkové výstupní aktivace se násobí derivací té aktivace; u fúzovaného případu softmax + cross-entropy (níže) se použije přímo.
-2. Chyba se propaguje zpět: `CalculateLayerGradients()` každé vrstvy převede chybu následující vrstvy na svou vlastní chybu (řetízkové pravidlo) a cestou aplikuje derivaci aktivace vrstvy.
-3. `BackPropagation()` každé vrstvy pak naakumuluje gradienty parametrů (u neuronových vrstev do `gradientsW` / `gradientsB` každého `Neuron`u).
+```csharp
+Tensor Backward(Tensor gradOutput, bool preActivation = false, bool computeInputGradient = true)
+```
 
-Gradienty se **akumulují, neaplikují**. `UpdateParams()` vydělí naakumulované gradienty počtem viděných vzorků a předá je optimizéru. Proto je několik volání `Fit()` následovaných jedním `UpdateParams()` ekvivalentní jednomu minibatchi dané velikosti.
+Vezme `∂L/∂output` dané vrstvy, naakumuluje gradienty **vlastních** parametrů a vrátí
+`∂L/∂input` — tedy `∂L/∂output` vrstvy pod sebou. Jeden průchod zásobníkem vrstev, jedna metoda
+na vrstvu.
+
+Dva důsledky stojí za to rozepsat, protože právě je tenhle tvar přináší:
+
+- **Vrstva nikdy nesahá do souseda.** Každá propaguje gradient přes vlastní váhy, takže `Conv`
+  a `MaxPool` už nepotřebují zvláštní větev „další vrstva je `Dense`" (dřív četly matici vah
+  té vrstvy a ručně přepočítávaly ploché indexy).
+- **Žádný skrytý stav mezi voláními.** Neexistuje zvláštní háček „naseeduj výstupní vrstvu"
+  ani pole, které by neslo hodnotu z jedné metody backwardu do další.
+
+`preActivation` říká, že `gradOutput` už je `∂L/∂z`, takže se derivace aktivace přeskočí.
+Jediný takový případ je fúze softmax + cross-entropy níž, kde softmax patří k loss, ne k vrstvě
+— přesně jako `CrossEntropyLoss` v PyTorchi obsahuje log-softmax.
+
+`computeInputGradient: false` znamená, že `∂L/∂input` nikdo nepotřebuje, takže se nepočítá.
+Používá se pro první vrstvu modelu — pod ní už nic není — a u `Conv` tím odpadne nejdražší
+operace celého backwardu.
+
+Každá vrstva aplikuje derivaci aktivace podle své konvence: `Conv` ano, `RNN` ne (její RTRL
+citlivosti ji už obsahují).
+
+Gradienty se **akumulují, ne aplikují**. `UpdateParams()` vydělí naakumulované gradienty počtem viděných vzorků a předá je optimizéru. Proto je několik volání `Fit()` následovaných jedním `UpdateParams()` totéž co jedna minibatch dané velikosti.
 
 ### Fúze softmax + cross-entropy
 
-Když je loss funkcí `CrossEntropy` (která hlásí `RequiresSoftmax`) a výstupní vrstva používá `Softmax`, výstupní gradient se spočítá přímo jako `výstup − cíl`. To je fúzovaná, numericky stabilní forma: jacobián softmaxu se přeskočí a derivace aktivace se záměrně *nenásobí*, což by ji jinak aplikovalo dvakrát. Použití `CrossEntropy` bez softmax výstupní vrstvy vyhodí výjimku.
+Když je loss `CrossEntropy` (hlásí `RequiresSoftmax`) a výstupní vrstva používá `Softmax`, výstupní gradient se spočítá rovnou jako `výstup − cíl`. Je to fúzovaná, numericky stabilní forma: Jacobián softmaxu se přeskočí a derivace aktivace se záměrně *nenásobí*, jinak by se uplatnila dvakrát. Použití `CrossEntropy` bez softmax výstupní vrstvy vyhodí výjimku.
 
 ### Optimizéry
 
@@ -402,22 +550,71 @@ Každý `Neuron` (a každá vrstva `Conv`) vlastní svou instanci optimizéru, n
 
 ### Rekurentní vrstvy (RTRL)
 
-Vrstvy `RNN` se trénují pomocí **Real-Time Recurrent Learning**, ne backpropagation-through-time. Místo rozvinutí sekvence si vrstva nese citlivosti dopředu v čase (`∂h/∂váha` a `∂h/∂bias`), které se posouvají v každém časovém kroku uvnitř `FeedForward()`. Při zpětné propagaci se příchozí chyba násobí těmito uloženými citlivostmi. Na začátku každé sekvence zavolejte `model.ResetSequence()`, čímž se vynuluje skrytý stav i citlivosti.
+**Rekurence je diagonální.** Každý neuron dostává jako vstup navíc jen *svůj vlastní*
+předchozí výstup — neexistuje matice vah skrytý→skrytý, takže se neurony napříč časovými kroky
+nemíchají. Jde o strukturu známou jako *independently recurrent* síť (IndRNN), ne o učebnicové
+`h(t) = f(W·x(t) + U·h(t−1))`. Pokud čekáte plně propojenou rekurentní vrstvu, tohle je rozdíl,
+o kterém je dobré vědět.
+
+Právě tahle struktura dělá metodu tréninku praktickou. Vrstvy `RNN` se trénují pomocí
+**Real-Time Recurrent Learning**, ne backpropagation-through-time. Místo rozvinutí sekvence si
+vrstva nese citlivosti dopředu v čase (`∂h/∂weight` a `∂h/∂bias`), které se v každém časovém
+kroku posunou uvnitř `FeedForward()`. Při zpětné propagaci se přicházející chyba vynásobí
+uloženými citlivostmi. Na začátku každé sekvence zavolejte `model.ResetSequence()`, který
+vynuluje skrytý stav i citlivosti.
+
+Pro diagonální rekurenci je RTRL **přesné** a jeho cena je lineární v počtu vah. S plnou maticí
+skrytý→skrytý by potřebovalo `∂h_i/∂w_jk` pro každou dvojici, což roste jako `n³` a nad několik
+desítek neuronů přestává být praktické — tam se správným nástrojem stává backpropagation-through-time.
+
+Dva důsledky, které je dobré znát:
+
+- Gradienty tekoucí do vrstev umístěných *před* rekurentní vrstvou zůstávají přibližné:
+  příspěvek, který putuje zpět v čase, se nezapočítává.
+- Nejsou k dispozici hradlované jednotky (LSTM/GRU); ty potřebují backpropagation-through-time.
 
 ### Inicializace vah
 
-Neurony `Dense` a `RNN` se inicializují uniformním schématem ve stylu Xavier/He — `U(−1, 1) · sqrt(6 / n_vstupů)` — a biasy začínají na nule.
+Neurony vrstev Dense a RNN se inicializují rovnoměrným rozdělením ve stylu Xavier/He — `U(−1, 1) · sqrt(6 / n_inputs)` — a biasy začínají na nule.
 
-### Správnost: numerický gradient check
+### Správnost: numerický gradient check a parita s PyTorchem
 
-Celý zpětný průchod je ověřen testovací sadou pomocí numerického gradient checku (centrální diference): analytické gradienty každé vrstvy se porovnávají s odhady z konečných diferencí. Tyto kontroly fungují jako regresní pojistka — jakákoli změna, která rozbije matematiku, je automaticky odhalena.
+Správnost se ověřuje ze dvou nezávislých stran, protože každá chytí, co ta druhá nedokáže.
+
+**Numerický gradient check** ověřuje celý zpětný průchod: analytické gradienty každé vrstvy se
+porovnávají s odhady z centrálních diferencí. Zachytí jakoukoli změnu, která rozbije matematiku,
+a slouží jako regresní hlídač.
+
+Má ale jedno slepé místo. Gradient check porovnává zpětný průchod s numerickou derivací
+*vlastního* dopředného průchodu — takže pokud se dopředný průchod řídí jinou konvencí, než bylo
+zamýšleno (jiné pravidlo paddingu, otočený kernel, jiné škálování loss), kontrola projde
+a nesoulad zůstane neviditelný.
+
+**Paritní testy proti PyTorchi** tu mezeru zavírají tím, že dodají vnější referenci. Stejný
+výpočet se sestaví v PyTorchi s bit po bitu stejnými vahami a vstupy a každé číslo se porovná
+prvek po prvku: výstupy vrstev, hodnoty loss, gradienty vah a biasů, gradient vůči vstupu
+a kroky optimizéru. Shoda je řádově `1e-15`, tedy na hranici přesnosti `double`.
+
+Referenční hodnoty generuje `tools/torch_fixtures/generate_fixtures.py` a jsou commitnuté jako
+JSON, takže spuštění testů Python nepotřebuje.
 
 ## Testy
 
-Repozitář obsahuje xUnit testovací projekt (`MDNN.Tests`) s numerickými gradient checky pro každou vrstvu, jednotkovými testy aktivačních, ztrátových a optimalizačních tříd a end-to-end trénovacími smoke testy. Spuštění:
+Repozitář obsahuje testovací projekt v xUnit (`MDNN.Tests`) — přes 300 testů, které CI pouští
+na Linuxu i Windows. Spustíte je takto:
 
 ```
 dotnet test
 ```
 
-Gradient checky slouží jako regresní pojistka: jakákoli změna, která rozbije matematiku, je automaticky odhalena.
+Co pokrývají:
+
+- **Numerické gradient checky** pro každou vrstvu, včetně cest regularizace
+- **Paritní testy proti PyTorchi** (viz [výše](#správnost-numerický-gradient-check-a-parita-s-pytorchem)) — výstupy vrstev, gradienty a kroky optimizéru porovnané s vnější referencí
+- Unit testy aktivačních funkcí, loss funkcí a optimizérů
+- Uložení a načtení tam a zpět, včetně toho, co uložený model musí zachovat
+- Paralelní trénink proti sekvenčnímu, pro každý typ vrstvy
+- Smoke testy tréninku od začátku do konce
+
+Gradient checky slouží jako regresní hlídač: každá změna, která rozbije matematiku pod tím,
+se automaticky zachytí.

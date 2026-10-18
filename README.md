@@ -101,7 +101,7 @@ Supported loss functions: `MSE`, `CrossEntropy`.
 
 Each model owns its own configuration, so multiple independent models can coexist in the same process.
 
-You can also create custom optimizers or loss functions by inheriting the corresponding base class (for example `Optimizer` or `Loss`) and implementing its abstract members. A custom optimizer's `CreateFresh()` must return a new instance with the same hyperparameters and empty state — every neuron gets its own copy. A model with a custom optimizer cannot be loaded from a saved file yet: loading looks the optimizer up by name and only knows `SGD`, `Adam` and `Momentum`.
+You can also create custom optimizers or loss functions by inheriting the corresponding base class (for example `Optimizer` or `Loss`) and implementing its abstract members. A custom optimizer's `CreateFresh()` must return a new instance with the same hyperparameters and empty state — every neuron gets its own copy. A model with a custom optimizer, loss or activation cannot be loaded from a saved file yet: loading looks them up by name and only knows the built-in ones. It fails with an `ArgumentException` rather than silently substituting a different function.
 
 Note on `CrossEntropy`: it is intended to be paired with a `Softmax` output layer. It computes the fused softmax + categorical cross-entropy gradient (`output − target`), which is the numerically stable form. Using `CrossEntropy` without a `Softmax` output layer raises an exception.
 
@@ -232,7 +232,10 @@ So `number_of_epoch` counts passes over the data, not optimizer steps — for th
 
 Parameters:
 
-- `Array inputs_values` (required) — input dataset. Each row is one training sample.
+- `Array inputs_values` (required) — input dataset. Each row is one training sample. A sample
+  has at most three dimensions, so the dataset is at most 4D — for images
+  `[sample, height, width, channels]` — and at most 5D for sequences
+  `[sequence, step, height, width, channels]`.
 - `Array current_output_values` (required) — corresponding targets.
 - `uint number_of_epoch` (required) — number of training epochs.
 - `uint size_of_mini_batch` (optional, default `1`) — minibatch size.
@@ -514,7 +517,7 @@ Backpropagation is driven by `Gradient.RunBackward(target, model)` and every lay
 single entry point:
 
 ```csharp
-Tensor Backward(Tensor gradOutput, bool preActivation = false)
+Tensor Backward(Tensor gradOutput, bool preActivation = false, bool computeInputGradient = true)
 ```
 
 It takes `∂L/∂output` for that layer, accumulates the gradients of **its own** parameters, and
@@ -533,6 +536,10 @@ Two consequences are worth spelling out, because they are what this shape buys:
 skipped. The only case is the fused softmax + cross-entropy below, where the softmax belongs
 to the loss rather than to the layer — exactly as `CrossEntropyLoss` in PyTorch contains
 log-softmax.
+
+`computeInputGradient: false` means nobody needs `∂L/∂input`, so it is not computed. It is used
+for the first layer of the model — there is nothing below it — and for `Conv` it skips the most
+expensive operation of the backward pass.
 
 Each layer applies the activation derivative according to its own convention: `Conv` does,
 `RNN` does not (its RTRL sensitivities already contain it).
@@ -603,8 +610,8 @@ committed as JSON, so running the test suite does not require Python.
 
 ## Tests
 
-The repository includes an xUnit test project (`MDNN.Tests`) — currently 195 tests, run in CI
-on both Linux and Windows. Run them with:
+The repository includes an xUnit test project (`MDNN.Tests`) — over 300 tests, run in CI on
+both Linux and Windows. Run them with:
 
 ```
 dotnet test
@@ -616,6 +623,7 @@ What they cover:
 - **Parity tests against PyTorch** (see [above](#correctness-gradient-checking-and-parity-with-pytorch)) — layer outputs, gradients, and optimizer steps compared against an external reference
 - Unit tests for the activation, loss, and optimizer implementations
 - Save/load round-trips, including what a saved model must preserve
+- Parallel training against sequential training, for every layer type
 - End-to-end training smoke tests
 
 The gradient checks act as a regression guard: any change that breaks the underlying math is
