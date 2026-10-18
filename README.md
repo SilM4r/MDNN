@@ -296,8 +296,8 @@ Things to know:
 
 - Only work **inside** a batch is divided. With the default batch size of `1` nothing gets
   faster, and more workers than samples in a batch add nothing. Measured on a 10-core Apple
-  Silicon machine (4 performance cores), one epoch: an MLP 784-128-10 trains 2.3× faster
-  with 4 workers at batch 32 and 3.0× at batch 128; a small CNN 3.1× at batch 32. Larger
+  Silicon machine (4 performance cores), one epoch: an MLP 784-128-10 trains 1.9× faster
+  with 4 workers at batch 32 and 2.6× at batch 128; a small CNN 3.1× at batch 32. Larger
   batches scale better — the gradients of the replicas are summed once per batch, and with
   small batches that sum is a noticeable share of the work.
 - **Reproducibility:** the same seed and the same `Workers` give a bit-identical result on any
@@ -311,7 +311,7 @@ Things to know:
   `TestNeuralNetwork()` and the final test of `TrainLoop()`. These are forward passes only:
   the outputs are computed in parallel and the loss and score are then summed in sample order,
   so they are **bit-identical** to `Workers = 1`, and so are the choice of the best model and
-  early stopping. Measured: 3.6× with 4 workers, up to 6.8× with 10.
+  early stopping. Measured: about 3× with 4 workers, up to 4–4.5× with 10.
 - A hand-written loop with `Fit()` and `UpdateParams()` always runs sequentially.
 
 ### `Fit()` and `UpdateParams()`
