@@ -77,7 +77,7 @@ namespace My_DNN.Save_neural_network
                 }
                 else
                 {
-                    throw new Exception("not implemetet yet");
+                    throw new NotSupportedException($"Saving of layer type '{layer.GetType().Name}' is not supported yet — only Dense, RNN, Conv and MaxPool can be saved.");
                 }
                     
             }

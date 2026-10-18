@@ -8,7 +8,8 @@ namespace My_DNN
         {
             if (TrainDataLoss.Length != epoch.Length || ValidDataLoss.Length != epoch.Length)
             {
-                throw new Exception("error");
+                throw new ArgumentException(
+                    $"Epoch, train loss and valid loss must have the same length ({epoch.Length}, {TrainDataLoss.Length}, {ValidDataLoss.Length}).");
             }
 
 

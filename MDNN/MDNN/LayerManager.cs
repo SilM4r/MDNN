@@ -54,7 +54,7 @@ namespace My_DNN
                 }
                 else
                 {
-                    throw new Exception("not implemetet yet");
+                    throw new NotSupportedException($"Loading of layer type '{layer.LayerType}' is not implemented yet.");
                 }
             }
 
@@ -96,7 +96,7 @@ namespace My_DNN
             {
                 if (size <= 0)
                 {
-                    throw new Exception("the number of inputs to the first layer must be greater than zero, please");
+                    throw new ArgumentException("The number of inputs to the first layer must be greater than zero.");
                 }
             }
 
@@ -182,7 +182,7 @@ namespace My_DNN
         {
             if (position > layersList.Count())
             {
-                throw new Exception("Varialbe position must be less or equal than the values ​​of Variable Layers (position <= Layers.Count())");
+                throw new ArgumentOutOfRangeException(nameof(position), position, "Position must be less than or equal to the number of layers (position <= Layers.Count).");
             }
 
             Hidden_Layer.Context = context;
@@ -193,7 +193,7 @@ namespace My_DNN
         {
             if (position >= layersList.Count())
             {
-                throw new Exception("Varialbe position must be less than the values ​​of Variable Layers (position < Layers.Count())");
+                throw new ArgumentOutOfRangeException(nameof(position), position, "Position must be less than the number of layers (position < Layers.Count).");
             }
 
             layersList.RemoveAt(position);

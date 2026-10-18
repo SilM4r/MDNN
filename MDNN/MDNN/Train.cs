@@ -546,7 +546,7 @@ namespace My_DNN
             {
                 if (inputsValues.Shape.Length == 1)
                 {
-                    throw new Exception("for sequential training of the model, the inputs must be at least in a two-dimensional array");
+                    throw new ArgumentException("For sequential training the inputs must be at least a two-dimensional array.");
                 }
 
                 if (inputsValues.Shape.Length == 2)
@@ -660,12 +660,12 @@ namespace My_DNN
         {
             if (_model.Layers.Layers.Count == 0)
             {
-                throw new Exception("Only model with layers can be trained, please add at least one Layer using Layer.add() function.");
+                throw new InvalidOperationException("Only a model with layers can be trained. Add at least one layer with model.Layers.Add().");
             }
 
             if (_model.Layers.Layers[0].Input_size_and_shape[0] <= 0)
             {
-                throw new Exception("the input layer must always have at least one input (use the SetInputSizeForFirstLayer() method in the layer class to set the input, for example model.layer.SetInputSizeForFirstLayer(new unit[] {1}))");
+                throw new InvalidOperationException("The input layer must have at least one input. Set it with model.Layers.SetInputSizeForFirstLayer(new int[] { 1 }), or run a sample through the model first.");
             }
         }
 
@@ -673,7 +673,7 @@ namespace My_DNN
         {
             if(a == null || b == null)
             {
-                throw new Exception("it is not possible to train with empty inputs (Tensor), inputs_values or current_output_values is null");
+                throw new ArgumentNullException(a == null ? "inputs_values" : "current_output_values", "It is not possible to train with empty inputs (Tensor).");
             }
 
             
@@ -698,7 +698,7 @@ namespace My_DNN
 
             if (b.Shape[0] != a.Shape[0])
             {
-                throw new Exception("both inputs_values and current_output_values must have the same first array dimensions");
+                throw new ArgumentException("Both inputs_values and current_output_values must have the same first array dimension (the number of samples).");
             }
 
 
@@ -724,15 +724,15 @@ namespace My_DNN
                 else
                 {
                     if (r <= 0 || r >= 1)
-                        throw new Exception("Split poměr musí být v intervalu (0,1).");
+                        throw new InvalidOperationException("Split poměr musí být v intervalu (0,1).");
                     setSum += r.Value;
                 }
             }
 
             if (nullCount == 0 && Math.Abs(setSum - 1.0) > 1e-9)
-                throw new Exception("Když jsou zadané všechny tři poměry, musí dát dohromady 1.");
+                throw new InvalidOperationException("Když jsou zadané všechny tři poměry, musí dát dohromady 1.");
             if (nullCount > 0 && setSum >= 1.0)
-                throw new Exception("Součet zadaných poměrů musí být < 1, aby na dopočítané (null) zbyl kladný podíl.");
+                throw new InvalidOperationException("Součet zadaných poměrů musí být < 1, aby na dopočítané (null) zbyl kladný podíl.");
 
             double each = nullCount > 0 ? (1.0 - setSum) / nullCount : 0.0;
 
