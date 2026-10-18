@@ -20,10 +20,16 @@
             Parameters = new double[] {L,a};
         }
 
+        // Přesná velikost — viz Adam.EnsureCapacity.
+        public override void EnsureCapacity(int parameterCount)
+        {
+            if (velocity.Length < parameterCount) Array.Resize(ref velocity, parameterCount);
+        }
+
         public override double Update(double w, double gradient, int i)
         {
-            // Zdvojnásobení kapacity místo růstu po jedné — viz Adam.Update.
-            if (velocity.Length <= i) Array.Resize(ref velocity, Math.Max(i + 1, velocity.Length * 2));
+            // Pojistka pro volání bez EnsureCapacity — viz Adam.Update.
+            if (velocity.Length <= i) EnsureCapacity(i + 1);
             velocity[i] = a * velocity[i] + L * gradient;
             return w - velocity[i];
         }

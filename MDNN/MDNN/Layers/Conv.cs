@@ -386,6 +386,9 @@ namespace My_DNN.Layers
 
             int numFilters = kernels.Length;
             int idx = 0;
+            // všechny filtry mají stejný tvar; +1 = bias filtru
+            int perFilter = kernels[0].Length * kernels[0][0].Length * kernels[0][0][0].Length + 1;
+            optimizer.EnsureCapacity(numFilters * perFilter);
             // L2 se aplikuje na kernely (to jsou váhy konvoluce), na biasy ne — viz
             // NetworkContext.L2. Přičítá se k už zprůměrovanému gradientu.
             double weightDecay = Context?.L2 ?? 0;

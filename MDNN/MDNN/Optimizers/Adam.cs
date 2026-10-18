@@ -24,22 +24,22 @@
 
         }
 
+        // Přesná velikost, žádná rezerva navíc: přebytečná kapacita (dřív zdvojnásobování,
+        // 785 → 1024 na neuron) stála ~3 % v každém UpdateParams kvůli větší paměti.
+        public override void EnsureCapacity(int parameterCount)
+        {
+            if (m.Length >= parameterCount) return;
+
+            Array.Resize(ref m, parameterCount);
+            Array.Resize(ref v, parameterCount);
+            Array.Resize(ref t, parameterCount);
+        }
+
         public override double Update(double w, double gradient, int i)
         {
-            if (m.Length <= i)
-            {
-                // Zdvojnásobení kapacity, ne růst po jedné. Update se volá pro každou váhu
-                // zvlášť a index roste 0,1,2,…, takže exaktní Array.Resize znamenal jedno
-                // přealokování a překopírování NA KAŽDOU VÁHU — kvadraticky. Změřeno na
-                // 784 vahách: první dávka 0.2174 ms proti 0.0087 ms těch dalších, tedy
-                // 0.21 ms režie navíc na každý neuron (~107 ms jednorázově u Dense(512)).
-                // Přebytečná kapacita je vynulovaná, takže se chová jako nedotčený parametr.
-                int capacity = Math.Max(i + 1, m.Length * 2);
-
-                Array.Resize(ref m, capacity);
-                Array.Resize(ref v, capacity);
-                Array.Resize(ref t, capacity);
-            }
+            // Pojistka pro volání bez EnsureCapacity (optimizer použitý samostatně).
+            // Vrstvy si kapacitu připraví dopředu, takže v tréninku se sem nevstoupí.
+            if (m.Length <= i) EnsureCapacity(i + 1);
             t[i]++;
             m[i] = b1 * m[i] + (1 - b1) * gradient;
             v[i] = b2 * v[i] + (1 - b2) * gradient * gradient;

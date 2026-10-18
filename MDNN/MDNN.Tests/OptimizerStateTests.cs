@@ -188,4 +188,72 @@ public class OptimizerStateTests
 
         Assert.True(Math.Abs(Weight(b) - before) > 0.05);
     }
+
+    // ------------------------------------------------------------ EnsureCapacity
+
+    /// <summary>Délka pole se stavem optimizeru (Adam.m, Momentum.velocity).</summary>
+    /// Reflexe na privátní pole je záměr: velikost stavu není chování, které by šlo
+    /// pozorovat zvenku, a přidávat kvůli testu veřejnou vlastnost nechci.
+    private static int StateLength(Optimizer optimizer)
+    {
+        string field = optimizer is Adam ? "m" : "velocity";
+        var info = optimizer.GetType().GetField(field,
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        return ((double[])info.GetValue(optimizer)!).Length;
+    }
+
+    public static TheoryData<Optimizer> StatefulOptimizers()
+        => new() { new Adam(0.1), new Momentum(0.1, 0.9) };
+
+    [Theory]
+    [MemberData(nameof(StatefulOptimizers))]
+    public void EnsureCapacity_keeps_state_that_is_already_accumulated(Optimizer optimizer)
+    {
+        // Zvětšení pole uprostřed tréninku nesmí vynulovat momenty už rozjetých parametrů.
+        Optimizer reference = Optimizer.Clone_optimizer(optimizer);
+
+        double a = 1.0, b = 1.0;
+        for (int step = 0; step < 3; step++)
+        {
+            a = optimizer.Update(a, 0.5, 0);
+            b = reference.Update(b, 0.5, 0);
+        }
+
+        optimizer.EnsureCapacity(100);
+        optimizer.EnsureCapacity(1);   // menší požadavek nesmí pole zmenšit
+
+        Assert.Equal(reference.Update(b, 0.5, 0), optimizer.Update(a, 0.5, 0));
+        Assert.Equal(100, StateLength(optimizer));
+    }
+
+    [Fact]
+    public void Dense_sizes_optimizer_state_exactly_to_weights_plus_bias()
+    {
+        // Hlídá, aby se nevrátilo zdvojnásobování kapacity (commit f6b8e05): 785 vah
+        // nafouklo stav na 1024 prvků a ~3 % navíc stál každý UpdateParams.
+        var model = new My_DNN.MDNN(new Dense(1, new Linear()), new Adam(0.1), new MSE(), seed: 11);
+        Step(model);
+
+        Assert.Equal(X.Data.Length + 1, StateLength(OptimizerOf(model, 0)));
+    }
+
+    [Fact]
+    public void Conv_sizes_optimizer_state_exactly_to_kernels_plus_biases()
+    {
+        var model = new My_DNN.MDNN(new Conv(2, 2, new Linear(), "valid"), new Adam(0.1), new MSE(), seed: 1);
+        var image = new double[4, 4, 1];
+        for (int i = 0; i < 4; i++)
+        for (int j = 0; j < 4; j++)
+            image[i, j, 0] = 0.1 * (i + j);
+
+        model.Train.Fit(new Tensor(image), new Tensor(new double[3 * 3 * 2]));
+        model.Train.UpdateParams();
+
+        var conv = model.Layers.Layers[0];
+        var optimizer = (Optimizer)conv.GetType().GetField("optimizer",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(conv)!;
+
+        // 2 filtry × (kernel 2×2×1 + bias)
+        Assert.Equal(2 * (2 * 2 * 1 + 1), StateLength(optimizer));
+    }
 }

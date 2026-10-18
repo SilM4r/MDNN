@@ -516,7 +516,7 @@ When the loss is `CrossEntropy` (which reports `RequiresSoftmax`) and the output
 
 ### Optimizers
 
-Each `Neuron` (and each `Conv` layer) owns its own optimizer instance, cloned from the one in the model's `NetworkContext`. Optimizer state is therefore per-parameter and per-model — for example `Adam` keeps first/second-moment estimates with bias correction for every individual weight. The optimizer's `Update(value, gradient, index)` returns the new parameter value.
+Each `Neuron` (and each `Conv` layer) owns its own optimizer instance, cloned from the one in the model's `NetworkContext`. Optimizer state is therefore per-parameter and per-model — for example `Adam` keeps first/second-moment estimates with bias correction for every individual weight. The optimizer's `Update(value, gradient, index)` returns the new parameter value. Before each update pass the layer calls `EnsureCapacity(parameterCount)`, so a stateful optimizer allocates its per-parameter state once, at the exact size, instead of growing it one weight at a time; the base implementation does nothing.
 
 ### Recurrent layers (RTRL)
 

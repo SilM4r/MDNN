@@ -9,6 +9,12 @@ namespace My_DNN.Optimizers
         public abstract double[] Hyperparameters { get; }
         public abstract double Update(double w, double gradient,  int paramIndex);
 
+        // Připraví stav pro parametry 0..parameterCount-1 dopředu. Vrstva ho volá před
+        // dávkou Update, protože jen ona ví, kolik parametrů má — bez toho by stav rostl
+        // po jedné váze (přealokování na každou váhu = kvadraticky při první dávce).
+        // Už nasbíraný stav zůstává. Výchozí implementace nic nedělá — SGD stav nemá.
+        public virtual void EnsureCapacity(int parameterCount) { }
+
         protected static double Rms(double val)
         {
             double sqrt = Math.Sqrt(val);

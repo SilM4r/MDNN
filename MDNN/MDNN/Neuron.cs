@@ -162,6 +162,9 @@ namespace My_DNN
                 return;
             }
 
+            // váhy + bias (bias má index Weights.Count(), viz níž)
+            optimizer.EnsureCapacity(Weights.Count() + 1);
+
             for (int i = 0; i < Weights.Count(); i++)
             {
                 // L2 se přičítá k UŽ ZPRŮMĚROVANÉMU gradientu, ne k součtu přes dávku —

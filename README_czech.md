@@ -375,7 +375,7 @@ Když je loss funkcí `CrossEntropy` (která hlásí `RequiresSoftmax`) a výstu
 
 ### Optimizéry
 
-Každý `Neuron` (a každá vrstva `Conv`) vlastní svou instanci optimizéru, naklonovanou z toho v `NetworkContext`u modelu. Stav optimizéru je proto per-parametr a per-model — například `Adam` drží odhady prvního a druhého momentu s bias korekcí pro každou jednotlivou váhu. Metoda `Update(value, gradient, index)` optimizéru vrací novou hodnotu parametru.
+Každý `Neuron` (a každá vrstva `Conv`) vlastní svou instanci optimizéru, naklonovanou z toho v `NetworkContext`u modelu. Stav optimizéru je proto per-parametr a per-model — například `Adam` drží odhady prvního a druhého momentu s bias korekcí pro každou jednotlivou váhu. Metoda `Update(value, gradient, index)` optimizéru vrací novou hodnotu parametru. Před každou dávkou aktualizací vrstva zavolá `EnsureCapacity(parameterCount)`, takže optimizér se stavem si ho alokuje jednou a na přesnou velikost, místo aby rostl po jedné váze; výchozí implementace nedělá nic.
 
 ### Rekurentní vrstvy (RTRL)
 
