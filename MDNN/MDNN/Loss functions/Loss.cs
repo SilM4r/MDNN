@@ -80,6 +80,35 @@
             totalLossSum = 0;
         }
 
+        // Replika pro paralelní trénink: tatáž funkce, vlastní (prázdné) akumulátory.
+        // Loss je kromě akumulátorů bezstavová, takže mělká kopie stačí a funguje
+        // i pro vlastní loss funkce — na rozdíl od stavění podle jména.
+        internal Loss CreateReplica()
+        {
+            Loss replica = (Loss)MemberwiseClone();
+            replica.iteration = 0;
+            replica.totalLossSum = 0;
+            replica.losses = null;
+            return replica;
+        }
+
+        // Přičte nasbíranou loss repliky k vlastní a repliku vynuluje. `Losses` (po prvcích,
+        // z posledního vzorku) se převezme, jen když replika nějaký vzorek počítala.
+        internal void TakeAccumulatedLossFrom(Loss replica)
+        {
+            totalLossSum += replica.totalLossSum;
+            iteration += replica.iteration;
+
+            if (replica.losses != null)
+            {
+                losses = replica.losses;
+            }
+
+            replica.totalLossSum = 0;
+            replica.iteration = 0;
+            replica.losses = null;
+        }
+
         public static Loss inicialization_Loss_func(string name_of_loss_function)
         {
             switch (name_of_loss_function)

@@ -11,7 +11,7 @@ MDNN je knihovna pro návrh a trénování neuronových sítí v jazyce C#. Umo�
 - [Konfigurace modelu](#konfigurace-modelu)
 - [Přidávání vrstev](#přidávání-vrstev)
 - [Trénování modelu](#trénování-modelu)
-- [GPU akcelerace a asynchronní výpočty](#gpu-akcelerace-a-asynchronní-výpočty)
+- [GPU akcelerace](#gpu-akcelerace)
 - [Ukládání a načítání modelů](#ukládání-a-načítání-modelů)
 - [Podpůrné nástroje](#podpůrné-nástroje)
 - [Jak to funguje uvnitř](#jak-to-funguje-uvnitř)
@@ -194,6 +194,35 @@ Parametry:
 - `uint number_of_epoch` (povinný)
 - `uint size_of_mini_batch` (volitelný, výchozí `1`)
 
+### Paralelní trénink (`Workers`)
+
+`TrainLoop()` a `SimpleTrainLoop()` umí rozdělit každou minibatch mezi několik vláken:
+
+```csharp
+model.Train.Workers = 4;                      // výchozí 1 = sekvenčně
+model.Train.TrainLoop(inputs, outputs, 20, 64);
+```
+
+Každé vlákno dostane vlastní repliku modelu, spočítá svůj díl dávky a gradienty se před krokem
+optimizéru sečtou do modelu — stejná matematika jako sekvenčně, liší se jen pořadí sčítání
+desetinných čísel. Repliky sdílejí váhy s modelem (během dávky je jen čtou), takže se mezi
+dávkami kromě biasů nic nekopíruje.
+
+Co je dobré vědět:
+
+- Dělí se jen práce **uvnitř** dávky. Při výchozí velikosti dávky `1` se nic nezrychlí
+  a víc vláken, než je vzorků v dávce, nic nepřidá. Změřeno na 10jádrovém Apple Silicon
+  (4 výkonná jádra), jedna epocha: MLP 784-128-10 se se 4 vlákny učí 2,5× rychleji při dávce
+  32 a 3,1× při dávce 128; malá CNN 3,3× při dávce 32.
+- **Reprodukovatelnost:** stejný seed a stejné `Workers` dají bit po bitu stejný výsledek na
+  jakémkoli stroji. Proti `Workers = 1` se výsledek liší o zaokrouhlení, s dropoutem i
+  vylosovanými maskami — každá replika má vlastní generátor odvozený ze seedu modelu.
+- Vlastní vrstvu zatím paralelně trénovat nejde, `RNN` jen v sekvenčním režimu
+  (`isSequence: true`; mimo něj teče skrytý stav z jednoho vzorku do dalšího) a paralelní
+  trénink nejde kombinovat s GPU. Všechny tři případy vyhodí `NotSupportedException`, místo
+  aby se tiše trénovalo jinak.
+- Vlastní smyčka s `Fit()` a `UpdateParams()` běží vždy sekvenčně.
+
 ### `Fit()` a `UpdateParams()`
 
 Středně pokročilý přístup, který umožňuje napsat vlastní trénovací smyčku. `Fit()` provede dopředný výpočet i zpětnou propagaci, ale gradienty pouze akumuluje; `UpdateParams()` akumulované gradienty aplikuje. Volání obou funkcí bezprostředně po sobě odpovídá trénování po jednom vzorku; akumulace více `Fit()` před jedním `UpdateParams()` odpovídá trénování s minibatchem.
@@ -244,7 +273,7 @@ Nejgranulárnější přístup, který dělí `Fit()` na samostatný dopředný 
 
 `BackPropagation()` má dvě přetížení: jedno bere cílové hodnoty (a gradienty vrstev spočítá interně) a druhé bere předpočítané gradienty jednotlivých vrstev.
 
-## GPU akcelerace a asynchronní výpočty
+## GPU akcelerace
 
 ### GPU
 
@@ -256,17 +285,12 @@ model.Context.CalculationViaGpu = true;
 
 Podpora aktuálně cílí pouze na NVIDIA GPU.
 
-### Asynchronní výpočty
+### Odstraněné `...Async` API
 
-Každá synchronní metoda má asynchronní protějšek, například:
-
-- `TrainLoop()` – `TrainLoopAsync()`
-- `Fit()` – `FitAsync()`
-- `GetResults()` – `GetResultsAsync()`
-
-```csharp
-await model.Train.TrainLoopAsync(inputsDataset, outputDataset, 1000);
-```
+Dřívější verze měly asynchronní protějšky (`TrainLoopAsync()`, `FitAsync()`,
+`GetResultsAsync()`). **Byly odstraněny**: byly `async` bez jediného `await` a paralelizovaly
+po neuronech přes `Task.Run`, což je pomalejší než obyčejná smyčka. Paralelismus se vrátil
+přes **dávku** — viz [Paralelní trénink](#paralelní-trénink-workers).
 
 ## Ukládání a načítání modelů
 

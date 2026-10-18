@@ -36,7 +36,7 @@ Additional capabilities:
 - Straightforward integration into C# projects
 - Optional GPU computation
 - Saving and loading models in JSON format
-- Pre-built training loops
+- Pre-built training loops, optionally parallel across the minibatch
 
 ## Installation
 
@@ -274,6 +274,36 @@ Parameters:
 - `uint number_of_epoch` (required)
 - `uint size_of_mini_batch` (optional, default `1`)
 
+### Parallel training (`Workers`)
+
+`TrainLoop()` and `SimpleTrainLoop()` can split each minibatch across several threads:
+
+```csharp
+model.Train.Workers = 4;                      // default 1 = sequential
+model.Train.TrainLoop(inputs, outputs, 20, 64);
+```
+
+Each thread gets its own replica of the model, computes its share of the batch, and the
+gradients are summed into the model before the optimizer step — the same mathematics as
+sequential training, only the order of the floating-point additions differs. Replicas share
+the weights with the model (they only read them during a batch), so nothing is copied between
+batches except biases.
+
+Things to know:
+
+- Only work **inside** a batch is divided. With the default batch size of `1` nothing gets
+  faster, and more workers than samples in a batch add nothing. Measured on a 10-core Apple
+  Silicon machine (4 performance cores), one epoch: an MLP 784-128-10 trains 2.5× faster
+  with 4 workers at batch 32 and 3.1× at batch 128; a small CNN 3.3× at batch 32.
+- **Reproducibility:** the same seed and the same `Workers` give a bit-identical result on any
+  machine. Compared with `Workers = 1` the result differs by rounding, and with dropout also
+  by the masks drawn — each replica has its own random generator derived from the model's seed.
+- A custom layer cannot be trained in parallel yet, an `RNN` only in sequence mode
+  (`isSequence: true`; outside it the hidden state flows from one sample to the next), and
+  parallel training cannot be combined with the GPU path. All three throw a
+  `NotSupportedException` instead of silently training differently.
+- A hand-written loop with `Fit()` and `UpdateParams()` always runs sequentially.
+
 ### `Fit()` and `UpdateParams()`
 
 An intermediate approach that lets you write your own training loop. `Fit()` runs the forward pass and backpropagation but accumulates gradients instead of applying them; `UpdateParams()` applies the accumulated gradients. Calling them one after another is equivalent to single-sample training; accumulating several `Fit()` calls before one `UpdateParams()` is equivalent to minibatch training.
@@ -374,8 +404,8 @@ Worse, they were a second code path that quietly drifted from the first. Dropout
 to the synchronous path only, so the asynchronous one silently computed wrong gradients until
 the removal surfaced it.
 
-Parallelism will come back, but across the **batch** rather than across neurons — that is the
-axis where there is real work to divide, and it needs layers that do not hold per-call state.
+Parallelism is back, but across the **batch** rather than across neurons — that is the axis
+where there is real work to divide. See [Parallel training](#parallel-training-workers).
 
 ## Saving and loading models
 

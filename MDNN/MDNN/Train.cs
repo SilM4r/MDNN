@@ -165,7 +165,36 @@ namespace My_DNN
             set { _sizeOfMiniBatch = value; }
         }
 
-        public Train(MDNN model) 
+        private int _workers = 1;
+
+        /// <summary>
+        /// Kolik vláken počítá vzorky jedné dávky v <c>TrainLoop</c> a <c>SimpleTrainLoop</c>.
+        /// 1 (výchozí) = sekvenčně, přesně jako dřív.
+        ///
+        /// Při víc vláknech má každé vlastní repliku modelu a gradienty se po dávce sečtou.
+        /// Paralelizuje se jen UVNITŘ dávky, takže víc vláken, než je vzorků v dávce,
+        /// nic nepřidá — a při výchozí dávce 1 se nezrychlí nic.
+        ///
+        /// Reprodukovatelnost: stejný seed a stejné Workers dají bit po bitu stejný výsledek
+        /// na jakémkoli stroji. Proti Workers = 1 se výsledek liší o zaokrouhlení (sčítání
+        /// double není asociativní) a s dropoutem i jinými maskami — každá replika má
+        /// vlastní generátor náhody odvozený ze seedu modelu.
+        ///
+        /// Ruční smyčka Fit + UpdateParams běží vždy sekvenčně.
+        /// </summary>
+        public int Workers
+        {
+            get => _workers;
+            set
+            {
+                if (value < 1)
+                    throw new ArgumentOutOfRangeException(nameof(Workers), value,
+                        "Počet vláken musí být aspoň 1 (1 = sekvenční trénink).");
+                _workers = value;
+            }
+        }
+
+        public Train(MDNN model)
         {
             this._model = model;
             _epoch = 0;
@@ -516,18 +545,14 @@ namespace My_DNN
                 // stejná sémantika jako TrainLoop: plný průchod po dávkách, ne náhodné tahy
                 int[] order = ShuffledIndices(inputsValues.Length);
                 int batchSize = (int)sizeOfMiniBatch;
+                ReplicaPool? pool = CreateReplicaPool();
 
                 for (int start = 0; start < order.Length; start += batchSize)
                 {
                     int end = Math.Min(start + batchSize, order.Length);
 
-                    for (int k = start; k < end; k++)
-                    {
-                        int num = order[k];
-                        Fit(new Tensor(inputsValues[num]), new Tensor(currentOutputValues[num]));
-                    }
-
-                    UpdateParams();
+                    RunBatch(pool, order, start, end, (train, num) =>
+                        train.Fit(new Tensor(inputsValues[num]), new Tensor(currentOutputValues[num])));
                 }
 
                 _epoch = epoch + 1;
@@ -847,18 +872,52 @@ namespace My_DNN
         {
             int[] order = ShuffledIndices(inputs.Shape[0]);
             int batchSize = (int)_sizeOfMiniBatch;
+            ReplicaPool? pool = CreateReplicaPool();
+
+            if (pool != null)
+            {
+                // Tensor si plochá data dopočítává líně při prvním čtení. Ať to neudělá
+                // několik vláken naráz, sáhne se na ně tady, ještě sekvenčně.
+                _ = inputs.Data;
+                _ = targets.Data;
+            }
 
             for (int start = 0; start < order.Length; start += batchSize)
             {
                 int end = Math.Min(start + batchSize, order.Length);
 
+                RunBatch(pool, order, start, end, (train, index) => train.FitSample(inputs, targets, index));
+            }
+        }
+
+        // Repliky pro paralelní trénink, nebo null = sekvenčně (Workers == 1). Staví se
+        // na začátku každé epochy: přepojení modelu mezi epochami (Add/Insert) by repliky
+        // jinak nechalo s neplatnými odkazy na váhy. Proti epoše je to zanedbatelné.
+        private ReplicaPool? CreateReplicaPool()
+        {
+            return _workers > 1 ? new ReplicaPool(_model, _workers) : null;
+        }
+
+        // Jedna dávka: vzorky order[start..end) a jeden krok optimizeru.
+        // `fitOne(train, index)` spočítá jeden vzorek nad daným Train. Sekvenčně je to
+        // Train originálu, paralelně Train repliky — tentýž kód v obou cestách, aby se
+        // nemohly rozejít (každá další cesta k témuž výpočtu je místo, kde se dá něco
+        // zapomenout; viz konvence B).
+        private void RunBatch(ReplicaPool? pool, int[] order, int start, int end, Action<Train, int> fitOne)
+        {
+            if (pool == null)
+            {
                 for (int k = start; k < end; k++)
                 {
-                    FitSample(inputs, targets, order[k]);
+                    fitOne(this, order[k]);
                 }
-
-                UpdateParams();   // jeden krok optimizeru na dávku
             }
+            else
+            {
+                pool.RunBatch(order, start, end, fitOne);
+            }
+
+            UpdateParams();   // jeden krok optimizeru na dávku
         }
 
         // Zamíchané pořadí indexů pro jednu epochu. Fisher–Yates z Contextu, takže je to

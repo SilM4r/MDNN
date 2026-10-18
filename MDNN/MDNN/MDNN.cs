@@ -147,6 +147,16 @@ namespace My_DNN
             NetworkSaveLoadManager loadModel = NetworkSaveLoadManager.Load(fullPath);
             return new MDNN(loadModel, seed);
         }
+        // Replika pro paralelní trénink (viz ReplicaPool): hotové vrstvy, vlastní kontext
+        // a vlastní Train, aby šlo volat Fit nezávisle na originálu.
+        internal MDNN(NetworkContext context, List<Layer> replicaLayers)
+        {
+            this.context = context;
+            layerManager = LayerManager.ForReplica(replicaLayers, context);
+            train = new Train(this);
+            Note = "";
+        }
+
         // serializace TOHOTO modelu do JSON stringu (pro in-memory snapshot nejlepšího modelu)
         public string SaveAsJsonString()
         {

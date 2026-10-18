@@ -274,6 +274,15 @@ namespace My_DNN.Layers
             }
         }
 
+        // Replika pro paralelní trénink — viz Layer.CreateReplica. Parametry nemá, takže
+        // stačí vlastní buffery; WireShapes je alokuje stejně jako při zapojení.
+        internal override Layer CreateReplica()
+        {
+            MaxPool replica = (MaxPool)MemberwiseClone();
+            replica.WireShapes(null, inputsShape);
+            return replica;
+        }
+
         // MaxPool nemá trénovatelné parametry — není co materializovat ani co ztratit.
         public override void MaterializeParameters() { }
 

@@ -202,6 +202,23 @@ namespace My_DNN.Layers
             }
         }
 
+        // Bude tahle vrstva při tréninku losovat masku? Repliky podle toho poznají, jestli
+        // potřebují vlastní generátor náhody — viz ReplicaPool.
+        internal bool UsesDropout => EffectiveDropout > 0.0;
+
+        // Replika pro paralelní trénink — viz Layer.CreateReplica. Sdílí: váhy (přes
+        // repliky neuronů), aktivaci, nastavení dropoutu. Vlastní: výstupy a masku dropoutu,
+        // které se mění s každým vzorkem.
+        internal override Layer CreateReplica()
+        {
+            Dense replica = (Dense)MemberwiseClone();
+            replica.output = new double[output.Length];
+            replica.raw_output = new double[raw_output.Length];
+            replica.dropoutMask = null;
+            replica.neurons = neurons.Select(n => n.CreateReplica()).ToList();
+            return replica;
+        }
+
         // Sedí už postavené neurony přesně na požadovaný tvar?
         private bool NeuronsMatchShape(int neuronCount, int inputSize)
         {

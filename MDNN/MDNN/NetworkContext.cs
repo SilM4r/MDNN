@@ -145,5 +145,23 @@ namespace My_DNN
         /// vstup vždy stejnou odpověď, i když je dropout zapnutý.
         /// </summary>
         public bool IsTraining { get; set; } = false;
+
+        // Kontext repliky pro paralelní trénink. Stejné nastavení tréninku, ale vlastní
+        // akumulátor loss a VLASTNÍ generátor náhody — `Random` není thread-safe a z dropoutu
+        // se z něj tahá v každém vzorku. Seed dodá volající z generátoru originálu, takže
+        // je to se seedem modelu pořád reprodukovatelné.
+        internal NetworkContext CreateReplica(int randomSeed)
+        {
+            return new NetworkContext
+            {
+                Loss = Loss.CreateReplica(),
+                Optimizer = Optimizer,   // replika parametry neaktualizuje, jen kvůli úplnosti
+                SequenceTrain = SequenceTrain,
+                InputShape = InputShape,
+                L2 = L2,
+                Dropout = Dropout,
+                Random = new Random(randomSeed),
+            };
+        }
     }
 }

@@ -118,6 +118,47 @@ namespace My_DNN
             }
             bias -= L * e * 1;
         }
+        // ---------------------------------------------------------------- repliky
+        //
+        // Replika pro data-paralelní trénink (Train.Workers > 1). Pole vah SDÍLÍ s originálem
+        // — během dávky se váhy jen čtou a mění je až UpdateParams originálu, po dávce, kdy
+        // repliky stojí. Díky tomu se váhy mezi dávkami nemusí kopírovat. Vlastní má
+        // všechno, co se mění během průchodu: gradienty, čítač dávky, vstupy a výstupy.
+        // Bias je skalár, takže sdílet nejde — přenáší ho SyncBiasFrom před každou dávkou.
+        internal Neuron CreateReplica()
+        {
+            Neuron replica = (Neuron)MemberwiseClone();
+            replica.inputs = new double[weights.Length];
+            replica.output = 0;
+            replica.raw_output = 0;
+            replica.gradientsW = new double[weights.Length];
+            replica.gradientsB = 0;
+            replica.mini_batch_size = 0;
+            return replica;
+        }
+
+        internal void SyncBiasFrom(Neuron original)
+        {
+            bias = original.bias;
+        }
+
+        // Přičte gradienty a čítač repliky k tomuto neuronu a repliku vynuluje. Čítač se
+        // přičítat MUSÍ — Update_weights_bias jím dělí, takže bez něj by se gradient
+        // celé dávky vydělil jen počtem vzorků, které prošly originálem (tedy nulou).
+        internal void TakeGradientsFrom(Neuron replica)
+        {
+            for (int i = 0; i < gradientsW.Length; i++)
+            {
+                gradientsW[i] += replica.gradientsW[i];
+                replica.gradientsW[i] = 0;
+            }
+            gradientsB += replica.gradientsB;
+            replica.gradientsB = 0;
+
+            mini_batch_size += replica.mini_batch_size;
+            replica.mini_batch_size = 0;
+        }
+
         // Neuron byl v tomhle vzorku vypnutý dropoutem: nepočítal se ve forwardu a jeho
         // gradient je nulový, takže není co akumulovat. Čítač dávky se ale zvýšit MUSÍ —
         // gradienty se dělí právě jím, a kdyby vypnuté vzorky nepočítal, dělilo by se

@@ -255,6 +255,64 @@ namespace My_DNN.Layers
             }
         }
 
+        // Replika pro paralelní trénink — viz Layer.CreateReplica. Kernely i biasy SDÍLÍ
+        // odkazem (optimizer originálu je přepisuje na místě, až po dávce), takže se mezi
+        // dávkami nic nekopíruje. Vlastní: vstupní a výstupní buffery (alokuje je WireShapes
+        // stejně jako při zapojení) a akumulátory gradientů.
+        internal override Layer CreateReplica()
+        {
+            Conv replica = (Conv)MemberwiseClone();
+            replica.WireShapes(null, inputsShape);
+
+            replica.dBiases = new double[kernels.Length];
+            replica.dKernels = new double[kernels.Length][][][];
+            for (int f = 0; f < kernels.Length; f++)
+            {
+                replica.dKernels[f] = new double[kernels[f].Length][][];
+                for (int i = 0; i < kernels[f].Length; i++)
+                {
+                    replica.dKernels[f][i] = new double[kernels[f][i].Length][];
+                    for (int j = 0; j < kernels[f][i].Length; j++)
+                    {
+                        replica.dKernels[f][i][j] = new double[kernels[f][i][j].Length];
+                    }
+                }
+            }
+
+            replica.mini_batch_size = 0;
+            return replica;
+        }
+
+        // Přičíst gradienty repliky a repliku vynulovat. Čítač dávky patří k tomu —
+        // UpdateParams jím dělí (viz Neuron.TakeGradientsFrom).
+        internal override void TakeGradientsFrom(Layer replica)
+        {
+            Conv other = (Conv)replica;
+
+            for (int f = 0; f < dKernels.Length; f++)
+            {
+                for (int i = 0; i < dKernels[f].Length; i++)
+                {
+                    for (int j = 0; j < dKernels[f][i].Length; j++)
+                    {
+                        double[] mine = dKernels[f][i][j];
+                        double[] theirs = other.dKernels[f][i][j];
+                        for (int c = 0; c < mine.Length; c++)
+                        {
+                            mine[c] += theirs[c];
+                            theirs[c] = 0;
+                        }
+                    }
+                }
+
+                dBiases[f] += other.dBiases[f];
+                other.dBiases[f] = 0;
+            }
+
+            mini_batch_size += other.mini_batch_size;
+            other.mini_batch_size = 0;
+        }
+
         public override Tensor FeedForward(Tensor TensorValues)
         {
             // Tvar musí sedět na ten, na který je vrstva ZAPOJENÁ. Dřív se to nikde

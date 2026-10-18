@@ -182,6 +182,19 @@ namespace My_DNN.Layers
             }
         }
 
+        // Replika pro paralelní trénink — viz Layer.CreateReplica. Kromě výstupů má vlastní
+        // i skrytý stav a RTRL citlivosti: replika zpracovává CELÉ sekvence, takže stav
+        // mezi kroky sekvence zůstává v jedné replice a nemíchá se s jinou sekvencí.
+        internal override Layer CreateReplica()
+        {
+            RNN replica = (RNN)MemberwiseClone();
+            replica.output = new double[output.Length];
+            replica.raw_output = new double[raw_output.Length];
+            replica.neurons = neurons.Select(n => n.CreateReplica()).ToList();
+            replica.AllocateSensitivities();
+            return replica;
+        }
+
         private bool NeuronsMatchShape(int neuronCount, int weightsPerNeuron)
         {
             return neurons.Count == neuronCount

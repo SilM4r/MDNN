@@ -81,5 +81,22 @@
         abstract public Tensor Backward(Tensor gradOutput, bool preActivation = false,
                                         bool computeInputGradient = true);
 
+        // ---------------------------------------------------------------- repliky
+        //
+        // Data-paralelní trénink (Train.Workers > 1): každé vlákno má vlastní repliku modelu
+        // a počítá svůj kus dávky. Replika SDÍLÍ parametry s originálem (během dávky se jen
+        // čtou) a má VLASTNÍ všechno, co se mění během průchodu — aktivace, masky, gradienty.
+        //
+        // null = vrstva paralelní trénink neumí. Výchozí hodnota je schválně null, ne
+        // MemberwiseClone: mělká kopie by sdílela pracovní buffery a dvě vlákna by si
+        // navzájem přepisovala aktivace — tiše, bez pádu. Trénink to proto odmítne.
+        internal virtual Layer? CreateReplica() => null;
+
+        // Před každou dávkou: přenést do repliky parametry, které nejdou sdílet odkazem.
+        internal virtual void SyncReplica(Layer replica) { }
+
+        // Po dávce: přičíst gradienty repliky k vlastním a repliku vynulovat.
+        internal virtual void TakeGradientsFrom(Layer replica) { }
+
     }
 }

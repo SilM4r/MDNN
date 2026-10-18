@@ -59,6 +59,21 @@ namespace My_DNN
             foreach (Layer l in layersList) l.Context = context;
             MarkLayerRoles();
         }
+        // Správce už hotových vrstev (replik) — bez zapojování a materializace, ty mají
+        // vrstvy po originálu. Jen jim nastaví kontext a role.
+        internal static LayerManager ForReplica(List<Layer> layers, NetworkContext context)
+        {
+            return new LayerManager(context, layers);
+        }
+
+        private LayerManager(NetworkContext context, List<Layer> layers)
+        {
+            this.context = context;
+            layersList = layers;
+            foreach (Layer layer in layers) layer.Context = context;
+            MarkLayerRoles();
+        }
+
         public void SetInputSizeForFirstLayer(int[]? input_size = null)
         {
             if (input_size != null)
