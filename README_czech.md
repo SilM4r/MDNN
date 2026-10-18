@@ -292,8 +292,9 @@ Co je dobré vědět:
 
 - Dělí se jen práce **uvnitř** dávky. Při výchozí velikosti dávky `1` se nic nezrychlí
   a víc vláken, než je vzorků v dávce, nic nepřidá. Změřeno na 10jádrovém Apple Silicon
-  (4 výkonná jádra), jedna epocha: MLP 784-128-10 se se 4 vlákny učí 2,5× rychleji při dávce
-  32 a 3,1× při dávce 128; malá CNN 3,3× při dávce 32.
+  (4 výkonná jádra), jedna epocha: MLP 784-128-10 se se 4 vlákny učí 2,3× rychleji při dávce
+  32 a 3,0× při dávce 128; malá CNN 3,1× při dávce 32. Větší dávky škálují lépe — gradienty
+  replik se sčítají jednou za dávku a u malých dávek je ten součet znatelný díl práce.
 - **Reprodukovatelnost:** stejný seed a stejné `Workers` dají bit po bitu stejný výsledek na
   jakémkoli stroji. Proti `Workers = 1` se výsledek liší o zaokrouhlení, s dropoutem i
   vylosovanými maskami — každá replika má vlastní generátor odvozený ze seedu modelu.
@@ -305,7 +306,7 @@ Co je dobré vědět:
   i závěrečný test v `TrainLoop()`. Jde jen o dopředné průchody: výstupy se spočítají
   paralelně a loss a skóre se z nich pak sečtou v pořadí vzorků, takže vyjdou **bit po bitu
   stejně** jako při `Workers = 1` — a s nimi i výběr nejlepšího modelu a early stopping.
-  Změřeno: 3,5× se 4 vlákny, až 5,8× s 10.
+  Změřeno: 3,6× se 4 vlákny, až 6,8× s 10.
 - Vlastní smyčka s `Fit()` a `UpdateParams()` běží vždy sekvenčně.
 
 ### `Fit()` a `UpdateParams()`

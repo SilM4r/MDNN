@@ -360,21 +360,37 @@ namespace My_DNN.Layers
             double[][][] paddedInput = PadForSame(inputs);
             
 
+            int outH = outputShape[0];
+            int outW = outputShape[1];
+
             // Pro každý filtr (výstupní kanál)
+            //
+            // Řádky zubatých polí se vytahují o úroveň výš (inRow, kRow, pixel, weights), ne až
+            // v nejvnitřnější smyčce: `paddedInput[i + ki][j + kj][c]` znamená tři skoky po
+            // haldě a tři kontroly mezí na KAŽDÉ násobení. Pořadí sčítání je stejné, takže
+            // výsledek je bit po bitu tentýž.
             for (int f = 0; f < numFilters; f++)
             {
-                for (int i = 0; i < outputShape[0]; i++)
+                double[][][] kernel = kernels[f];
+
+                for (int i = 0; i < outH; i++)
                 {
-                    for (int j = 0; j < outputShape[1]; j++)
+                    for (int j = 0; j < outW; j++)
                     {
                         double sum = 0;
                         for (int ki = 0; ki < kernelRows; ki++)
                         {
+                            double[][] inRow = paddedInput[i + ki];
+                            double[][] kRow = kernel[ki];
+
                             for (int kj = 0; kj < kernelCols; kj++)
                             {
+                                double[] pixel = inRow[j + kj];
+                                double[] weights = kRow[kj];
+
                                 for (int c = 0; c < inputChannels; c++)
                                 {
-                                    sum += paddedInput[i + ki][j + kj][c] * kernels[f][ki][kj][c];
+                                    sum += pixel[c] * weights[c];
                                 }
                             }
                         }
@@ -417,6 +433,9 @@ namespace My_DNN.Layers
                 }
             }
 
+            int outH = outputShape[0];
+            int outW = outputShape[1];
+
             // 2. Výpočet dKernels: pro každý filtr a každý prvek kernelu se vynásobí odpovídající hodnota z paddedInput a dOutput
             for (int f = 0; f < numFilters; f++)
             {
@@ -426,12 +445,16 @@ namespace My_DNN.Layers
                     {
                         for (int c = 0; c < inChannels; c++)
                         {
+                            // řádky vytažené o úroveň výš — viz FeedForward
                             double sum = 0;
-                            for (int i = 0; i < outputShape[0]; i++)
+                            for (int i = 0; i < outH; i++)
                             {
-                                for (int j = 0; j < outputShape[1]; j++)
+                                double[][] inRow = paddedInput[i + ki];
+                                double[][] dRow = dOutput[i];
+
+                                for (int j = 0; j < outW; j++)
                                 {
-                                    sum += paddedInput[i + ki][j + kj][c] * dOutput[i][j][f];
+                                    sum += inRow[j + kj][c] * dRow[j][f];
                                 }
                             }
                             dKernels[f][ki][kj][c] += sum;
@@ -573,17 +596,28 @@ namespace My_DNN.Layers
             // Pro každý výstupní bod se gradient "rozprostře" zpět na vstupní pixely pomocí hodnot kernelu
             for (int f = 0; f < numFilters; f++)
             {
+                double[][][] kernel = kernels[f];
+
                 for (int i = 0; i < outH; i++)
                 {
                     for (int j = 0; j < outW; j++)
                     {
+                        // řádky vytažené o úroveň výš — viz FeedForward
+                        double g = dOutput[i][j][f];
+
                         for (int ki = 0; ki < kH; ki++)
                         {
+                            double[][] dstRow = dInputPadded[i + ki];
+                            double[][] kRow = kernel[ki];
+
                             for (int kj = 0; kj < kW; kj++)
                             {
+                                double[] dst = dstRow[j + kj];
+                                double[] weights = kRow[kj];
+
                                 for (int c = 0; c < inChannels; c++)
                                 {
-                                    dInputPadded[i + ki][j + kj][c] += kernels[f][ki][kj][c] * dOutput[i][j][f];
+                                    dst[c] += weights[c] * g;
                                 }
                             }
                         }
