@@ -42,10 +42,18 @@ Additional capabilities:
 
 MDNN is distributed as a dynamic library, `MDNN.dll`. To use it:
 
-1. Add a reference to `MDNN.dll` in your project.
+1. Add a reference to the `MDNN` project, or to the `MDNN.dll` it builds.
 2. Include the relevant namespaces in your source code.
 
-Alternatively, download the repository and build it; the build produces a fresh `MDNN.dll`.
+Loss charts live in a separate library, `MDNN.Plotting` (it brings in ScottPlot, which the
+core library does not need) — reference it as well if you want them, see
+[Plotting](#plotting).
+
+Both can also be packed as NuGet packages, `MDNN` and `MDNN.Plotting`:
+
+```
+dotnet pack MDNN/MDNN.sln -c Release
+```
 
 ## Quick start
 
@@ -223,7 +231,7 @@ The most complete training procedure. It provides:
 - Automatic shuffling and splitting of the dataset into training, validation, and test sets
 - Progress reporting to the console
 - Detection of `NaN` values
-- Automatic plotting of the loss over epochs
+- A loss chart over epochs (with `MDNN.Plotting`, see [Plotting](#plotting))
 
 **One epoch = one full pass over the training set.** Each epoch the sample order is
 reshuffled and the data is processed in minibatches, with one optimizer step per batch.
@@ -512,7 +520,20 @@ Each model owns a `NetworkContext` (`model.Context`) that holds its runtime conf
 
 ### Plotting
 
-The `GraphPlotter` class visualizes training progress. Its `ShowLossGraph()` method produces a graph of training and validation loss over epochs and saves it as `loss.png` in the application's root directory. This makes it easy to spot overfitting or undertraining. Plotting uses the ScottPlot library.
+Charts of training and validation loss over epochs live in the separate `MDNN.Plotting`
+library, so the core library does not depend on ScottPlot. Plug it in once per model:
+
+```csharp
+using My_DNN;   // GraphPlotter is in MDNN.Plotting, same namespace
+
+model.Train.UseLossChart();   // TrainLoop then saves loss.png at the end
+```
+
+The chart is saved as `loss.png` in the working directory, at the end of `TrainLoop()` and when
+training diverges. It makes overfitting or undertraining easy to spot. `ShowLossChartInTrainLoop
+= false` switches it off again. Without `UseLossChart()` no chart is drawn — the core library only
+offers the hook `Train.LossChart(epochs, trainLoss, validLoss)`, which you can also point at your
+own plotting code.
 
 ## How it works internally
 

@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\MDNN\MDNN.csproj" />
+    <ProjectReference Include="..\MDNN.Plotting\MDNN.Plotting.csproj" />
   </ItemGroup>
 
   <ItemGroup>

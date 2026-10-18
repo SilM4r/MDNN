@@ -42,10 +42,18 @@ Další možnosti:
 
 MDNN je distribuována jako dynamická knihovna `MDNN.dll`. Pro použití:
 
-1. Přidejte do projektu referenci na `MDNN.dll`.
+1. Přidejte do projektu referenci na projekt `MDNN`, nebo na `MDNN.dll`, který sestaví.
 2. Zahrňte příslušné jmenné prostory ve zdrojovém kódu.
 
-Alternativně stáhněte repozitář a sestavte ho; sestavení vygeneruje nový soubor `MDNN.dll`.
+Grafy loss jsou v samostatné knihovně `MDNN.Plotting` (přináší ScottPlot, který jádro
+knihovny nepotřebuje) — pokud je chcete, přidejte referenci i na ni, viz
+[Tvorba grafů](#tvorba-grafů).
+
+Obě jdou zabalit i jako NuGet balíčky, `MDNN` a `MDNN.Plotting`:
+
+```
+dotnet pack MDNN/MDNN.sln -c Release
+```
 
 ## Rychlý start
 
@@ -220,7 +228,7 @@ Nejúplnější trénovací procedura. Poskytuje:
 - Automatické zamíchání a rozdělení datasetu na trénovací, validační a testovací sadu
 - Výpis průběhu do konzole
 - Detekci hodnot `NaN`
-- Automatické vykreslení grafu loss v průběhu epoch
+- Graf loss v průběhu epoch (s `MDNN.Plotting`, viz [Tvorba grafů](#tvorba-grafů))
 
 **Jedna epocha = jeden úplný průchod trénovací sadou.** Každou epochu se pořadí vzorků znovu
 zamíchá a data se zpracují po minibatchích, s jedním krokem optimizéru na dávku. Parametr
@@ -505,7 +513,19 @@ Každý model vlastní `NetworkContext` (`model.Context`), který drží jeho b�
 
 ### Tvorba grafů
 
-Třída `GraphPlotter` vizualizuje průběh tréninku. Její metoda `ShowLossGraph()` vytvoří graf trénovací a validační loss v průběhu epoch a uloží ho jako `loss.png` do kořenového adresáře aplikace. Snadno se tak odhalí přeučení nebo nedotrénování. Grafy používají knihovnu ScottPlot.
+Grafy trénovací a validační loss v průběhu epoch jsou v samostatné knihovně `MDNN.Plotting`,
+takže jádro knihovny nezávisí na ScottPlotu. Zapojí se jednou na model:
+
+```csharp
+using My_DNN;   // GraphPlotter je v MDNN.Plotting, stejný jmenný prostor
+
+model.Train.UseLossChart();   // TrainLoop pak na konci uloží loss.png
+```
+
+Graf se uloží jako `loss.png` do pracovního adresáře, na konci `TrainLoop()` a při divergenci
+tréninku. Snadno se tak odhalí přeučení nebo nedotrénování. `ShowLossChartInTrainLoop = false`
+ho zase vypne. Bez `UseLossChart()` se žádný graf nekreslí — jádro knihovny nabízí jen háček
+`Train.LossChart(epochs, trainLoss, validLoss)`, na který jde napojit i vlastní kód pro grafy.
 
 ## Jak to funguje uvnitř
 

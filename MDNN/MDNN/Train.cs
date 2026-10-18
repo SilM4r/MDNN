@@ -47,6 +47,20 @@ namespace My_DNN
         internal uint LastReportEpoch = 0;
 
         public bool ShowLossChartInTrainLoop = true;
+
+        // Co nakreslí graf průběhu tréninku: (epochy, trénovací loss, validační loss).
+        // Jádro knihovny vykreslovat neumí — ScottPlot je v samostatném balíčku MDNN.Plotting,
+        // který sem dosadí svůj GraphPlotter přes model.Train.UseLossChart(). Bez něj se graf
+        // nekreslí (null = žádný graf), ShowLossChartInTrainLoop pak nemá na co působit.
+        public Action<int[], double[], double[]>? LossChart { get; set; }
+
+        private void DrawLossChart()
+        {
+            if (ShowLossChartInTrainLoop && LossChart != null)
+            {
+                LossChart(_listOfepoch.ToArray(), _listOfTrainLoss.ToArray(), _listOfValidLoss.ToArray());
+            }
+        }
         public bool TestNeuralNetworkAfterTraining = true;
         public bool ShowModelInfoIntrainLoop = true;
         public bool AutoSaveInTrainLoop = true;
@@ -445,10 +459,7 @@ namespace My_DNN
                 }
                 ComplexTestNeuralNetwork();
             }
-            if (ShowLossChartInTrainLoop)
-            {
-                GraphPlotter.ShowLossGraph(_listOfepoch.ToArray(), _listOfTrainLoss.ToArray(), _listOfValidLoss.ToArray());
-            }
+            DrawLossChart();
         }
 
         public void SimpleTrainLoop(double[][] inputsValues, double[][] currentOutputValues, uint numberOfEpoch, uint sizeOfMiniBatch = 1)
@@ -1182,10 +1193,7 @@ namespace My_DNN
             {
                 // graf jen když si ho uživatel přeje — jinak by každý zdivergovaný běh
                 // (a v AutoML jich budou desítky) tiše zapsal loss.png do pracovního adresáře
-                if (ShowLossChartInTrainLoop)
-                {
-                    GraphPlotter.ShowLossGraph(_listOfepoch.ToArray(), _listOfTrainLoss.ToArray(), _listOfValidLoss.ToArray());
-                }
+                DrawLossChart();
 
                 ConsoleControler.ErrorHandler("NaN value in output", "The output from the neural network is either too small or too large, hence the value of nan. Please try other values ​​in the training parameters (for example: learning rate or hyperammetry )", true);
 

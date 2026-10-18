@@ -2,8 +2,17 @@
 
 namespace My_DNN
 {
+    // Graf trénovací a validační loss přes ScottPlot. Je v samostatném balíčku MDNN.Plotting,
+    // ne v jádru: jádro jen nabídne háček (Train.LossChart) a o vykreslení neví nic.
     public static class GraphPlotter
     {
+        // Zapne graf na konci TrainLoop (a při divergenci): model.Train.UseLossChart();
+        public static Train UseLossChart(this Train train)
+        {
+            train.LossChart = ShowLossGraph;
+            return train;
+        }
+
         public static void ShowLossGraph(int[] epoch,double[] TrainDataLoss, double[] ValidDataLoss)
         {
             if (TrainDataLoss.Length != epoch.Length || ValidDataLoss.Length != epoch.Length)

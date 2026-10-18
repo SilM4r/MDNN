@@ -6,8 +6,25 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- NuGet balíček. Publikuje se ručně (dotnet pack + dotnet nuget push), CI nic neposílá. -->
+  <PropertyGroup>
+    <PackageId>MDNN</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>SilM4r</Authors>
+    <Description>Neural network library for C#, written from scratch: Dense, Conv, MaxPool and RNN layers, Adam/Momentum/SGD, L2 and dropout, data-parallel training, gradient-checked and verified against PyTorch.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/SilM4r/MDNN</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/SilM4r/MDNN</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>neural-network;deep-learning;machine-learning;cnn;rnn</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
   <ItemGroup>
-    <PackageReference Include="ScottPlot" Version="5.0.54" />
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="MDNN.Tests" />
   </ItemGroup>
 

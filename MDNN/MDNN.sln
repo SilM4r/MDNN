@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MDNN.Tests", "MDNN.Tests\MD
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MDNN.Benchmarks", "MDNN.Benchmarks\MDNN.Benchmarks.csproj", "{46415479-B23A-4FB3-97CF-021DAD302E24}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MDNN.Plotting", "MDNN.Plotting\MDNN.Plotting.csproj", "{4DF92A4E-5003-45DB-B7D3-ECD110DD993E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -55,6 +57,18 @@ Global
 		{46415479-B23A-4FB3-97CF-021DAD302E24}.Release|x64.Build.0 = Release|Any CPU
 		{46415479-B23A-4FB3-97CF-021DAD302E24}.Release|x86.ActiveCfg = Release|Any CPU
 		{46415479-B23A-4FB3-97CF-021DAD302E24}.Release|x86.Build.0 = Release|Any CPU
+		{4DF92A4E-5003-45DB-B7D3-ECD110DD993E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4DF92A4E-5003-45DB-B7D3-ECD110DD993E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4DF92A4E-5003-45DB-B7D3-ECD110DD993E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{4DF92A4E-5003-45DB-B7D3-ECD110DD993E}.Debug|x64.Build.0 = Debug|Any CPU
+		{4DF92A4E-5003-45DB-B7D3-ECD110DD993E}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{4DF92A4E-5003-45DB-B7D3-ECD110DD993E}.Debug|x86.Build.0 = Debug|Any CPU
+		{4DF92A4E-5003-45DB-B7D3-ECD110DD993E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4DF92A4E-5003-45DB-B7D3-ECD110DD993E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4DF92A4E-5003-45DB-B7D3-ECD110DD993E}.Release|x64.ActiveCfg = Release|Any CPU
+		{4DF92A4E-5003-45DB-B7D3-ECD110DD993E}.Release|x64.Build.0 = Release|Any CPU
+		{4DF92A4E-5003-45DB-B7D3-ECD110DD993E}.Release|x86.ActiveCfg = Release|Any CPU
+		{4DF92A4E-5003-45DB-B7D3-ECD110DD993E}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
