@@ -198,9 +198,9 @@ namespace My_DNN.Save_neural_network
         private void RequireComplete()
         {
             if ((object?)Optimizer == null)
-                throw new ModelFileCorruptedException("Soubor s modelem neobsahuje sekci „Optimizer\".");
+                throw new ModelFileCorruptedException("The model file has no 'Optimizer' section.");
             if ((object?)Layers == null)
-                throw new ModelFileCorruptedException("Soubor s modelem neobsahuje sekci „Layers\".");
+                throw new ModelFileCorruptedException("The model file has no 'Layers' section.");
         }
 
         // Vrátí JSON vlastního modelu. Nový formát rozbalí a ověří kontrolní součet,
@@ -216,7 +216,7 @@ namespace My_DNN.Save_neural_network
             }
             catch (JsonException ex)
             {
-                throw new ModelFileCorruptedException($"Soubor s modelem není platný JSON: {ex.Message}");
+                throw new ModelFileCorruptedException($"The model file is not valid JSON: {ex.Message}");
             }
 
             if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("FormatVersion", out JsonElement versionElement))
@@ -228,13 +228,13 @@ namespace My_DNN.Save_neural_network
             if (version > CurrentFormatVersion)
             {
                 throw new ModelFileCorruptedException(
-                    $"Model je uložený ve formátu verze {version}, tahle verze knihovny umí nejvýš " +
-                    $"{CurrentFormatVersion}. Aktualizuj knihovnu.");
+                    $"The model is saved in format version {version}; this version of the library supports at most " +
+                    $"{CurrentFormatVersion}. Update the library.");
             }
 
             if (!root.TryGetProperty("Model", out JsonElement modelElement))
             {
-                throw new ModelFileCorruptedException("Obálka modelu neobsahuje sekci 'Model'.");
+                throw new ModelFileCorruptedException("The model envelope has no 'Model' section.");
             }
 
             // GetRawText() vrátí přesně ty znaky, které v souboru jsou → hash se počítá nad
@@ -267,7 +267,7 @@ namespace My_DNN.Save_neural_network
             if (!File.Exists(path))
             {
                 throw new FileNotFoundException(
-                    $"Model se nepodařilo najít ani jako '{fullPath}', ani jako '{EnsureJsonExtension(fullPath)}'.",
+                    $"The model was found neither as '{fullPath}' nor as '{EnsureJsonExtension(fullPath)}'.",
                     fullPath);
             }
 

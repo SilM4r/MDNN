@@ -24,7 +24,7 @@ namespace My_DNN
             if (model.Context.Loss.RequiresSoftmax && !lastLayer.Activation_Func.Apply_to_layer)
             {
                 throw new InvalidOperationException(
-                    "CrossEntropy vyžaduje softmax výstupní vrstvu.");
+                    "CrossEntropy requires a Softmax output layer.");
             }
 
             if ((lastLayer.Layer_output == null && output_values_from_model == null)
@@ -39,8 +39,8 @@ namespace My_DNN
             if (target_values.Data.Length != outputTensor.Data.Length)
             {
                 throw new ArgumentException(
-                    $"Výstupní vrstva má {outputTensor.Data.Length} hodnot, ale cíl jich má " +
-                    $"{target_values.Data.Length}. Počet cílů musí odpovídat počtu neuronů výstupní vrstvy.");
+                    $"The output layer has {outputTensor.Data.Length} values but the target has " +
+                    $"{target_values.Data.Length}. The number of targets must match the number of output neurons.");
             }
 
             // Fúze softmax + CrossEntropy: loss vrací rovnou ∂L/∂z = s − t. Softmax tam

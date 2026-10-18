@@ -105,7 +105,7 @@ namespace My_DNN
                         break;
                     default:
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
-                        Console.WriteLine("| Tato vrstva není definována |");
+                        Console.WriteLine("| This layer is not defined |");
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
                         break;
                 }
@@ -114,8 +114,8 @@ namespace My_DNN
             {
                 Console.WriteLine($"! Warning !");
                 Console.WriteLine("These are indicative model data only!");
-                Console.WriteLine("This information is before the input values ​​are set, so some data may be missing from the model. ");
-                Console.WriteLine("As soon as you start training the model, the missing data will appear by itself, if not manually set the input values ​​using GeneralNeuralNetworkSettings.modelInputSizeAndShape");
+                Console.WriteLine("This information is before the input values are set, so some data may be missing from the model. ");
+                Console.WriteLine("It fills in on the first pass through the model; to set it earlier, call model.Layers.SetInputSizeForFirstLayer(new int[] { … }).");
             }   
             else
             {
@@ -239,7 +239,7 @@ namespace My_DNN
         private static string Percent(int part, int whole)
             => whole > 0
                 ? $"{(double)part / whole * 100:0.00} %"
-                : "nelze spočítat (žádné vzorky)";
+                : "n/a (no samples)";
 
         public static void ShowScoreOfmodel(int score,int maxScore)
         {

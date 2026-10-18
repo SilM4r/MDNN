@@ -203,7 +203,7 @@ namespace My_DNN
             {
                 if (value < 1)
                     throw new ArgumentOutOfRangeException(nameof(Workers), value,
-                        "Počet vláken musí být aspoň 1 (1 = sekvenční trénink).");
+                        "The number of workers must be at least 1 (1 = sequential training).");
                 _workers = value;
             }
         }
@@ -302,8 +302,8 @@ namespace My_DNN
                 _validDataInputs == null || _validDataCurrentOutput == null)
             {
                 throw new InvalidOperationException(
-                    "Trénovací nebo validační dataset chybí — trénink ještě neproběhl, " +
-                    "nebo nebyly datasety zadané přes SetDatasets().");
+                    "The training or validation dataset is missing — training has not run yet, " +
+                    "or the datasets were not set with SetDatasets().");
             }
 
             (int, int) trainScore = TestNeuralNetwork(_trainDataInputs, _trainDataCurrentOutput, false);
@@ -407,8 +407,8 @@ namespace My_DNN
         private LabeledData CurrentDataSource()
         {
             return _explicitTrain ?? throw new InvalidOperationException(
-                "Nejsou zadaná žádná data. Použij SetDatasets(train, valid, test), " +
-                "nebo zkratku TrainLoop(inputs, targets, ...).");
+                "No data has been set. Use SetDatasets(train, valid, test), " +
+                "or the shortcut TrainLoop(inputs, targets, ...).");
         }
 
         private void RunTrainLoop(Tensor tensorInputsValues, Tensor tensorCurrentOutputValues, uint numberOfEpoch, uint sizeOfMiniBatch = 1, bool isSequence = false)
@@ -428,7 +428,7 @@ namespace My_DNN
                 if (_trainDataInputs == null || _trainDataCurrentOutput == null)
                 {
                     throw new InvalidOperationException(
-                        "_trainDataInputs/_trainDataCurrentOutput je null — trénovací data nebyla rozdělena (DividingDataIntoDatasets).");
+                        "_trainDataInputs/_trainDataCurrentOutput is null — the training data has not been split (DividingDataIntoDatasets).");
                 }
 
                 RunOneEpoch(_trainDataInputs, _trainDataCurrentOutput);
@@ -469,7 +469,7 @@ namespace My_DNN
 
             if (sizeOfMiniBatch < 1)
             {
-                throw new ArgumentException("Velikost minibatche musí být aspoň 1.", nameof(sizeOfMiniBatch));
+                throw new ArgumentException("The minibatch size must be at least 1.", nameof(sizeOfMiniBatch));
             }
 
             this._sizeOfMiniBatch = sizeOfMiniBatch;
@@ -516,7 +516,7 @@ namespace My_DNN
                     // mezi „dotrénováno" a „rozpadlo se to hned v první epoše".
                     if (!double.IsFinite(loss))
                     {
-                        ConsoleControler.ErrorHandler("NaN value in output", "The output from the neural network is either too small or too large, hence the value of nan. Please try other values ​​in the training parameters (for example: learning rate or hyperammetry )", true);
+                        ConsoleControler.ErrorHandler("NaN value in output", "The output from the neural network is either too small or too large, hence the value of nan. Please try other values in the training parameters (for example the learning rate or other hyperparameters).", true);
                         throw new TrainingDivergedException(_epoch, loss);
                     }
 
@@ -620,7 +620,7 @@ namespace My_DNN
             // nekonečná smyčka. (Dřív se s nulou prostě netrénovalo, tiše.)
             if (sizeOfMiniBatch < 1)
             {
-                throw new ArgumentException("Velikost minibatche musí být aspoň 1.", nameof(sizeOfMiniBatch));
+                throw new ArgumentException("The minibatch size must be at least 1.", nameof(sizeOfMiniBatch));
             }
 
             this._sizeOfMiniBatch = sizeOfMiniBatch;
@@ -735,15 +735,15 @@ namespace My_DNN
                 else
                 {
                     if (r <= 0 || r >= 1)
-                        throw new InvalidOperationException("Split poměr musí být v intervalu (0,1).");
+                        throw new InvalidOperationException("A split ratio must be in the range (0, 1).");
                     setSum += r.Value;
                 }
             }
 
             if (nullCount == 0 && Math.Abs(setSum - 1.0) > 1e-9)
-                throw new InvalidOperationException("Když jsou zadané všechny tři poměry, musí dát dohromady 1.");
+                throw new InvalidOperationException("When all three ratios are set, they must add up to 1.");
             if (nullCount > 0 && setSum >= 1.0)
-                throw new InvalidOperationException("Součet zadaných poměrů musí být < 1, aby na dopočítané (null) zbyl kladný podíl.");
+                throw new InvalidOperationException("The sum of the set ratios must be < 1, so the ones left unset (null) get a positive share.");
 
             double each = nullCount > 0 ? (1.0 - setSum) / nullCount : 0.0;
 
@@ -790,8 +790,8 @@ namespace My_DNN
             if (totalSize < 3)
             {
                 throw new ArgumentException(
-                    $"Na rozdělení na train/valid/test jsou potřeba aspoň 3 vzorky, dostal jsem {totalSize}. " +
-                    "U menšího datasetu si sady dodej sám přes SetDatasets(...).");
+                    $"Splitting into train/valid/test needs at least 3 samples, got {totalSize}. " +
+                    "For a smaller dataset, provide the sets yourself with SetDatasets(...).");
             }
 
             var (trainRatio, validRatio, _) = ResolveSplitRatios();
@@ -948,7 +948,7 @@ namespace My_DNN
                 }
 
                 var (keptValid, carvedTest) = CarveInTwo(
-                    _explicitValid, validRatio / (validRatio + testRatio), "validační");
+                    _explicitValid, validRatio / (validRatio + testRatio), "validation");
 
                 SetValid(keptValid);
                 SetTest(carvedTest);
@@ -960,7 +960,7 @@ namespace My_DNN
                 // používají k výběru modelu) by ten odhad znehodnotilo. Validační sada se
                 // v praxi bere právě z trainu. Typický případ: MNIST = train + test.
                 var (keptTrain, carvedValid) = CarveInTwo(
-                    _explicitTrain!, trainRatio / (trainRatio + validRatio), "trénovací");
+                    _explicitTrain!, trainRatio / (trainRatio + validRatio), "training");
 
                 _trainDataInputs = keptTrain.Inputs;
                 _trainDataCurrentOutput = keptTrain.Targets;
@@ -979,8 +979,8 @@ namespace My_DNN
             if (total < 2)
             {
                 throw new ArgumentException(
-                    $"Z {name} sady o {total} vzorku/vzorcích nejde ukrojit chybějící sadu — " +
-                    "potřebuje aspoň 2. Dodej obě sady, nebo vypni TestNeuralNetworkAfterTraining.");
+                    $"The missing set cannot be carved from the {name} set of {total} sample(s) — " +
+                    "it needs at least 2. Provide both sets, or turn off TestNeuralNetworkAfterTraining.");
             }
 
             int firstSize = Math.Clamp((int)(total * firstShare), 1, total - 1);
@@ -1011,7 +1011,7 @@ namespace My_DNN
         public void ShuffleTensor(Tensor tensorA, Tensor tensorB, out Tensor shuffledA, out Tensor shuffledB)
         {
             if (tensorA.Shape[0] != tensorB.Shape[0])
-                throw new ArgumentException("Oba tensory musí mít stejný počet vzorků");
+                throw new ArgumentException("Both tensors must have the same number of samples.");
 
             int batchSize = tensorA.Shape[0];
             int[] indices = Enumerable.Range(0, batchSize).OrderBy(_ => Rnd.Next()).ToArray();
@@ -1133,7 +1133,7 @@ namespace My_DNN
             // property Layer_output. Do CalculateLoss se tak null nemá jak dostat.
             if (ValidDataInputs == null || ValidDataCurrentOutput == null)
             {
-                throw new InvalidOperationException("Valid data nejsou nastavena (DividingDataIntoDatasets) — nelze spočítat valid loss.");
+                throw new InvalidOperationException("The validation data is not set (DividingDataIntoDatasets) — the validation loss cannot be computed.");
             }
 
             Tensor validInputs = ValidDataInputs;
@@ -1195,7 +1195,7 @@ namespace My_DNN
                 // (a v AutoML jich budou desítky) tiše zapsal loss.png do pracovního adresáře
                 DrawLossChart();
 
-                ConsoleControler.ErrorHandler("NaN value in output", "The output from the neural network is either too small or too large, hence the value of nan. Please try other values ​​in the training parameters (for example: learning rate or hyperammetry )", true);
+                ConsoleControler.ErrorHandler("NaN value in output", "The output from the neural network is either too small or too large, hence the value of nan. Please try other values in the training parameters (for example the learning rate or other hyperparameters).", true);
 
                 throw new TrainingDivergedException(_epoch, double.IsFinite(loss) ? validLossNow : loss);
             }

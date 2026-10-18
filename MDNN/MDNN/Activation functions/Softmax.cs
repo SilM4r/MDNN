@@ -20,8 +20,8 @@ namespace My_DNN.Activation_functions
         public override double Derivative(double value)
         {
             throw new NotSupportedException(
-                "Softmax nemá per-prvkovou derivaci (výstup závisí na všech vstupech). " +
-                "Použij BackwardForLayer(rawOutput, gradFromAbove).");
+                "Softmax has no per-element derivative (each output depends on all inputs). " +
+                "Use BackwardForLayer(rawOutput, gradFromAbove).");
         }
 
         // ∂L/∂z_i = Σ_j g_j · J[j,i],  kde J[j,i] = s_j·(δ_ji − s_i)
@@ -33,7 +33,7 @@ namespace My_DNN.Activation_functions
             if (rawOutput.Length != gradFromAbove.Length)
             {
                 throw new ArgumentException(
-                    $"rawOutput má {rawOutput.Length} prvků, gradient shora {gradFromAbove.Length}.");
+                    $"rawOutput has {rawOutput.Length} elements, the gradient from above {gradFromAbove.Length}.");
             }
 
             double[] s = ApplyToLayer(rawOutput);

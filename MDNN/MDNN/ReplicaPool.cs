@@ -34,8 +34,8 @@ namespace My_DNN
             if (original.Context.CalculationViaGpu)
             {
                 throw new NotSupportedException(
-                    "Paralelní trénink (Train.Workers > 1) zatím nejde kombinovat s výpočtem na GPU. " +
-                    "Nastav Train.Workers = 1, nebo vypni CalculationViaGpu.");
+                    "Parallel training (Train.Workers > 1) cannot be combined with GPU computation yet. " +
+                    "Set Train.Workers = 1, or turn off CalculationViaGpu.");
             }
 
             // RNN mimo sekvenční trénink nese skrytý stav z jednoho vzorku do DALŠÍHO
@@ -45,9 +45,9 @@ namespace My_DNN
             if (!original.Context.SequenceTrain && original.Layers.Layers.Any(l => l is Layers.RNN))
             {
                 throw new NotSupportedException(
-                    "RNN vrstva mimo sekvenční trénink nese skrytý stav mezi vzorky, takže ji nejde " +
-                    "trénovat paralelně (Train.Workers > 1). Použij sekvenční trénink " +
-                    "(TrainLoop(..., isSequence: true)), nebo Train.Workers = 1.");
+                    "Outside sequence training an RNN layer carries its hidden state from one sample to the next, so it cannot " +
+                    "be trained in parallel (Train.Workers > 1). Use sequence training " +
+                    "(TrainLoop(..., isSequence: true)), or Train.Workers = 1.");
             }
 
             _original = original;
@@ -68,8 +68,8 @@ namespace My_DNN
                 foreach (Layer layer in original.Layers.Layers)
                 {
                     layers.Add(layer.CreateReplica() ?? throw new NotSupportedException(
-                        $"Vrstva {layer.GetType().Name} nepodporuje paralelní trénink " +
-                        "(Train.Workers > 1). Nastav Train.Workers = 1."));
+                        $"Layer {layer.GetType().Name} does not support parallel training " +
+                        "(Train.Workers > 1). Set Train.Workers = 1."));
                 }
 
                 // Seed pro generátor repliky se bere z generátoru originálu: je to pořád

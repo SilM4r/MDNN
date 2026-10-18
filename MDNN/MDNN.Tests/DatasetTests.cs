@@ -400,7 +400,7 @@
           ArgumentException ex = Assert.Throws<ArgumentException>(
               () => Tensor.ConvertArrayToTensor(ragged));
 
-          Assert.Contains("stejně dlouhé", ex.Message);
+          Assert.Contains("same length", ex.Message);
       }
 
       [Fact]

@@ -86,10 +86,10 @@ namespace My_DNN
             if (_randomAlreadyUsed)
             {
                 throw new InvalidOperationException(
-                    $"{propertyName} nelze nastavit potom, co se z generátoru už čerpalo " +
-                    "(váhy nebo kernely jsou vylosované). Model by vyšel jen částečně " +
-                    "reprodukovatelný. Předej seed rovnou konstruktoru: " +
-                    "new MDNN(vrstva, optimizer, loss, seed: 42), případně MDNN.LoadModel(cesta, seed: 42).");
+                    $"{propertyName} cannot be set after the generator has already been drawn from " +
+                    "(weights or kernels are already initialized). The model would only be partly " +
+                    "reproducible. Pass the seed to the constructor instead: " +
+                    "new MDNN(layer, optimizer, loss, seed: 42), or MDNN.LoadModel(path, seed: 42).");
             }
         }
         public bool SequenceTrain { get; set; } = false;
@@ -124,7 +124,7 @@ namespace My_DNN
             {
                 if (double.IsNaN(value) || value < 0)
                     throw new ArgumentOutOfRangeException(nameof(L2), value,
-                        "Koeficient L2 musí být nezáporné číslo (0 = regularizace vypnutá).");
+                        "The L2 coefficient must be a non-negative number (0 = regularization off).");
 
                 _l2 = value;
             }
@@ -151,8 +151,8 @@ namespace My_DNN
             {
                 if (double.IsNaN(value) || value < 0 || value >= 1)
                     throw new ArgumentOutOfRangeException(nameof(Dropout), value,
-                        "Dropout musí být v intervalu <0, 1). 0 = vypnuto; 1 by zahodilo " +
-                        "všechno a škálovací faktor 1/(1-p) by dělil nulou.");
+                        "Dropout must be in the range [0, 1). 0 = off; 1 would drop " +
+                        "everything and the scaling factor 1/(1-p) would divide by zero.");
 
                 _dropout = value;
             }

@@ -321,7 +321,7 @@
               System.IO.File.WriteAllText(path + ".json", json.Replace("\"FormatVersion\": 1", "\"FormatVersion\": 99"));
 
               var ex = Assert.Throws<ModelFileCorruptedException>(() => My_DNN.MDNN.LoadModel(path));
-              Assert.Contains("Aktualizuj knihovnu", ex.Message);
+              Assert.Contains("Update the library", ex.Message);
           }
           finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
       }

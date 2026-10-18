@@ -25,9 +25,9 @@ namespace My_DNN
         public double Loss { get; }
 
         public TrainingDivergedException(uint epoch, double loss)
-            : base($"Trénink zdivergoval v epoše {epoch}: loss = {loss}. " +
-                   "Výstup sítě je příliš velký nebo malý — zkus nižší learning rate, " +
-                   "jinou inicializaci vah nebo normalizaci vstupů.")
+            : base($"Training diverged in epoch {epoch}: loss = {loss}. " +
+                   "The network output is too large or too small — try a lower learning rate, " +
+                   "a different weight initialization or normalized inputs.")
         {
             Epoch = epoch;
             Loss = loss;

@@ -122,14 +122,14 @@
             if (own != null && ownWins)
             {
                 throw new ArgumentException(
-                    $"Model se ukládal s loss funkcí „{savedName}\", předaná je „{own.Name}\".");
+                    $"The model was saved with loss function '{savedName}', but '{own.Name}' was passed in.");
             }
 
             if (!IsBuiltIn(savedName) && !string.IsNullOrEmpty(savedName))
             {
                 throw new ArgumentException(
-                    $"Loss funkce „{savedName}\" není vestavěná, načtení ji podle jména neumí postavit. " +
-                    "Předej její instanci: MDNN.LoadModel(cesta, loss: new …).");
+                    $"Loss function '{savedName}' is not built in, so loading cannot create it by name. " +
+                    "Pass an instance: MDNN.LoadModel(path, loss: new …).");
             }
 
             return inicialization_Loss_func(savedName);
@@ -147,12 +147,12 @@
                 case "MSE":
                     return new MSE();
                 case null or "":
-                    throw new ArgumentException("V souboru s modelem chybí jméno loss funkce.");
+                    throw new ArgumentException("The model file is missing the name of the loss function.");
                 default:
                     throw new ArgumentException(
-                        $"Loss funkce „{name_of_loss_function}\" není vestavěná. Model s vlastní " +
-                        "loss zatím nejde načíst ze souboru — načítání ji hledá podle jména " +
-                        "a zná jen MSE a Cross Entropy.");
+                        $"Loss function '{name_of_loss_function}' is not built in. A model with a custom " +
+                        "loss cannot be loaded from a file this way — loading looks it up by name " +
+                        "and only knows MSE and Cross Entropy.");
             }
         }
 

@@ -371,7 +371,7 @@ namespace My_DNN.Layers
 
             if (kernelChannels != inputChannels)
             {
-                throw new ArgumentException("Počet kanálů vstupu a kernelu se musí shodovat.");
+                throw new ArgumentException("The number of input channels and kernel channels must match.");
             }
 
             double[][][] paddedInput = PadForSame(inputs);
@@ -530,16 +530,16 @@ namespace My_DNN.Layers
         {
             if (preActivation)
                 throw new NotSupportedException(
-                    "Conv nesmí mít aktivaci působící na celou vrstvu (softmax), " +
-                    "takže fúze softmax+CE se jí netýká.");
+                    "Conv cannot have a layer-wide activation (softmax), " +
+                    "so the softmax+CE fusion does not apply to it.");
 
             double[] gradOut = gradOutput.Data;
             int expected = outputShape[0] * outputShape[1] * outputShape[2];
 
             if (gradOut.Length != expected)
                 throw new ArgumentException(
-                    $"Conv má výstup {outputShape[0]}×{outputShape[1]}×{outputShape[2]} " +
-                    $"({expected} hodnot), ale gradient shora jich má {gradOut.Length}.");
+                    $"Conv has output {outputShape[0]}×{outputShape[1]}×{outputShape[2]} " +
+                    $"({expected} values), but the gradient from above has {gradOut.Length}.");
 
             // 1) ∂L/∂output → ∂L/∂z. Tohle dělal SeedOutputGradient pro výstupní vrstvu
             //    a obě větve CalculateLayerGradients pro ty ostatní — teď je to na jednom

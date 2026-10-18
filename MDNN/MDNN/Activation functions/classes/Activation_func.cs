@@ -23,7 +23,7 @@ namespace My_DNN
         {
             if (string.IsNullOrEmpty(name_of_activation_function))
             {
-                throw new ArgumentException("V souboru s modelem chybí jméno aktivační funkce vrstvy.");
+                throw new ArgumentException("The model file is missing the name of a layer's activation function.");
             }
 
             string name = name_of_activation_function;
@@ -49,9 +49,9 @@ namespace My_DNN
                     return new Softmax();
                 default:
                     throw new ArgumentException(
-                        $"Aktivační funkce „{name_of_activation_function}\" není vestavěná. Model " +
-                        "s vlastní aktivací zatím nejde načíst ze souboru — načítání ji hledá " +
-                        "podle jména a zná jen Linear, Sigmoid, Tanh, ReLu, Leak_ReLu a Softmax.");
+                        $"Activation function '{name_of_activation_function}' is not built in. A model " +
+                        "with a custom activation cannot be loaded from a file yet — loading looks it up " +
+                        "by name and only knows Linear, Sigmoid, Tanh, ReLu, Leak_ReLu and Softmax.");
             }
         }
 

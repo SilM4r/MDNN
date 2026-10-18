@@ -95,12 +95,12 @@ namespace My_DNN.Layers
         {
             if (preActivation)
                 throw new NotSupportedException(
-                    "MaxPool nemá aktivaci, takže preActivation nedává smysl. " +
-                    "Fúze softmax+CE se týká jen výstupní Dense vrstvy.");
+                    "MaxPool has no activation, so preActivation makes no sense. " +
+                    "The softmax+CE fusion only applies to the output Dense layer.");
 
             if (output == null || indexes == null)
                 throw new InvalidOperationException(
-                    "MaxPool: backward před forwardem — pozice maxim ještě neexistují.");
+                    "MaxPool: backward before forward — the positions of the maxima do not exist yet.");
 
             // Gradient přichází rovnou po prvcích, žádné sahání do vah souseda. Právě tím
             // odpadá celá větev „další vrstva je Dense" ze staré CalculateLayerGradients:
@@ -113,9 +113,9 @@ namespace My_DNN.Layers
 
             if (upstream.Length != outHeight * outWidth * channels)
                 throw new ArgumentException(
-                    $"MaxPool má výstup {outHeight}×{outWidth}×{channels} " +
-                    $"({outHeight * outWidth * channels} hodnot), ale gradient shora " +
-                    $"jich má {upstream.Length}.");
+                    $"MaxPool has output {outHeight}×{outWidth}×{channels} " +
+                    $"({outHeight * outWidth * channels} values), but the gradient from above " +
+                    $"has {upstream.Length}.");
 
             if (!computeInputGradient) return Tensor.Empty;
 
@@ -162,7 +162,7 @@ namespace My_DNN.Layers
             if (inputs == null || output == null)
             {
                 throw new InvalidOperationException(
-                    "MaxPool: vrstva ještě není zapojená do modelu — neznám tvar vstupu.");
+                    "MaxPool: the layer is not wired into a model yet — the input shape is unknown.");
             }
 
             // plochá cesta místo (double[,,])GetOriginalData() — viz Conv.FeedForward

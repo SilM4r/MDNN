@@ -93,7 +93,7 @@ namespace My_DNN
         {
             if (newWeights.Length != weights.Length)
                 throw new ArgumentException(
-                    $"Očekáváno {weights.Length} vah, dostal jsem {newWeights.Length}.");
+                    $"Expected {weights.Length} weights, got {newWeights.Length}.");
 
             Array.Copy(newWeights, weights, weights.Length);
             bias = newBias;

@@ -93,8 +93,8 @@ namespace My_DNN.Layers
             if (activation_func.Apply_to_layer)
             {
                 throw new ArgumentException(
-                    "Na RNN vrstvu zatím nelze použít aktivaci působící na celou vrstvu (např. Softmax). " +
-                    "Použij např. Tanh() nebo ReLu(); softmax dej na navazující Dense vrstvu.");
+                    "An RNN layer cannot use a layer-wide activation (e.g. Softmax) yet. " +
+                    "Use e.g. Tanh() or ReLu(), and put the softmax on a following Dense layer.");
             }
         }
 
@@ -245,8 +245,8 @@ namespace My_DNN.Layers
         {
             if (preActivation)
                 throw new NotSupportedException(
-                    "RNN nesmí být výstupní vrstvou se softmaxem (guard v Gradient), " +
-                    "takže fúze softmax+CE se jí netýká.");
+                    "RNN cannot be an output layer with softmax (guarded in Gradient), " +
+                    "so the softmax+CE fusion does not apply to it.");
 
             EnsureSensitivities();
 
@@ -254,7 +254,7 @@ namespace My_DNN.Layers
 
             if (gradOut.Length != neurons.Count)
                 throw new ArgumentException(
-                    $"Gradient shora má {gradOut.Length} prvků, vrstva {neurons.Count} neuronů.");
+                    $"The gradient from above has {gradOut.Length} elements, the layer {neurons.Count} neurons.");
 
             // TADY je vidět, proč konvence B RNN sedí LÍP než dnešek: `gImm` je definičně
             // ∂L/∂h_j BEZ derivace aktivace — a to je přesně to, co Backward dostává.

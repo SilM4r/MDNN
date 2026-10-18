@@ -25,13 +25,13 @@ namespace My_DNN
 
             if (inputs.Shape.Length == 0 || targets.Shape.Length == 0)
             {
-                throw new ArgumentException("Vstupy i cíle musí mít aspoň jednu dimenzi.");
+                throw new ArgumentException("Both inputs and targets must have at least one dimension.");
             }
 
             if (inputs.Shape[0] != targets.Shape[0])
             {
                 throw new ArgumentException(
-                    $"Počet vzorků se neshoduje: vstupy {inputs.Shape[0]}, cíle {targets.Shape[0]}.");
+                    $"The number of samples does not match: inputs {inputs.Shape[0]}, targets {targets.Shape[0]}.");
             }
 
             Inputs = inputs;

@@ -22,7 +22,7 @@ namespace My_DNN.Layers.classes
         {
             if (shape == null || shape.Length == 0)
             {
-                throw new ArgumentException($"{layerName}: tvar vstupu je prázdný.");
+                throw new ArgumentException($"{layerName}: the input shape is empty.");
             }
 
             switch (shape.Length)
@@ -40,8 +40,8 @@ namespace My_DNN.Layers.classes
 
                 default:
                     throw new ArgumentException(
-                        $"{layerName} umí vstup jako [výška,šířka,kanály], [výška,šířka] nebo plochý " +
-                        $"vektor, ale dostal {shape.Length}-rozměrný tvar [{Describe(shape)}].");
+                        $"{layerName} accepts input as [height,width,channels], [height,width] or a flat " +
+                        $"vector, but got a {shape.Length}-dimensional shape [{Describe(shape)}].");
             }
         }
 
@@ -56,7 +56,7 @@ namespace My_DNN.Layers.classes
             if (count <= 0)
             {
                 throw new ArgumentException(
-                    $"{layerName}: plochý vstup musí mít aspoň jeden prvek, dostal {count}.");
+                    $"{layerName}: a flat input must have at least one element, got {count}.");
             }
 
             int rows = (int)Math.Ceiling(Math.Sqrt(count));
@@ -84,8 +84,8 @@ namespace My_DNN.Layers.classes
             if (wired.Length != 3 || wired[0] <= 0)
             {
                 throw new InvalidOperationException(
-                    $"{layerName} ještě není zapojený na žádný tvar vstupu. Přidej vrstvu do modelu " +
-                    "a nech ji zapojit prvním průchodem, nebo zavolej LayerAdjustment(...) ručně.");
+                    $"{layerName} is not wired to any input shape yet. Add the layer to a model " +
+                    "and let the first pass wire it, or call LayerAdjustment(...) yourself.");
             }
 
             int[] normalized = Normalize(incoming, layerName);
@@ -97,9 +97,9 @@ namespace My_DNN.Layers.classes
                     : $" (z tvaru [{Describe(incoming)}])";
 
                 throw new ArgumentException(
-                    $"{layerName} je zapojený na vstup {Describe(wired)}, ale dostal " +
-                    $"{Describe(normalized)}{from}. Tvar vstupu se po sestavení modelu nesmí měnit — " +
-                    "vrstvy se zapojují jednou, při prvním průchodu.");
+                    $"{layerName} is wired to input {Describe(wired)}, but got " +
+                    $"{Describe(normalized)}{from}. The input shape must not change once the model is built — " +
+                    "layers are wired once, on the first pass.");
             }
 
             return normalized;

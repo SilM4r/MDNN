@@ -22,7 +22,7 @@ namespace My_DNN.Save_neural_network
                 };
 
                 // `null` v poli vrstev — soubor je poškozený
-                return layer ?? throw new ModelFileCorruptedException($"Vrstva {layerType} v souboru s modelem je prázdná.");
+                return layer ?? throw new ModelFileCorruptedException($"Layer {layerType} in the model file is empty.");
             }
         }
 
@@ -42,7 +42,7 @@ namespace My_DNN.Save_neural_network
                 foreach (var element in jsonDoc.RootElement.EnumerateArray())
                 {
                     layers.Add(JsonSerializer.Deserialize<BaseExportLayer>(element.GetRawText(), options)
-                               ?? throw new ModelFileCorruptedException("Seznam vrstev v souboru s modelem obsahuje prázdnou položku."));
+                               ?? throw new ModelFileCorruptedException("The list of layers in the model file contains an empty entry."));
                 }
                 return layers;
             }

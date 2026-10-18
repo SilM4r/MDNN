@@ -23,10 +23,10 @@ namespace My_DNN
         }
 
         public ModelFileCorruptedException(string? expected, string? actual)
-            : base($"Kontrolní součet modelu nesouhlasí — soubor je poškozený nebo byl změněn. " +
-                   $"V souboru: {expected ?? "(chybí)"}, spočítáno z dat: {actual ?? "(nelze)"}. " +
-                   "Pozn.: kontrolní součet dokazuje neporušenost, ne pravost — proti cílené " +
-                   "manipulaci nechrání.")
+            : base($"The model checksum does not match — the file is damaged or has been modified. " +
+                   $"In the file: {expected ?? "(missing)"}, computed from the data: {actual ?? "(n/a)"}. " +
+                   "Note: the checksum proves integrity, not authenticity — it does not protect " +
+                   "against deliberate tampering.")
         {
             ExpectedChecksum = expected;
             ActualChecksum = actual;

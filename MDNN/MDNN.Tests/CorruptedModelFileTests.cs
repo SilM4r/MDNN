@@ -70,6 +70,6 @@ public class CorruptedModelFileTests
         JsonNode model = SavedModel();
         model["Layers"]![1] = null;
 
-        AssertCorrupted(model, "prázdnou");
+        AssertCorrupted(model, "empty entry");
     }
 }

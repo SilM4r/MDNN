@@ -41,13 +41,13 @@ namespace My_DNN.Optimizers
         {
             if (!state.TryGetValue(key, out double[]? values))
             {
-                throw new ArgumentException($"Ve stavu optimizeru chybí pole „{key}\".");
+                throw new ArgumentException($"The optimizer state is missing the array '{key}'.");
             }
 
             if (expectedLength != null && values.Length != expectedLength)
             {
                 throw new ArgumentException(
-                    $"Pole „{key}\" ve stavu optimizeru má {values.Length} hodnot, ostatní {expectedLength}.");
+                    $"The array '{key}' in the optimizer state has {values.Length} values, the others {expectedLength}.");
             }
 
             return (double[])values.Clone();
@@ -87,15 +87,15 @@ namespace My_DNN.Optimizers
             if (own != null && ownWins)
             {
                 throw new ArgumentException(
-                    $"Model se ukládal s optimizerem „{saved.Name}\", předaný je „{own.Name}\". " +
-                    "Stav optimizeru ze souboru by se načítal do jiného optimizeru.");
+                    $"The model was saved with optimizer '{saved.Name}', but '{own.Name}' was passed in. " +
+                    "The saved optimizer state would be loaded into a different optimizer.");
             }
 
             if (!IsBuiltIn(saved.Name))
             {
                 throw new ArgumentException(
-                    $"Optimizer „{saved.Name}\" není vestavěný, načtení ho podle jména neumí postavit. " +
-                    "Předej jeho instanci: MDNN.LoadModel(cesta, optimizer: new …).");
+                    $"Optimizer '{saved.Name}' is not built in, so loading cannot create it by name. " +
+                    "Pass an instance: MDNN.LoadModel(path, optimizer: new …).");
             }
 
             return Refactor_optimizer(saved);

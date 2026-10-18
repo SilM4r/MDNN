@@ -207,7 +207,7 @@
 
           var ex = Assert.Throws<InvalidOperationException>(() => model.Context.Seed = 42);
 
-          Assert.Contains("konstruktoru", ex.Message);   // hláška má říct, kudy z toho ven
+          Assert.Contains("constructor", ex.Message);   // hláška má říct, kudy z toho ven
       }
 
       [Fact]

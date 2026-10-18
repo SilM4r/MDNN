@@ -82,7 +82,7 @@
             int newSize = newShape.Aggregate(1, (a, b) => a * b);
 
             if (newSize != Data.Length)
-                throw new ArgumentException("Nový tvar musí mít stejný počet prvků jako původní!");
+                throw new ArgumentException("The new shape must have the same number of elements as the original.");
 
             Shape = newShape;
             _originalInput = null;
@@ -109,7 +109,7 @@
         public Tensor GetTensorValue(int[] indices)
         {
             if (indices.Length >= Shape.Length)
-                throw new ArgumentException("Počet indexů nesmí být větší než dimenze tenzoru.");
+                throw new ArgumentException("The number of indices must be less than the number of tensor dimensions.");
 
             // délka bloku = součin zbývajících dimenzí
             int blockSize = 1;
@@ -256,7 +256,7 @@
             if (elementType != typeof(double) && elementType != typeof(int) && elementType != typeof(float))
             {
                 throw new ArgumentException(
-                    $"Tenzor jde vytvořit jen z pole typu double, int nebo float, ne {elementType.Name}.");
+                    $"A tensor can only be created from a double, int or float array, not {elementType.Name}.");
             }
 
             return elementType;
@@ -297,9 +297,9 @@
             if (array.Length != shape[depth])
             {
                 throw new ArgumentException(
-                    $"Pole není pravidelné: v úrovni {depth} je podpole o délce {array.Length}, " +
-                    $"ale první má {shape[depth]}. Všechna podpole na téže úrovni musí být " +
-                    "stejně dlouhé — jinak pole nemá tvar a nejde z něj udělat tenzor.");
+                    $"The array is not regular: at level {depth} there is a sub-array of length {array.Length}, " +
+                    $"but the first has {shape[depth]}. All sub-arrays at the same level must have " +
+                    "the same length — otherwise the array has no shape and cannot become a tensor.");
             }
 
             if (depth + 1 >= shape.Length)
@@ -312,9 +312,9 @@
                 if (array.GetValue(i) is not Array sub)
                 {
                     throw new ArgumentException(
-                        $"Pole není pravidelné: v úrovni {depth} je prvek {i} skalár, " +
-                        "zatímco první prvek je podpole. Všechna podpole na téže úrovni " +
-                        "musí být stejně dlouhé.");
+                        $"The array is not regular: at level {depth} element {i} is a scalar, " +
+                        "while the first element is a sub-array. All sub-arrays at the same level " +
+                        "must have the same length.");
                 }
 
                 EnsureRectangular(sub, shape, depth + 1);
@@ -426,7 +426,7 @@
         public static Array BuildMultiDimArray(double[] data, int[] shape, int offset = 0)
         {
             if (shape.Length == 0)
-                throw new ArgumentException("Shape nesmí být prázdné.");
+                throw new ArgumentException("Shape must not be empty.");
 
             if (shape.Length == 1)
             {

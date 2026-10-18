@@ -63,8 +63,8 @@ namespace My_DNN.Layers
         {
             if (double.IsNaN(value) || value < 0 || value >= 1)
                 throw new ArgumentOutOfRangeException(nameof(DropoutRate), value,
-                    "Dropout musí být v intervalu <0, 1). 0 = vypnuto; 1 by zahodilo " +
-                    "všechny neurony a škálovací faktor 1/(1-p) by dělil nulou.");
+                    "Dropout must be in the range [0, 1). 0 = off; 1 would drop " +
+                    "every neuron and the scaling factor 1/(1-p) would divide by zero.");
         }
 
         /// <summary>Kolik se doopravdy zahazuje: vlastní hodnota, jinak globální —
@@ -356,7 +356,7 @@ namespace My_DNN.Layers
 
             if (grad.Length != neurons.Count)
                 throw new ArgumentException(
-                    $"Dense má {neurons.Count} neuronů, ale gradient shora má {grad.Length} hodnot.");
+                    $"Dense has {neurons.Count} neurons, but the gradient from above has {grad.Length} values.");
 
             // 1) dropout — TÁŽ maska jako ve forwardu, a PŘED derivací aktivace,
             //    protože maska působí na výstup vrstvy.

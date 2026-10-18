@@ -16,11 +16,11 @@ namespace My_DNN.Save_neural_network
         // (třeba bez "Kernel") spadl na NullReferenceException hluboko v konstruktoru vrstvy.
         internal static T Required<T>(T? value, string layerType, string field) where T : class
             => value ?? throw new ModelFileCorruptedException(
-                $"Vrstva {layerType} v souboru s modelem nemá pole „{field}\".");
+                $"Layer {layerType} in the model file is missing the field '{field}'.");
 
         internal static T Required<T>(T? value, string layerType, string field) where T : struct
             => value ?? throw new ModelFileCorruptedException(
-                $"Vrstva {layerType} v souboru s modelem nemá pole „{field}\".");
+                $"Layer {layerType} in the model file is missing the field '{field}'.");
     }
 
     public class ExportDenseLayer : BaseExportLayer
