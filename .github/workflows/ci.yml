@@ -56,3 +56,35 @@ jobs:
           name: test-results-${{ matrix.os }}
           path: TestResults/
           if-no-files-found: warn
+
+      # Balíčky se jen sestaví, ať se chyba v metadatech (README, závislosti) ukáže hned.
+      # Publikuje se ručně — CI nikam nic neposílá.
+      - name: Pack (bez publikování)
+        run: dotnet pack MDNN/MDNN.sln --configuration Release --no-build --output packages
+
+  # Příklady z repozitáře MDNN_examples proti TÉHLE verzi knihovny. Tři chyby v knihovně
+  # se dřív našly až ručním spuštěním příkladů — tohle je chytí při každém pushi.
+  examples:
+    name: examples (MDNN_examples)
+    runs-on: ubuntu-latest
+
+    steps:
+      # Rozložení, které projekt příkladů čeká: obě repa vedle sebe, knihovna jako MDNN/MDNN.
+      - name: Checkout MDNN
+        uses: actions/checkout@v7
+        with:
+          path: MDNN/MDNN
+
+      - name: Checkout MDNN_examples
+        uses: actions/checkout@v7
+        with:
+          repository: SilM4r/MDNN_examples
+          path: MDNN_examples
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build examples
+        run: MDNN/MDNN/tools/build_examples.sh MDNN_examples
