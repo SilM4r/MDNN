@@ -172,7 +172,7 @@
 
   public class EmptyMiniBatchTests : GradientCheckTestBase
   {
-      // 2c-6: Neuron.Update_weights_bias dělí mini_batch_size, které je 0 → 0/0 = NaN,
+      // 2c-6: Neuron.UpdateWeightsAndBias dělí mini_batch_size, které je 0 → 0/0 = NaN,
       // tiše přes celý model.
       [Fact]
       public void UpdateParams_without_backprop_does_not_produce_NaN()

@@ -483,7 +483,7 @@ namespace My_DNN.Layers
 
         public override void UpdateParams()
         {
-            // stejná pojistka jako u Neuron.Update_weights_bias — prázdná dávka → NaN kernely
+            // stejná pojistka jako u Neuron.UpdateWeightsAndBias — prázdná dávka → NaN kernely
             if (mini_batch_size == 0)
             {
                 return;

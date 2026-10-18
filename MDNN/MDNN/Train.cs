@@ -821,7 +821,7 @@ namespace My_DNN
         //
         // Nově: každou epochu se zamíchá pořadí VŠECH trénovacích vzorků a projde se po
         // dávkách velikosti `size_of_mini_batch`, s jedním `UpdateParams()` na dávku.
-        // Poslední dávka může být menší — `Neuron.Update_weights_bias` dělí skutečným
+        // Poslední dávka může být menší — `Neuron.UpdateWeightsAndBias` dělí skutečným
         // počtem nasčítaných vzorků, takže průměr gradientu vyjde správně i tak.
         private void RunOneEpoch(Tensor inputs, Tensor targets)
         {

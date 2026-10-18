@@ -23,7 +23,7 @@ public class RegularizationTests
     // ============================================================ L2
 
     /// <summary>Součet čtverců všech regularizovaných parametrů — tedy vah, NE biasů.
-    /// Musí sedět s tím, co dělá Neuron.Update_weights_bias, jinak testujeme něco jiného.</summary>
+    /// Musí sedět s tím, co dělá Neuron.UpdateWeightsAndBias, jinak testujeme něco jiného.</summary>
     private static double SumOfSquaredWeights(My_DNN.MDNN model)
     {
         double sum = 0;

@@ -378,7 +378,7 @@ namespace My_DNN.Layers
                     continue;
                 }
 
-                neurons[i].Calculate_gradients_of_W_B(delta[i]);
+                neurons[i].CalculateGradients(delta[i]);
             }
 
             // 4) ∂L/∂input — JEDINÁ věc, kterou dnešní Dense nedělá. Není to nový výpočet,
@@ -429,7 +429,7 @@ namespace My_DNN.Layers
         {
             foreach (Neuron neuron in neurons)
             {
-                neuron.Update_weights_bias(Context?.L2 ?? 0);
+                neuron.UpdateWeightsAndBias(Context?.L2 ?? 0);
             }
         }
         private Tensor FeedForwardViaGpu(double[] values)

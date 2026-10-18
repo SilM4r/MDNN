@@ -297,7 +297,7 @@ namespace My_DNN.Layers
         {
             foreach (Neuron neuron in neurons)
             {
-                neuron.Update_weights_bias(Context?.L2 ?? 0);
+                neuron.UpdateWeightsAndBias(Context?.L2 ?? 0);
             }
         }
 

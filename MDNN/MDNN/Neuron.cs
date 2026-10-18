@@ -41,32 +41,32 @@ namespace My_DNN
         // `random` = zdroj náhody pro inicializaci vah. Předává ho vrstva ze svého
         // NetworkContextu (kvůli reprodukovatelnosti přes seed); null = samostatný neuron
         // bez modelu, spadne se na sdílený globální generátor jako dřív.
-        public Neuron(int Number_of_input, Activation_func activation_function, Random? random = null)
+        public Neuron(int numberOfInputs, Activation_func activationFunction, Random? random = null)
         {
             Random rnd = random ?? GeneralNeuralNetworkSettings.rnd;
 
-            weights = new double[Number_of_input];
-            Inputs = new double[Number_of_input];
-            gradientsW = new double[Number_of_input];
+            weights = new double[numberOfInputs];
+            Inputs = new double[numberOfInputs];
+            gradientsW = new double[numberOfInputs];
 
             Output = 0;
 
             // limit je pro všechny váhy stejný → počítat ho ve smyčce bylo zbytečné
-            double limit = Number_of_input > 0 ? Math.Sqrt(6.0 / Number_of_input) : 0;
+            double limit = numberOfInputs > 0 ? Math.Sqrt(6.0 / numberOfInputs) : 0;
 
-            for (int i = 0; i < Number_of_input; i++)
+            for (int i = 0; i < numberOfInputs; i++)
             {
                 Weights[i] = (rnd.NextDouble() * 2 - 1) * limit;
             }
 
             bias = 0;
 
-            inicializationGradients();
+            ResetGradients();
             Optimizer = Optimizer.Clone_optimizer(GeneralNeuralNetworkSettings.optimizer);
-            Activation_Func = activation_function;
+            Activation_Func = activationFunction;
         }
 
-        public Neuron(ExportNeuron exportNeuron, Activation_func activation_function)
+        public Neuron(ExportNeuron exportNeuron, Activation_func activationFunction)
         {
 
             weights = exportNeuron.Weights;
@@ -77,9 +77,9 @@ namespace My_DNN
 
             Output = 0;
 
-            inicializationGradients();
+            ResetGradients();
             Optimizer = Optimizer.Clone_optimizer(GeneralNeuralNetworkSettings.optimizer);
-            Activation_Func = activation_function;
+            Activation_Func = activationFunction;
 
             // Navázání tréninku: optimizer pokračuje se stavem, se kterým se model uložil.
             if (exportNeuron.OptimizerState != null)
@@ -141,14 +141,14 @@ namespace My_DNN
             return Output;
         }
 
-        public void backPropagation(double e, double L)
+        public void BackPropagation(double e, double learningRate)
         {
 
             for (int i = 0; i < Weights.Length; i++)
             {
-                Weights[i] -= L * e * Inputs[i];
+                Weights[i] -= learningRate * e * Inputs[i];
             }
-            bias -= L * e * 1;
+            bias -= learningRate * e * 1;
         }
         // ---------------------------------------------------------------- repliky
         //
@@ -175,7 +175,7 @@ namespace My_DNN
         }
 
         // Přičte gradienty a čítač repliky k tomuto neuronu a repliku vynuluje. Čítač se
-        // přičítat MUSÍ — Update_weights_bias jím dělí, takže bez něj by se gradient
+        // přičítat MUSÍ — UpdateWeightsAndBias jím dělí, takže bez něj by se gradient
         // celé dávky vydělil jen počtem vzorků, které prošly originálem (tedy nulou).
         internal void TakeGradientsFrom(Neuron replica)
         {
@@ -200,7 +200,7 @@ namespace My_DNN
             mini_batch_size++;
         }
 
-        public void Calculate_gradients_of_W_B(double e)
+        public void CalculateGradients(double e)
         {
 
             for (int i = 0; i < Weights.Length; i++)
@@ -226,7 +226,7 @@ namespace My_DNN
         }
 
         // weightDecay = koeficient L2. Vrstva ho bere z NetworkContext.L2; 0 = vypnuto.
-        public void Update_weights_bias(double weightDecay = 0)
+        public void UpdateWeightsAndBias(double weightDecay = 0)
         {
             // Prázdná dávka je legitimní stav (UpdateParams bez předchozího backpropu).
             // Bez tohohle se dělilo nulou → 0/0 = NaN → tiše celý model NaN.
@@ -252,24 +252,24 @@ namespace My_DNN
 
             mini_batch_size = 0;
 
-            inicializationGradients();
+            ResetGradients();
         }
 
         // `randomSource`: stejná logika jako v konstruktoru — když ho volající nedodá,
         // použije se globální generátor. (Neuron sám Context nevidí, takže si ho musí
         // podat ten, kdo mutaci spouští.)
-        public void Mutate_params(int chance_of_mutation, int percent_mutation, Random? randomSource = null)
+        public void MutateParams(int chanceOfMutation, int percentMutation, Random? randomSource = null)
         {
             Random random = randomSource ?? GeneralNeuralNetworkSettings.rnd;
 
             for (int i = 0; i < Weights.Length; i++)
             {
                 int randomValueBetween0And100 = random.Next(101);
-                if (randomValueBetween0And100 < chance_of_mutation)
+                if (randomValueBetween0And100 < chanceOfMutation)
                 {
                     // Rozmezí je -percentage/2 až +percentage/2
-                    double minPercentage = -percent_mutation / 100.0 / 2.0;
-                    double maxPercentage = percent_mutation / 100.0 / 2.0;
+                    double minPercentage = -percentMutation / 100.0 / 2.0;
+                    double maxPercentage = percentMutation / 100.0 / 2.0;
 
                     // Vygeneruj náhodnou hodnotu mezi minPercentage a maxPercentage
                     double randomPercentage = minPercentage + (random.NextDouble() * (maxPercentage - minPercentage));
@@ -280,7 +280,7 @@ namespace My_DNN
             }
         }
 
-        private void inicializationGradients()
+        private void ResetGradients()
         {
             for (int i = 0; i < gradientsW.Length; i++)
             {
