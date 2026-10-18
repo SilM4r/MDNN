@@ -161,21 +161,24 @@ namespace My_DNN.Layers
 
             if (!NeuronsMatchShape(output.Length, input_size[0] + 1))
             {
-                neurons = new List<Neuron>();
+                // do `neurons` až hotové — viz Dense.MaterializeParameters
+                var rebuilt = new List<Neuron>();
 
                 for (int i = 0; i < output.Length; i++)
                 {
-                    neurons.Add(new Neuron(input_size[0] + 1, activation_func, Context?.Random));
+                    rebuilt.Add(new Neuron(input_size[0] + 1, activation_func, Context?.Random));
                 }
 
                 // per-model optimizer jen pro čerstvé neurony — viz Dense.MaterializeParameters
                 if (Context != null)
                 {
-                    foreach (Neuron n in neurons)
+                    foreach (Neuron n in rebuilt)
                     {
                         n.optimizer = Optimizer.Clone_optimizer(Context.Optimizer);
                     }
                 }
+
+                neurons = rebuilt;
             }
         }
 

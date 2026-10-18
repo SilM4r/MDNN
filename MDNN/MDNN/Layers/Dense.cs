@@ -170,11 +170,16 @@ namespace My_DNN.Layers
             // mění se délka vektoru vah a staré hodnoty nemají kam sednout.
             if (!NeuronsMatchShape(output.Length, input_size[0]))
             {
-                neurons = new List<Neuron>();
+                // Staví se do lokálního seznamu a do `neurons` se přiřadí až HOTOVÝ. Dřív se
+                // `neurons` přepsalo hned a optimizer z Contextu se klonoval až potom — když
+                // klonování spadlo, zůstaly ve vrstvě nové neurony s GLOBÁLNÍM SGD(0.0001)
+                // z konstruktoru. Další volání už tvar viděla jako hotový, takže kdo výjimku
+                // chytil a pokračoval, tiše trénoval úplně jiným optimizerem.
+                var rebuilt = new List<Neuron>();
 
                 for (int i = 0; i < output.Length; i++)
                 {
-                    neurons.Add(new Neuron(input_size[0], activation_func, Context?.Random));
+                    rebuilt.Add(new Neuron(input_size[0], activation_func, Context?.Random));
                 }
 
                 // per-model optimizer: každý neuron dostane VLASTNÍ klon optimizeru z Contextu
@@ -182,16 +187,18 @@ namespace My_DNN.Layers
                 // optimizeru, takže bez tohohle by model s Adamem trénoval globálním SGD.
                 //
                 // Jen pro čerstvě postavené neurony. Dřív se to dělalo při KAŽDÉ materializaci
-                // a Clone_optimizer staví optimizer znovu z hyperparametrů, takže se tím
+                // a Clone_optimizer staví optimizer s prázdným stavem, takže se tím
                 // zahazovaly momenty Adamu. Stačilo přidat vrstvu — MaterializeAll projde
                 // celý řetěz, takže o rozjetý stav přišly i vrstvy, kterých se to netýkalo.
                 if (Context != null)
                 {
-                    foreach (Neuron n in neurons)
+                    foreach (Neuron n in rebuilt)
                     {
                         n.optimizer = Optimizer.Clone_optimizer(Context.Optimizer);
                     }
                 }
+
+                neurons = rebuilt;
             }
         }
 

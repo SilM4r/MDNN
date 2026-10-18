@@ -234,17 +234,24 @@ namespace My_DNN.Layers
             bool kernelShapeMatches = kernels.Length == filters
                                       && kernels[0][0][0].Length == inputsShape[2];
 
+            // per-model optimizer jen když se kernely opravdu stavěly znovu — viz
+            // Dense.MaterializeParameters. Klonování při každé materializaci zahazovalo
+            // momenty Adamu i vrstvám, kterých se přepojení netýkalo.
+            //
+            // Klonuje se PŘED přestavbou kernelů: když klonování spadne, vrstva zůstane,
+            // jak byla, a ne s novými kernely a starým optimizerem.
+            Optimizer? fresh = Context != null && !kernelShapeMatches
+                ? Optimizer.Clone_optimizer(Context.Optimizer)
+                : null;
+
             inicializationK_B_dK_dB(
                 filters,
                 new int[] { Kernel[0].Count(), Kernel[0][0].Count(), inputsShape[2] },
                 !kernelShapeMatches);
 
-            // per-model optimizer jen když se kernely opravdu stavěly znovu — viz
-            // Dense.MaterializeParameters. Klonování při každé materializaci zahazovalo
-            // momenty Adamu i vrstvám, kterých se přepojení netýkalo.
-            if (Context != null && !kernelShapeMatches)
+            if (fresh != null)
             {
-                optimizer = Optimizer.Clone_optimizer(Context.Optimizer);
+                optimizer = fresh;
             }
         }
 

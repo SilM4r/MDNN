@@ -98,7 +98,7 @@ Podporované ztrátové funkce: `MSE`, `CrossEntropy`.
 
 Každý model vlastní svou konfiguraci, takže v jednom procesu může existovat více nezávislých modelů.
 
-Vlastní optimizér nebo ztrátovou funkci lze vytvořit zděděním odpovídající bázové třídy (například `Optimizer` nebo `Loss`) a implementací jejích abstraktních členů.
+Vlastní optimizér nebo ztrátovou funkci lze vytvořit zděděním odpovídající bázové třídy (například `Optimizer` nebo `Loss`) a implementací jejích abstraktních členů. `CreateFresh()` vlastního optimizéru musí vrátit novou instanci se stejnými hyperparametry a prázdným stavem — každý neuron dostane vlastní kopii. Model s vlastním optimizérem zatím nejde načíst ze souboru: načítání hledá optimizér podle jména a zná jen `SGD`, `Adam` a `Momentum`.
 
 Poznámka k `CrossEntropy`: je určená pro použití se softmax výstupní vrstvou. Počítá fúzovaný gradient softmax + kategorická cross-entropy (`výstup − cíl`), což je numericky stabilní forma. Použití `CrossEntropy` bez softmax výstupní vrstvy vyhodí výjimku.
 

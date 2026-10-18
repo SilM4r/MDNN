@@ -15,6 +15,8 @@
             Parameters[0] = L;
         }
 
+        public override Optimizer CreateFresh() => new SGD(L);
+
         public override double Update(double w, double gradient, int i)
         {
             w = w - L * gradient;

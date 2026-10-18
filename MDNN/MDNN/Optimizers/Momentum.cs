@@ -20,6 +20,8 @@
             Parameters = new double[] {L,a};
         }
 
+        public override Optimizer CreateFresh() => new Momentum(L, a);
+
         // Přesná velikost — viz Adam.EnsureCapacity.
         public override void EnsureCapacity(int parameterCount)
         {

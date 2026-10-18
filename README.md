@@ -101,7 +101,7 @@ Supported loss functions: `MSE`, `CrossEntropy`.
 
 Each model owns its own configuration, so multiple independent models can coexist in the same process.
 
-You can also create custom optimizers or loss functions by inheriting the corresponding base class (for example `Optimizer` or `Loss`) and implementing its abstract members.
+You can also create custom optimizers or loss functions by inheriting the corresponding base class (for example `Optimizer` or `Loss`) and implementing its abstract members. A custom optimizer's `CreateFresh()` must return a new instance with the same hyperparameters and empty state — every neuron gets its own copy. A model with a custom optimizer cannot be loaded from a saved file yet: loading looks the optimizer up by name and only knows `SGD`, `Adam` and `Momentum`.
 
 Note on `CrossEntropy`: it is intended to be paired with a `Softmax` output layer. It computes the fused softmax + categorical cross-entropy gradient (`output − target`), which is the numerically stable form. Using `CrossEntropy` without a `Softmax` output layer raises an exception.
 

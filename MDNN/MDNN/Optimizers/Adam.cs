@@ -24,6 +24,8 @@
 
         }
 
+        public override Optimizer CreateFresh() => new Adam(L, b1, b2);
+
         // Přesná velikost, žádná rezerva navíc: přebytečná kapacita (dřív zdvojnásobování,
         // 785 → 1024 na neuron) stála ~3 % v každém UpdateParams kvůli větší paměti.
         public override void EnsureCapacity(int parameterCount)
