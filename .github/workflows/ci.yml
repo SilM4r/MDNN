@@ -21,7 +21,6 @@ jobs:
     strategy:
       fail-fast: false
       # Linux is case-sensitive → catches path typos that pass on macOS/Windows.
-      # Windows is the target platform of the GPU path (gpu.dll).
       matrix:
         os: [ubuntu-latest, windows-latest]
 

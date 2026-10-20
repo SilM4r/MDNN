@@ -13,7 +13,6 @@ MDNN je knihovna pro návrh a trénování neuronových sítí v jazyce C#. Umo�
 - [Regularizace](#regularizace)
 - [Reprodukovatelnost](#reprodukovatelnost)
 - [Trénování modelu](#trénování-modelu)
-- [GPU akcelerace](#gpu-akcelerace)
 - [Ukládání a načítání modelů](#ukládání-a-načítání-modelů)
 - [Podpůrné nástroje](#podpůrné-nástroje)
 - [Jak to funguje uvnitř](#jak-to-funguje-uvnitř)
@@ -34,7 +33,6 @@ Další možnosti:
 - Regularizace: L2 weight decay a dropout
 - Reprodukovatelné běhy z jednoho seedu
 - Snadná integrace do projektů v C#
-- Volitelný výpočet na GPU
 - Ukládání a načítání modelů ve formátu JSON
 - Předdefinované trénovací smyčky, volitelně paralelní přes minibatch
 
@@ -316,10 +314,9 @@ Co je dobré vědět:
 - **Reprodukovatelnost:** stejný seed a stejné `Workers` dají bit po bitu stejný výsledek na
   jakémkoli stroji. Proti `Workers = 1` se výsledek liší o zaokrouhlení, s dropoutem i
   vylosovanými maskami — každá replika má vlastní generátor odvozený ze seedu modelu.
-- Vlastní vrstvu zatím paralelně trénovat nejde, `RNN` jen v sekvenčním režimu
-  (`isSequence: true`; mimo něj teče skrytý stav z jednoho vzorku do dalšího) a paralelní
-  trénink nejde kombinovat s GPU. Všechny tři případy vyhodí `NotSupportedException`, místo
-  aby se tiše trénovalo jinak.
+- Vlastní vrstvu zatím paralelně trénovat nejde a `RNN` jen v sekvenčním režimu
+  (`isSequence: true`; mimo něj teče skrytý stav z jednoho vzorku do dalšího). Oba případy
+  vyhodí `NotSupportedException`, místo aby se tiše trénovalo jinak.
 - **Paralelně běží i validace a test** — validace mezi epochami, `Evaluate()`
   i závěrečný test v `TrainLoop()`. Jde jen o dopředné průchody: výstupy se spočítají
   paralelně a loss a skóre se z nich pak sečtou v pořadí vzorků, takže vyjdou **bit po bitu
@@ -388,25 +385,6 @@ Tyhle dvě metody jsou přesně dvě poloviny `Fit()`, a je to záruka, ne náho
 `Train.FeedForward()` přepne model na dobu průchodu do trénovacího režimu, takže dropout se
 chová stejně jako uvnitř `Fit()`. (Pro predikci použijte `model.GetResults()` — ta dropout
 záměrně nechává vypnutý, takže stejný vstup dá vždy stejnou odpověď.)
-
-## GPU akcelerace
-
-### GPU
-
-Výpočty sítě mohou volitelně běžet na NVIDIA GPU přes nativní knihovnu `gpu.dll` (C++ / CUDA). **Není součástí NuGet balíčku** — sestavte ji z [`MDNN/GPU/GPU.cu`](https://github.com/SilM4r/MDNN/blob/main/MDNN/GPU/GPU.cu) pomocí CUDA Toolkitu a dejte ji vedle své aplikace. GPU je nastavení per-model:
-
-```csharp
-model.Context.CalculationViaGpu = true;
-```
-
-Podpora aktuálně cílí jen na NVIDIA GPU a `gpu.dll` se načítá bez náhradní cesty — tahle
-cesta je tedy jen pro Windows s CUDA.
-
-**GPU cesta počítá ve `float`, CPU cesta v `double`.** Hodnoty se na vstupu převádějí a na
-výstupu zase zpět, takže tentýž model nedá na obou cestách stejná čísla — počítejte se shodou
-zhruba na 7 platných cifer místo 16. U GPU kernelů je to běžné, ale je dobré to vědět, než
-začnete výsledky obou cest porovnávat. GPU cestu používá jen dopředný průchod vrstev `Dense`
-a neuplatňuje dropout; všechno ostatní běží na CPU bez ohledu na tenhle přepínač.
 
 ## Ukládání a načítání modelů
 
@@ -501,7 +479,6 @@ Každý model vlastní `NetworkContext` (`model.Context`), který drží jeho b�
 | `IsTraining` | běží trénovací průchod? Zapíná ho `Fit()` na dobu svého dopředného průchodu; právě tím se zapíná a vypíná dropout |
 | `InputShape` | tvar vstupu modelu, odvozený při prvním průchodu |
 | `SequenceTrain` | režim sekvenčního tréninku (časové řady) |
-| `CalculationViaGpu` | přepínač GPU |
 
 `GeneralNeuralNetworkSettings` drží jen záložní hodnoty pro celý proces, použité tam, kde žádný model není: výchozí aktivaci vrstvy vytvořené bez ní (`DefaultHiddenActivation`), optimizér samostatné vrstvy (`DefaultOptimizer`) a sdílený generátor náhody pro modely bez seedu (`Random`).
 

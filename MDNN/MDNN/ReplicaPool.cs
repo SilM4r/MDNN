@@ -30,13 +30,6 @@ namespace MDNN
         // forward without dropout, so they need no random generator at all.
         public ReplicaPool(NeuralNetwork original, int workers, bool training = true)
         {
-            if (original.Context.CalculationViaGpu)
-            {
-                throw new NotSupportedException(
-                    "Parallel training (Train.Workers > 1) cannot be combined with GPU computation yet. " +
-                    "Set Train.Workers = 1, or turn off CalculationViaGpu.");
-            }
-
             // Outside sequence training an RNN carries its hidden state from one sample to the NEXT
             // (nothing resets it between samples). Sequentially the state flows in batch order; in
             // parallel each replica would carry it along its own chunk and the result would silently differ.

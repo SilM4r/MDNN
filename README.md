@@ -13,7 +13,6 @@ MDNN is a library for designing and training neural networks in C#. It allows st
 - [Regularization](#regularization)
 - [Reproducibility](#reproducibility)
 - [Training the model](#training-the-model)
-- [GPU acceleration](#gpu-acceleration)
 - [Saving and loading models](#saving-and-loading-models)
 - [Supporting utilities](#supporting-utilities)
 - [How it works internally](#how-it-works-internally)
@@ -34,7 +33,6 @@ Additional capabilities:
 - Regularization: L2 weight decay and dropout
 - Reproducible runs from a single seed
 - Straightforward integration into C# projects
-- Optional GPU computation
 - Saving and loading models in JSON format
 - Pre-built training loops, optionally parallel across the minibatch
 
@@ -321,10 +319,9 @@ Things to know:
 - **Reproducibility:** the same seed and the same `Workers` give a bit-identical result on any
   machine. Compared with `Workers = 1` the result differs by rounding, and with dropout also
   by the masks drawn — each replica has its own random generator derived from the model's seed.
-- A custom layer cannot be trained in parallel yet, an `RNN` only in sequence mode
-  (`isSequence: true`; outside it the hidden state flows from one sample to the next), and
-  parallel training cannot be combined with the GPU path. All three throw a
-  `NotSupportedException` instead of silently training differently.
+- A custom layer cannot be trained in parallel yet, and an `RNN` only in sequence mode
+  (`isSequence: true`; outside it the hidden state flows from one sample to the next). Both
+  throw a `NotSupportedException` instead of silently training differently.
 - **Validation and testing run in parallel too** — the validation pass between epochs,
   `Evaluate()` and the final test of `TrainLoop()`. These are forward passes only:
   the outputs are computed in parallel and the loss and score are then summed in sample order,
@@ -394,26 +391,6 @@ These two are exactly the two halves of `Fit()`, and that is a guarantee, not a 
 dropout behaves the same as it does inside `Fit()`. (Use `model.GetResults()` when you want a
 prediction — that one deliberately leaves dropout off, so the same input always gives the same
 answer.)
-
-## GPU acceleration
-
-### GPU
-
-Network computation can optionally run on an NVIDIA GPU through a native library, `gpu.dll` (C++ / CUDA). **It is not part of the NuGet package** — build it from [`MDNN/GPU/GPU.cu`](https://github.com/SilM4r/MDNN/blob/main/MDNN/GPU/GPU.cu) with the CUDA Toolkit and place it next to your application. GPU computation is a per-model setting:
-
-```csharp
-model.Context.CalculationViaGpu = true;
-```
-
-Support currently targets NVIDIA GPUs only, and `gpu.dll` is loaded without a fallback — so
-this path is Windows-and-CUDA only.
-
-**The GPU path computes in `float`, the CPU path in `double`.** Values are converted on the
-way in and back on the way out, so the same model does not produce the same numbers on both
-paths — expect agreement to roughly 7 significant digits instead of 16. This is normal for
-GPU kernels, but it is worth knowing before comparing results across the two. Only the forward
-pass of `Dense` layers uses the GPU path, and it does not apply dropout; everything else runs on
-the CPU regardless of this flag.
 
 ## Saving and loading models
 
@@ -509,7 +486,6 @@ Each model owns a `NetworkContext` (`model.Context`) that holds its runtime conf
 | `IsTraining` | is a training pass running? Switched on by `Fit()` for the duration of its forward pass; this is what turns dropout on and off |
 | `InputShape` | shape of the model's input, inferred on the first pass |
 | `SequenceTrain` | sequential (time-series) training mode |
-| `CalculationViaGpu` | GPU flag |
 
 `GeneralNeuralNetworkSettings` holds only process-wide fallbacks, used where no model is involved: the default activation of a layer constructed without one (`DefaultHiddenActivation`), the optimizer of a standalone layer (`DefaultOptimizer`) and the shared random generator of models without a seed (`Random`).
 

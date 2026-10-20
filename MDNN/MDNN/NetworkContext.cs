@@ -112,10 +112,6 @@ namespace MDNN
         /// </summary>
         public bool SequenceTrain { get; set; } = false;
         /// <summary>
-        /// Whether computations should run on the GPU.
-        /// </summary>
-        public bool CalculationViaGpu { get; set; } = false;
-        /// <summary>
         /// Shape of a single input sample. <c>{ 0 }</c> means not known yet (inferred from the first input).
         /// </summary>
         public int[] InputShape { get; set; } = new int[] { 0 };

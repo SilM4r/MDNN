@@ -9,7 +9,7 @@
   <!-- NuGet package. Published manually (dotnet pack + dotnet nuget push); CI does not publish anything. -->
   <PropertyGroup>
     <PackageId>MDNN</PackageId>
-    <Version>1.0.0</Version>
+    <Version>2.0.0</Version>
     <Authors>SilM4r</Authors>
     <Description>Neural network library for C#, written from scratch: Dense, Conv, MaxPool and RNN layers, Adam/Momentum/SGD, L2 and dropout, data-parallel training, gradient-checked and verified against PyTorch.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

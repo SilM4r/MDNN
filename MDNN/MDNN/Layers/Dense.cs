@@ -256,11 +256,6 @@ namespace MDNN.Layers
 
             double[] values = input.Data;
 
-            if (Context != null && Context.CalculationViaGpu)
-            {
-                return FeedForwardViaGpu(values);
-            }
-
             // The mask must be known BEFORE the computation so dropped neurons can be
             // skipped — at p=0.5 that saves half of this layer's dot products.
             // A softmax layer never has a mask (PrepareDropoutMask rejects it).
@@ -465,55 +460,6 @@ namespace MDNN.Layers
             {
                 neuron.UpdateWeightsAndBias(Context?.L2 ?? 0);
             }
-        }
-        private Tensor FeedForwardViaGpu(double[] values)
-        {
-            int quantity = neurons.Count;
-            float[] weights = new float[quantity * input_size[0]];
-            float[] bias = new float[quantity];
-
-            for (int j = 0; j < quantity; j++)
-            {
-                for (int i = 0; i < input_size[0]; i++)
-                {
-                    weights[j * input_size[0] + i] = (float)neurons[j].Weights[i];
-                }
-
-                bias[j] = (float)neurons[j].Bias;
-                neurons[j].Inputs = values;
-            }
-
-            float[] gpuOutput = new float[quantity];
-            float[] gpuvalues = values.Select(d => (float)d).ToArray(); ;
-
-            GPUManager.GPUCalculation(gpuvalues, weights, bias, gpuOutput, input_size[0], quantity);
-
-            raw_output = gpuOutput.Select(d => (double)d).ToArray();
-
-            if (activation_func.AppliesToLayer)
-            {
-                LayerActivationFunction? layerActivationFunc = activation_func as LayerActivationFunction;
-
-                if (layerActivationFunc == null)
-                {
-                    throw new ArgumentException("Bad activation func");
-                }
-
-                output = layerActivationFunc.ApplyToLayer(raw_output);
-            }
-
-            for (int j = 0; j < neurons.Count; j++)
-            {
-
-                neurons[j].RawOutput = raw_output[j];
-                if (!activation_func.AppliesToLayer)
-                {
-                    output[j] = activation_func.Apply(raw_output[j]);
-                }
-                neurons[j].Output = output[j];
-            }
-
-            return Tensor.FromVector(output);
         }
     }
 }

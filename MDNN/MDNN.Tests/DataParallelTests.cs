@@ -493,15 +493,4 @@ public class DataParallelTests
 
         Assert.Throws<NotSupportedException>(() => model.Train.SimpleTrainLoop(x, y, 1, 4));
     }
-
-    [Fact]
-    public void Gpu_with_workers_is_rejected()
-    {
-        var (x, y) = Regression();
-        var model = Mlp(new SGD(0.1));
-        model.Context.CalculationViaGpu = true;
-        model.Train.Workers = 2;
-
-        Assert.Throws<NotSupportedException>(() => model.Train.SimpleTrainLoop(x, y, 1, 4));
-    }
 }
