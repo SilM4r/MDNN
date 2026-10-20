@@ -1,31 +1,31 @@
 using System;
 using System.Text.Json.Nodes;
 using Xunit;
-using My_DNN;
-using My_DNN.Layers;
-using My_DNN.Activation_functions;
-using My_DNN.Optimizers;
-using My_DNN.Loss_functions;
+using MDNN;
+using MDNN.Layers;
+using MDNN.Activations;
+using MDNN.Optimizers;
+using MDNN.Losses;
 
 namespace MDNN.Tests;
 
 /// <summary>
-/// Soubor s modelem, ve kterém chybí povinné pole, musí skončit srozumitelnou
-/// <see cref="ModelFileCorruptedException"/> s názvem pole.
+/// A model file with a required field missing must fail with a clear
+/// <see cref="ModelFileCorruptedException"/> that names the field.
 ///
-/// Dřív se s nullable poli exportních tříd pracovalo, jako by tam byla vždycky, takže
-/// poškozený soubor spadl na NullReferenceException hluboko v konstruktoru vrstvy —
-/// bez jediného slova o tom, co chybí. Kontrolní součet tohle nechytí u starého formátu
-/// (v0, bez obálky), ani když soubor někdo upraví a součet přepočítá.
+/// Previously the nullable fields of the export classes were used as if always present, so a
+/// corrupted file crashed with a NullReferenceException deep inside a layer constructor, with no
+/// hint of what was missing. The checksum does not catch this for the old format (v0, no
+/// envelope), nor when someone edits the file and recomputes the checksum.
 /// </summary>
 public class CorruptedModelFileTests
 {
-    // Starý plochý formát (v0): holý JSON modelu, bez obálky a bez kontrolního součtu —
-    // jen tak jde pole odebrat, aniž by to první chytil nesouhlasící součet.
+    // Old flat format (v0): bare model JSON, no envelope and no checksum. Only this way can a
+    // field be removed without a checksum mismatch catching it first.
     private static JsonNode SavedModel()
     {
-        var model = new My_DNN.MDNN(new Dense(2, new Softmax()), new Adam(0.01), new CrossEntropy(), seed: 1);
-        model.Layers.Add(new Conv(2, 2, new ReLu(), "valid"));
+        var model = new NeuralNetwork(new Dense(2, new Softmax()), new Adam(0.01), new CrossEntropy(), seed: 1);
+        model.Layers.Add(new Conv(2, 2, new ReLU(), "valid"));
         model.Layers.Add(new MaxPool(2));
         model.GetResults(new Tensor(new double[6, 6, 1]));
         return JsonNode.Parse(model.SaveAsJsonString())!["Model"]!.DeepClone();
@@ -33,7 +33,7 @@ public class CorruptedModelFileTests
 
     private static void AssertCorrupted(JsonNode model, string expectedInMessage)
     {
-        var target = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.1), new MSE(), seed: 1);
+        var target = new NeuralNetwork(new Dense(1, new Linear()), new SGD(0.1), new MSE(), seed: 1);
         var ex = Assert.Throws<ModelFileCorruptedException>(() => target.LoadWeightsFromString(model.ToJsonString()));
         Assert.Contains(expectedInMessage, ex.Message);
     }

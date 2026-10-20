@@ -1,19 +1,26 @@
-﻿using My_DNN.Layers.classes;
-using My_DNN.Save_neural_network;
-namespace My_DNN.Layers
+﻿using MDNN.Layers;
+using MDNN.Serialization;
+namespace MDNN.Layers
 {
-    public class MaxPool : LayerWithUntrainedParameters
+    /// <summary>
+    /// 2D max pooling with a square window and stride equal to the window size (valid, no padding).
+    /// </summary>
+    public class MaxPool : ParameterlessLayer
     {
+        /// <inheritdoc/>
         public override string Name => "MaxPool";
 
-        public override int[] Input_size_and_shape => inputsShape;
+        /// <inheritdoc/>
+        public override int[] InputShape => inputsShape;
 
-        public override int[] Output_size_and_shape => outputShape;
+        /// <inheritdoc/>
+        public override int[] OutputShape => outputShape;
 
-        // Snímek se správným tvarem — stejně jako to vrací FeedForward. Dřív `new Tensor(output)`
-        // nad jagged polem dalo Shape [outH] místo [h,w,kanály] (Rank jagged pole je 1)
-        // a ukazovalo do pracovního pole, které se přepisuje dalším průchodem.
-        public override Tensor? Layer_output
+        /// <summary>Snapshot of the last output with shape <c>[h,w,channels]</c>, as returned by FeedForward.</summary>
+        // Previously `new Tensor(output)` over the jagged array gave Shape [outH] instead of
+        // [h,w,channels] (a jagged array has Rank 1) and pointed into the working array,
+        // which is overwritten by the next pass.
+        public override Tensor? Output
         {
             get
             {
@@ -28,9 +35,10 @@ namespace My_DNN.Layers
             }
         }
 
-        // MaxPool nemá vlastní aktivaci, takže „raw" a výstup je totéž.
-        public override Tensor? Layer_raw_output => Layer_output;
+        /// <summary>Same as <see cref="Output"/> — MaxPool has no activation of its own.</summary>
+        public override Tensor? RawOutput => Output;
 
+        /// <summary>Size of the square pooling window (also the stride).</summary>
         public int PoolSize
         {
             get { return poolSize; }
@@ -45,16 +53,23 @@ namespace My_DNN.Layers
         private int[] outputShape;
         private int poolSize;
 
+        /// <summary>Creates a max-pooling layer; the input shape is wired when the layer is added to a model.</summary>
+        /// <param name="poolSize">Window size and stride; must be greater than 0.</param>
         public MaxPool(int poolSize)
         {
+            // a window of 0 would divide by zero when computing the output size; negative makes no sense
+            if (poolSize <= 0)
+                throw new ArgumentOutOfRangeException(nameof(poolSize), poolSize,
+                    "The pool size must be greater than 0.");
+
             this.poolSize = poolSize;
 
-            // vstupní/výstupní tvar se dopočítá v LayerAdjustment (při připojení k modelu)
+            // the input/output shape is computed in Build (when attached to a model)
             inputsShape = new int[] { 0 };
             outputShape = new int[] { 0 };
             indexes = new PoolingIndex[0, 0, 0];
         }
-        public MaxPool(ExportMaxPoolLayer layer)
+        internal MaxPool(ExportMaxPoolLayer layer)
         {
             inputsShape = BaseExportLayer.Required(layer.InputsShape, Name, nameof(layer.InputsShape));
             poolSize = BaseExportLayer.Required(layer.PoolSize, Name, nameof(layer.PoolSize));
@@ -88,8 +103,9 @@ namespace My_DNN.Layers
             }
         }
 
-        // ---------------------------------------------------------------- konvence B
+        // ---------------------------------------------------------------- convention B
 
+        /// <inheritdoc/>
         public override Tensor Backward(Tensor gradOutput, bool preActivation = false,
                                         bool computeInputGradient = true)
         {
@@ -102,9 +118,9 @@ namespace My_DNN.Layers
                 throw new InvalidOperationException(
                     "MaxPool: backward before forward — the positions of the maxima do not exist yet.");
 
-            // Gradient přichází rovnou po prvcích, žádné sahání do vah souseda. Právě tím
-            // odpadá celá větev „další vrstva je Dense" ze staré CalculateLayerGradients:
-            // Dense si teď svůj ∂L/∂input spočítá sám a pošle ho sem hotový.
+            // The gradient arrives element-wise, with no reaching into the neighbour's weights.
+            // Previously MaxPool needed its own "next layer is Dense" branch; now Dense computes
+            // its ∂L/∂input itself and passes it here ready-made.
             double[] upstream = gradOutput.Data;
 
             int outHeight = output.Length;
@@ -129,8 +145,8 @@ namespace My_DNN.Layers
                 for (int j = 0; j < inputWidth; j++) dInput[i][j] = new double[channels];
             }
 
-            // Gradient teče JEN do pozice, která v okně vyhrála; ostatní na výstup
-            // nepřispěly, takže dostávají nulu.
+            // The gradient flows ONLY to the position that won the window; the others did not
+            // contribute to the output, so they get zero.
             int flat = 0;
             for (int i = 0; i < outHeight; i++)
             {
@@ -148,25 +164,26 @@ namespace My_DNN.Layers
                 new int[] { inputHeight, inputWidth, channels });
         }
 
-        public override Tensor FeedForward(Tensor TensorValues)
+        /// <inheritdoc/>
+        public override Tensor FeedForward(Tensor input)
         {
-            // Stejná stráž jako u Conv: tvar musí sedět na ten zapojený. Dřív menší vstup
-            // přepsal jen roh bufferu a zbytek zůstal z minulého vzorku — MaxPool pak
-            // z okna samých nul vrátil maximum z předchozího obrázku. Rank ≥ 4 tu dřív
-            // padal na NotSupportedException() bez jediného slova v hlášce.
-            // Tvar jen pro tuhle metodu, tenzor volajícího zůstane nedotčený — viz Conv.FeedForward.
-            int[] shape = SpatialShape.RequireWiredShape(TensorValues.Shape, inputsShape, Name);
+            // Same guard as in Conv: the shape must match the wired one. Previously a smaller input
+            // overwrote only a corner of the buffer and the rest kept the previous sample — MaxPool
+            // then returned the previous image's maximum from a window of zeros. Rank ≥ 4 used to
+            // fail with a NotSupportedException() without any message.
+            // The shape is local to this method; the caller's tensor stays untouched — see Conv.FeedForward.
+            int[] shape = SpatialShape.RequireWiredShape(input.Shape, inputsShape, Name);
 
-            // Buffery vzniknou při zapojení (WireShapes). Bez něj by forward spadl na
-            // NullReferenceException; takhle řekne, co chybí.
+            // Buffers are created during wiring (WireShapes). Without it the forward pass would
+            // throw NullReferenceException; this way it says what is missing.
             if (inputs == null || output == null)
             {
                 throw new InvalidOperationException(
                     "MaxPool: the layer is not wired into a model yet — the input shape is unknown.");
             }
 
-            // plochá cesta místo (double[,,])GetOriginalData() — viz Conv.FeedForward
-            double[] inputValues = TensorValues.Data;
+            // flat path instead of (double[,,])ToArray() — see Conv.FeedForward
+            double[] inputValues = input.Data;
 
             int flatIndex = 0;
             for (int i = 0; i < shape[0]; i++)
@@ -184,11 +201,11 @@ namespace My_DNN.Layers
             int inputWidth = inputs[0].Length;
             int channels = inputs[0][0].Length;
 
-            // Výpočet rozměrů výstupu – pro valid pooling (bez paddingu)
+            // Output dimensions for valid pooling (no padding)
             int outHeight = (inputHeight - poolSize) / poolSize + 1;
             int outWidth = (inputWidth - poolSize) / poolSize + 1;
 
-            // Pro každý kanál, každý pooling region, najdeme maximální hodnotu
+            // For each channel and each pooling region, find the maximum value
             for (int c = 0; c < channels; c++)
             {
                 for (int i = 0; i < outHeight; i++)
@@ -198,7 +215,7 @@ namespace My_DNN.Layers
                         double maxVal = double.NegativeInfinity;
                         int maxRow = -1;
                         int maxCol = -1;
-                        // Iterace přes pooling okno
+                        // Iterate over the pooling window
                         for (int m = 0; m < poolSize; m++)
                         {
                             for (int n = 0; n < poolSize; n++)
@@ -227,20 +244,22 @@ namespace My_DNN.Layers
             return Tensor.FromJagged3D(output, outputShape);
         }
 
-        public override void WireShapes(int? number_of_elements = null, int[]? input_Shape = null)
+        /// <inheritdoc/>
+        /// <remarks>For MaxPool, <paramref name="outputSize"/> sets the pool size.</remarks>
+        public override void WireShapes(int? outputSize = null, int[]? inputShape = null)
         {
-            // Stejná pojistka jako u Conv: tvar vstupu ještě není známý (placeholder z Insert/Add).
-            // Bez ní se počítalo (0 - poolSize)/poolSize + 1 → záporný rozměr → pád při alokaci.
-            if (input_Shape != null && input_Shape.Any(d => d <= 0))
+            // Same safeguard as in Conv: the input shape is not known yet (placeholder from Insert/Add).
+            // Without it, (0 - poolSize)/poolSize + 1 → negative dimension → crash on allocation.
+            if (inputShape != null && inputShape.Any(d => d <= 0))
             {
                 inputsShape = new int[] { 0 };
                 outputShape = new int[] { 0 };
                 return;
             }
 
-            if (number_of_elements != null)
+            if (outputSize != null)
             {
-                poolSize = (int)number_of_elements;
+                poolSize = (int)outputSize;
 
                 int outHeight = (inputsShape[0] - poolSize) / poolSize + 1;
                 int outWidth = (inputsShape[1] - poolSize) / poolSize + 1;
@@ -248,10 +267,10 @@ namespace My_DNN.Layers
                 outputShape = new int[] { outHeight, outWidth, inputsShape[2] };
             }
 
-            if (input_Shape != null)
+            if (inputShape != null)
             {
-                // tentýž normalizátor jako ve FeedForward — viz SpatialShape
-                inputsShape = SpatialShape.Normalize(input_Shape, Name);
+                // the same normalizer as in FeedForward — see SpatialShape
+                inputsShape = SpatialShape.Normalize(inputShape, Name);
 
                 int outHeight = (inputsShape[0] - poolSize) / poolSize + 1;
                 int outWidth = (inputsShape[1] - poolSize) / poolSize + 1;
@@ -282,8 +301,8 @@ namespace My_DNN.Layers
             }
         }
 
-        // Replika pro paralelní trénink — viz Layer.CreateReplica. Parametry nemá, takže
-        // stačí vlastní buffery; WireShapes je alokuje stejně jako při zapojení.
+        // Replica for parallel training — see Layer.CreateReplica. There are no parameters, so
+        // own buffers are enough; WireShapes allocates them just as during wiring.
         internal override Layer CreateReplica()
         {
             MaxPool replica = (MaxPool)MemberwiseClone();
@@ -291,9 +310,10 @@ namespace My_DNN.Layers
             return replica;
         }
 
-        // MaxPool nemá trénovatelné parametry — není co materializovat ani co ztratit.
+        /// <summary>Does nothing — MaxPool has no trainable parameters to materialize or lose.</summary>
         public override void MaterializeParameters() { }
 
+        /// <summary>Always true — MaxPool has no parameters.</summary>
         public override bool IsMaterialized => true;
     }
 }

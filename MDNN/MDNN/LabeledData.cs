@@ -1,23 +1,27 @@
-namespace My_DNN
+namespace MDNN
 {
-    // Dvojice vstupy + očekávané výstupy. Existuje proto, aby JEDNO bez DRUHÉHO nešlo předat.
+    // Previously valid/test were supplied through four independent setters (`ValidInputs`,
+    // `ValidTargets`, …). Setting the inputs and forgetting the targets was silently allowed:
+    // training started and crashed only at the first valid report, far from the actual mistake.
+    // Binding inputs and targets into one object makes that state impossible.
     //
-    // Dřív se valid/test dodávaly čtyřmi nezávislými settery (`ValidDataInputs`,
-    // `ValidDataCurrentOutput`, …). Nastavit vstupy a zapomenout na cíle bylo tiše přípustné:
-    // dělení datasetu si s null poradilo (`originalValidOutput?.Slice(...)`), trénink
-    // nastartoval a spadl až u prvního valid reportu — tedy daleko od místa, kde chyba vznikla.
-    // Když jsou vstupy a cíle svázané v jednom objektu, ten stav nejde vyrobit.
-    //
-    // Pozn. k názvu: NE `Dataset`/`DataSet` — `Train.cs` má `using System.Data`, kde `DataSet`
-    // je něco úplně jiného.
+    // Naming note: NOT `Dataset`/`DataSet` — `Train.cs` has `using System.Data`, where `DataSet`
+    // is something else entirely.
+    /// <summary>
+    /// A pair of inputs and their expected outputs (targets). Exists so that one cannot be
+    /// passed without the other.
+    /// </summary>
     public sealed class LabeledData
     {
+        /// <summary>Input samples; the first dimension is the sample (or sequence) index.</summary>
         public Tensor Inputs { get; }
+        /// <summary>Expected outputs, one per input sample.</summary>
         public Tensor Targets { get; }
 
-        // Kolik vzorků (u sekvenčního tréninku kolik sekvencí).
+        /// <summary>Number of samples (number of sequences for sequential training).</summary>
         public int Count => Inputs.Shape[0];
 
+        /// <summary>Creates a labeled dataset; inputs and targets must have the same number of samples.</summary>
         public LabeledData(Tensor inputs, Tensor targets)
         {
             ArgumentNullException.ThrowIfNull(inputs);
@@ -38,10 +42,12 @@ namespace My_DNN
             Targets = targets;
         }
 
-        // Pohodlná varianta pro double[][], double[,] a spol. — ať uživatel nemusí
-        // převádět na Tensor ručně.
+        /// <summary>
+        /// Convenience overload for <c>double[][]</c>, <c>double[,]</c> and similar arrays, so they
+        /// do not have to be converted to <see cref="Tensor"/> by hand.
+        /// </summary>
         public LabeledData(Array inputs, Array targets)
-            : this(Tensor.ConvertArrayToTensor(inputs), Tensor.ConvertArrayToTensor(targets))
+            : this(new Tensor(inputs), new Tensor(targets))
         {
         }
     }

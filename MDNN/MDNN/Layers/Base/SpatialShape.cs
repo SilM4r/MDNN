@@ -1,23 +1,24 @@
-namespace My_DNN.Layers.classes
+namespace MDNN.Layers
 {
     /// <summary>
-    /// Jak se z tvaru vstupu stane <c>[výška, šířka, kanály]</c> — společné pro vrstvy,
-    /// které pracují v prostoru (<see cref="My_DNN.Layers.Conv"/>, <see cref="My_DNN.Layers.MaxPool"/>).
+    /// How an input shape becomes <c>[height, width, channels]</c> — shared by the layers
+    /// that work spatially (<see cref="MDNN.Layers.Conv"/>, <see cref="MDNN.Layers.MaxPool"/>).
     /// </summary>
+    /// <remarks>
+    /// Why it has its own place: this logic used to be written TWICE in each of those layers —
+    /// once in <c>WireShapes</c> (chain wiring) and once in <c>FeedForward</c> (every pass) —
+    /// and the two copies disagreed. Wiring handled rank 1 and 3, forward also rank 2.
+    /// A model with Conv or MaxPool as the first layer and a <c>double[h,w]</c> input therefore
+    /// could not be built at all: it hit <c>throw new Exception()</c> with no message.
     ///
-    /// Proč to má vlastní místo: tahle logika byla napsaná DVAKRÁT v každé z těch vrstev —
-    /// zvlášť ve `WireShapes` (zapojení řetězu) a zvlášť ve `FeedForward` (každý průchod) —
-    /// a ty dvě kopie se neshodovaly. Zapojení umělo rank 1 a 3, forward navíc rank 2.
-    /// Model s Conv nebo MaxPool jako první vrstvou a vstupem `double[h,w]` proto nešel
-    /// vůbec sestavit: spadl na `throw new Exception()` úplně bez textu v hlášce.
-    ///
-    /// Dokud je normalizace na jednom místě, nemají se ty dvě cesty jak rozejít — a to je
-    /// přesně vzorec, který v týhle knihovně kousl už čtyřikrát (async backward bez dropoutu,
-    /// FitAsync bez IsTraining, Train.FeedForward bez IsTraining).
+    /// With normalization in one place the two paths cannot diverge. Duplicated code paths
+    /// drifting apart is a pattern that has bitten this library three more times (async backward
+    /// without dropout, FitAsync without IsTraining, Train.FeedForward without IsTraining).
+    /// </remarks>
     internal static class SpatialShape
     {
-        /// <summary>Tvar na <c>[h,w,c]</c>. Vrací VŽDY nové pole — vrstva si nesmí držet
-        /// referenci na tvar souseda, ten se pod ní může přepočítat.</summary>
+        /// <summary>Converts a shape to <c>[h,w,c]</c>. ALWAYS returns a new array — a layer must not
+        /// hold a reference to its neighbour's shape, which may be recomputed underneath it.</summary>
         public static int[] Normalize(int[] shape, string layerName)
         {
             if (shape == null || shape.Length == 0)
@@ -31,7 +32,7 @@ namespace My_DNN.Layers.classes
                     return new int[] { shape[0], shape[1], shape[2] };
 
                 case 2:
-                    // 2D obrázek bez kanálové dimenze → jeden kanál
+                    // 2D image without a channel dimension → one channel
                     return new int[] { shape[0], shape[1], 1 };
 
                 case 1:
@@ -45,12 +46,13 @@ namespace My_DNN.Layers.classes
             }
         }
 
-        /// <summary>Plochý vektor na 2D.</summary>
-        ///
-        /// ⚠️ Je to ODHAD, ne informace: pro 784 vyjde 28×28, ale pro 600 vyjde 25×24,
-        /// přestože uživatel mohl mít na mysli 20×30, a RGB 28×28×3 (2352) se rozloží
-        /// jako 49×48. Chování se tu ZÁMĚRNĚ zachovává beze změny — je to samostatná
-        /// položka v roadmapě (chce to API na zadání tvaru, ne chytřejší hádání).
+        /// <summary>Factorizes a flat vector length into 2D.</summary>
+        /// <remarks>
+        /// ⚠️ This is a GUESS, not information: 784 gives 28×28, but 600 gives 25×24 even though
+        /// the user may have meant 20×30, and RGB 28×28×3 (2352) is factorized as 49×48.
+        /// The behaviour is DELIBERATELY kept unchanged — the proper fix is an API to declare
+        /// the input shape explicitly, not smarter guessing.
+        /// </remarks>
         public static (int rows, int cols) Factorize(int count, string layerName)
         {
             if (count <= 0)
@@ -69,23 +71,23 @@ namespace My_DNN.Layers.classes
             return (rows, count / rows);
         }
 
-        /// <summary>Ověří, že příchozí vstup sedí na tvar, na který je vrstva ZAPOJENÁ,
-        /// a vrátí ho znormalizovaný.</summary>
-        ///
-        /// Tvary se zapojují jednou — prvním průchodem, zleva doprava celým řetězem — a od
-        /// té chvíle jsou dané. Vrstva si podle nich předalokovala vstupní buffer, jenže
-        /// kopírovací smyčka ve `FeedForward` se řídila tvarem PŘÍCHOZÍHO tenzoru. Menší
-        /// vstup tedy přepsal jen svůj roh a zbytek bufferu zůstal z minulého vzorku:
-        /// vrstva zapojená na 4×4 dostala samé nuly a vrátila čísla předchozího obrázku.
-        /// Bez výjimky, bez varování. Větší vstup naopak spadl na `IndexOutOfRange`
-        /// z hloubi smyčky, bez zmínky o tvarech.
+        /// <summary>Checks that the incoming input matches the shape the layer is WIRED to,
+        /// and returns it normalized.</summary>
+        /// <remarks>
+        /// Shapes are wired once — on the first pass, left to right through the whole chain — and
+        /// are fixed from then on. The layer preallocates its input buffer from them, but the copy
+        /// loop in <c>FeedForward</c> used to follow the shape of the INCOMING tensor. A smaller input
+        /// overwrote only its corner and the rest of the buffer kept the previous sample, silently
+        /// returning stale numbers; a larger input crashed with <c>IndexOutOfRange</c> deep in the
+        /// loop, without mentioning shapes.
+        /// </remarks>
         public static int[] RequireWiredShape(int[] incoming, int[] wired, string layerName)
         {
             if (wired.Length != 3 || wired[0] <= 0)
             {
                 throw new InvalidOperationException(
                     $"{layerName} is not wired to any input shape yet. Add the layer to a model " +
-                    "and let the first pass wire it, or call LayerAdjustment(...) yourself.");
+                    "and let the first pass wire it, or call Build(...) yourself.");
             }
 
             int[] normalized = Normalize(incoming, layerName);
@@ -94,7 +96,7 @@ namespace My_DNN.Layers.classes
             {
                 string from = SameAs(normalized, incoming)
                     ? ""
-                    : $" (z tvaru [{Describe(incoming)}])";
+                    : $" (from shape [{Describe(incoming)}])";
 
                 throw new ArgumentException(
                     $"{layerName} is wired to input {Describe(wired)}, but got " +
@@ -123,7 +125,7 @@ namespace My_DNN.Layers.classes
             return true;
         }
 
-        /// <summary>Tvar do hlášky: <c>4×4×1</c>.</summary>
+        /// <summary>Formats a shape for an error message: <c>4×4×1</c>.</summary>
         public static string Describe(int[] shape) => string.Join("×", shape);
     }
 }

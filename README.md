@@ -40,19 +40,17 @@ Additional capabilities:
 
 ## Installation
 
-MDNN is distributed as a dynamic library, `MDNN.dll`. To use it:
-
-1. Add a reference to the `MDNN` project, or to the `MDNN.dll` it builds.
-2. Include the relevant namespaces in your source code.
-
-Loss charts live in a separate library, `MDNN.Plotting` (it brings in ScottPlot, which the
-core library does not need) — reference it as well if you want them, see
-[Plotting](#plotting).
-
-Both can also be packed as NuGet packages, `MDNN` and `MDNN.Plotting`:
+MDNN is published on NuGet. It targets .NET 9.
 
 ```
-dotnet pack MDNN/MDNN.sln -c Release
+dotnet add package MDNN
+```
+
+Loss charts live in a separate package, `MDNN.Plotting` (it brings in ScottPlot, which the
+core library does not need) — add it as well if you want them, see [Plotting](#plotting):
+
+```
+dotnet add package MDNN.Plotting
 ```
 
 ## Quick start
@@ -60,12 +58,11 @@ dotnet pack MDNN/MDNN.sln -c Release
 A minimal example that creates and trains a network:
 
 ```csharp
-using My_DNN;
-using My_DNN.Layers;
-using My_DNN.Layers.classes;
-using My_DNN.Optimizers;
-using My_DNN.Loss_functions;
-using My_DNN.Activation_functions;
+using MDNN;
+using MDNN.Layers;
+using MDNN.Optimizers;
+using MDNN.Losses;
+using MDNN.Activations;
 
 double[][] inputsDataset  = { /* input samples */ };
 double[][] outputDataset  = { /* corresponding targets */ };
@@ -76,8 +73,8 @@ Loss loss = new MSE();                          // loss function
 
 uint epochs = 1000;
 
-MDNN model = new MDNN(outputLayer, optimizer, loss);
-model.Layers.Add(new Dense(8, new ReLu()));     // hidden layer
+NeuralNetwork model = new NeuralNetwork(outputLayer, optimizer, loss);
+model.Layers.Add(new Dense(8, new ReLU()));     // hidden layer
 
 model.Train.TrainLoop(inputsDataset, outputDataset, epochs, 1);
 
@@ -92,10 +89,10 @@ Full, runnable examples for each task type — classification, regression, seque
 
 ## Model configuration
 
-The model is created through the `MDNN` class, which is the central object for working with the network:
+The model is created through the `NeuralNetwork` class, which is the central object for working with the network:
 
 ```csharp
-MDNN model = new MDNN(outputLayer, optimizer, loss);
+NeuralNetwork model = new NeuralNetwork(outputLayer, optimizer, loss);
 ```
 
 Constructor parameters:
@@ -104,12 +101,16 @@ Constructor parameters:
 - `optimizer` (optional) — an `Optimizer`. Defaults to `SGD(0.0001)`.
 - `loss` (optional) — a loss function. Defaults to `MSE()`.
 
-Supported optimizers: `SGD`, `Adam`, `Momentum`.
+Supported optimizers: `SGD(learningRate)`, `Adam(learningRate, beta1, beta2)`, `Momentum(learningRate, momentum)`.
 Supported loss functions: `MSE`, `CrossEntropy`.
+
+Both loss functions are **sums over the output values**, not means: `MSE` is `Σ(output − target)²`
+and `CrossEntropy` is `−Σ target · ln(output)` — the same as PyTorch with `reduction='sum'`.
+The gradient is averaged over the samples of a minibatch, not over the outputs of one sample.
 
 Each model owns its own configuration, so multiple independent models can coexist in the same process.
 
-You can also create custom optimizers or loss functions by inheriting the corresponding base class (for example `Optimizer` or `Loss`) and implementing its abstract members. A custom optimizer's `CreateFresh()` must return a new instance with the same hyperparameters and empty state — every neuron gets its own copy. Override `ExportState()` and `ImportState()` as well if its state should survive saving and loading; without them it is loaded with empty state. Loading builds only the built-in optimizers and losses by name — for a custom one pass an instance: `MDNN.LoadModel(path, optimizer: new MyOptimizer(…), loss: new MyLoss())`. A custom activation cannot be loaded yet. Either way it fails with an `ArgumentException` rather than silently substituting a different function.
+You can also create custom optimizers or loss functions by inheriting the corresponding base class (for example `Optimizer` or `Loss`) and implementing its abstract members. A custom optimizer's `CreateFresh()` must return a new instance with the same hyperparameters and empty state — every neuron gets its own copy. Override `ExportState()` and `ImportState()` as well if its state should survive saving and loading; without them it is loaded with empty state. Loading builds only the built-in optimizers and losses by name — for a custom one pass an instance: `NeuralNetwork.LoadModel(path, optimizer: new MyOptimizer(…), loss: new MyLoss())`. A custom activation cannot be loaded yet. Either way it fails with an `ArgumentException` rather than silently substituting a different function.
 
 Note on `CrossEntropy`: it is intended to be paired with a `Softmax` output layer. It computes the fused softmax + categorical cross-entropy gradient (`output − target`), which is the numerically stable form. Using `CrossEntropy` without a `Softmax` output layer raises an exception.
 
@@ -118,16 +119,19 @@ Note on `CrossEntropy`: it is intended to be paired with a `Softmax` output laye
 Layers are added through the `Layers` property:
 
 ```csharp
-model.Layers.Add(new Dense(64, new ReLu()));    // hidden layer, 64 neurons, ReLU
+model.Layers.Add(new Dense(64, new ReLU()));    // hidden layer, 64 neurons, ReLU
 model.Layers.Add(new Dense(32, new Sigmoid())); // hidden layer, 32 neurons, sigmoid
 ```
 
 Besides `Add()`, the `Layers` API includes:
 
 - `Insert()` — insert a layer at a given position
-- `RemoveAt()` — remove a layer at a given position
-- `OutputLayerActivationFunc()` — set a new output activation function
-- `ClearAllLayersAndSetNewOutputLayer()` — remove all layers and set a new output layer
+- `RemoveAt()` — remove a layer at a given position (the last remaining layer cannot be removed)
+- `SetOutputActivation()` — set a new output activation function
+- `Clear(outputLayer)` — remove all layers and set a new output layer
+
+`model.Layers.Layers` is a read-only list of the layers in order; the methods above are the
+only way to change it, because they also rewire the shapes of the chain.
 
 Supported layers:
 
@@ -136,11 +140,11 @@ Supported layers:
 - `Conv()`
 - `MaxPool()`
 
-If a layer constructor is called without an activation function, the default hidden-layer activation (ReLU) is used. Pass the activation explicitly for output layers (for example `Linear` for regression or `Softmax` for classification).
+If a layer constructor is called without an activation function, ReLU is used (`GeneralNeuralNetworkSettings.DefaultHiddenActivation`) — for the output layer too, so pass the activation explicitly there (for example `Linear` for regression or `Softmax` for classification).
 
-You can also define a custom layer by inheriting one of the abstract classes `Layer`, `LayerBasedOnNeurons`, or `LayerWithUntrainedParameters` and implementing their abstract members.
+You can also define a custom layer by inheriting one of the abstract classes `Layer`, `NeuronLayer`, or `ParameterlessLayer` and implementing their abstract members.
 
-Available activation functions: `Linear`, `ReLu`, `Leak_ReLu`, `Sigmoid`, `Tanh`, `Softmax`.
+Available activation functions: `Linear`, `ReLU`, `LeakyReLU`, `Sigmoid`, `Tanh`, `Softmax`.
 
 ## Regularization
 
@@ -174,9 +178,9 @@ on any single one and has to build several independent routes to the answer.
 
 ```csharp
 model.Context.Dropout = 0.5;                        // default for every hidden layer
-model.Layers.Add(new Dense(64, new ReLu()));        // inherits 0.5
-model.Layers.Add(new Dense(32, new ReLu(), 0.2));   // its own rate wins
-model.Layers.Add(new Dense(16, new ReLu(), 0.0));   // explicitly disabled
+model.Layers.Add(new Dense(64, new ReLU()));        // inherits 0.5
+model.Layers.Add(new Dense(32, new ReLU(), 0.2));   // its own rate wins
+model.Layers.Add(new Dense(16, new ReLU(), 0.0));   // explicitly disabled
 ```
 
 A per-layer value always overrides the global one, including `0.0` to switch it off. The
@@ -185,6 +189,9 @@ per-layer rate is also available afterwards as `DropoutRate` (`null` means "inhe
 - **The global rate is never applied to the output layer.** Discarding the network's own
   outputs is not regularization, it is damage, so one global switch must not introduce it
   silently. Setting a rate explicitly on the output layer still works if you really want it.
+- **Dropout cannot be used on a `Softmax` layer.** Softmax normalizes over the whole layer, so a
+  dropped neuron still affects the other outputs. The global rate skips such a layer; a rate
+  set explicitly on it throws a `NotSupportedException` when training starts.
 - Dropout is active **only inside `Fit()`** (and therefore inside the training loops).
   `GetResults()` runs without it, so prediction is deterministic — the same input always
   gives the same answer.
@@ -206,7 +213,7 @@ results — weight initialization, sample order, dataset shuffling, and dropout 
 from that one generator.
 
 ```csharp
-MDNN model = new MDNN(new Dense(3, new Softmax()), new Adam(0.01), new CrossEntropy(), seed: 42);
+NeuralNetwork model = new NeuralNetwork(new Dense(3, new Softmax()), new Adam(0.01), new CrossEntropy(), seed: 42);
 
 int? used = model.Context.Seed;   // reads back, and is stored in the saved model
 ```
@@ -217,7 +224,8 @@ weights are drawn while the model is being assembled, so a seed set later would 
 model that is only partly reproducible — worse than an obvious error, because it looks like
 it worked.
 
-Without a seed the library falls back to a shared global generator, exactly as before.
+Without a seed the library falls back to a shared global generator
+(`GeneralNeuralNetworkSettings.Random`).
 
 ## Training the model
 
@@ -227,7 +235,9 @@ Training is driven by the `Train` class. Four levels of control are available, f
 
 The most complete training procedure. It provides:
 
-- Automatic checkpointing of the best-validation model (early-stopping checkpoint)
+- Keeping the best-validation model: at the end of training the model holds the weights of the
+  epoch with the lowest validation loss, not those of the last epoch
+- Optional early stopping (`EarlyStoppingEnabled`, `EarlyStoppingPatience`, `EarlyStoppingMinDelta`)
 - Automatic shuffling and splitting of the dataset into training, validation, and test sets
 - Progress reporting to the console
 - Detection of `NaN` values
@@ -235,18 +245,18 @@ The most complete training procedure. It provides:
 
 **One epoch = one full pass over the training set.** Each epoch the sample order is
 reshuffled and the data is processed in minibatches, with one optimizer step per batch.
-So `number_of_epoch` counts passes over the data, not optimizer steps — for the latter see
+So `epochs` counts passes over the data, not optimizer steps — for the latter see
 `Train.OptimizerSteps`.
 
 Parameters:
 
-- `Array inputs_values` (required) — input dataset. Each row is one training sample. A sample
+- `Array inputs` (required) — input dataset. Each row is one training sample. A sample
   has at most three dimensions, so the dataset is at most 4D — for images
   `[sample, height, width, channels]` — and at most 5D for sequences
   `[sequence, step, height, width, channels]`.
-- `Array current_output_values` (required) — corresponding targets.
-- `uint number_of_epoch` (required) — number of training epochs.
-- `uint size_of_mini_batch` (optional, default `1`) — minibatch size.
+- `Array targets` (required) — corresponding targets.
+- `uint epochs` (required) — number of training epochs.
+- `uint miniBatchSize` (optional, default `1`) — minibatch size.
 - `bool isSequence` (optional, default `false`) — set to `true` for sequential input data (for example time series).
 
 This overload is a shortcut: it splits the given data by ratio and trains. When you already
@@ -258,7 +268,7 @@ model.Train.SetDatasets(
     valid: new LabeledData(validX, validY),
     test:  new LabeledData(testX, testY));   // test is optional
 
-model.Train.TrainLoop(numberOfEpoch: 50, sizeOfMiniBatch: 32);
+model.Train.TrainLoop(epochs: 50, miniBatchSize: 32);
 ```
 
 Whatever you leave out is carved out for you:
@@ -271,19 +281,19 @@ Whatever you leave out is carved out for you:
 | `SetDatasets(train, valid, test)` | nothing is carved |
 
 The test set is never carved from — it is the final unbiased estimate. Setting
-`TestNeuralNetworkAfterTraining = false` also stops a test set from being carved out of your
+`TestAfterTraining = false` also stops a test set from being carved out of your
 validation set, so the validation set stays whole.
 
 ### `SimpleTrainLoop()`
 
-A simplified training loop with checkpointing, console reporting, and `NaN` detection, without the dataset splitting and plotting of `TrainLoop()`.
+A simplified training loop with console reporting and `NaN` detection, without the dataset splitting, validation and plotting of `TrainLoop()`. With `AutoSave` on, it writes the model to disk whenever the training loss reaches a new minimum; the model in memory stays at the last epoch.
 
 Parameters:
 
-- `double[][] inputs_values` (required)
-- `double[][] current_output_values` (required)
-- `uint number_of_epoch` (required)
-- `uint size_of_mini_batch` (optional, default `1`)
+- `double[][] inputs` (required)
+- `double[][] targets` (required)
+- `uint epochs` (required)
+- `uint miniBatchSize` (optional, default `1`)
 
 ### Parallel training (`Workers`)
 
@@ -316,7 +326,7 @@ Things to know:
   parallel training cannot be combined with the GPU path. All three throw a
   `NotSupportedException` instead of silently training differently.
 - **Validation and testing run in parallel too** — the validation pass between epochs,
-  `TestNeuralNetwork()` and the final test of `TrainLoop()`. These are forward passes only:
+  `Evaluate()` and the final test of `TrainLoop()`. These are forward passes only:
   the outputs are computed in parallel and the loss and score are then summed in sample order,
   so they are **bit-identical** to `Workers = 1`, and so are the choice of the best model and
   early stopping. Measured: about 3× with 4 workers, up to 4–4.5× with 10.
@@ -330,7 +340,7 @@ An intermediate approach that lets you write your own training loop. `Fit()` run
 double[][] inputsDataset = { /* input data */ };
 double[][] currentOutputDataset = { /* targets */ };
 
-MDNN model = new MDNN(new Dense(3), new Adam(0.001), seed: 42);
+NeuralNetwork model = new NeuralNetwork(new Dense(3), new Adam(0.001), seed: 42);
 // Dense(3) has three output neurons, so each target must hold three values — the number of targets has to match the number of neurons in the output layer.
 
 int numberOfEpochs = 50;
@@ -385,17 +395,11 @@ dropout behaves the same as it does inside `Fit()`. (Use `model.GetResults()` wh
 prediction — that one deliberately leaves dropout off, so the same input always gives the same
 answer.)
 
-**Removed:** `BackPropagation()` used to have a second overload taking precomputed per-layer
-gradients. It is gone, and it never worked the way its signature suggested — `Dense` honoured
-the argument while `Conv` and `RNN` ignored it and read internal state instead. Every layer now
-has a single backward entry point (see [Backward pass](#backward-pass)), so there is nothing
-left to hand in from outside.
-
 ## GPU acceleration
 
 ### GPU
 
-Network computation can optionally run on an NVIDIA GPU through the accompanying `gpu.dll` library (written in C++ / CUDA). This requires the CUDA Toolkit and `gpu.dll`. GPU computation is a per-model setting:
+Network computation can optionally run on an NVIDIA GPU through a native library, `gpu.dll` (C++ / CUDA). **It is not part of the NuGet package** — build it from [`MDNN/GPU/GPU.cu`](https://github.com/SilM4r/MDNN/blob/main/MDNN/GPU/GPU.cu) with the CUDA Toolkit and place it next to your application. GPU computation is a per-model setting:
 
 ```csharp
 model.Context.CalculationViaGpu = true;
@@ -407,23 +411,9 @@ this path is Windows-and-CUDA only.
 **The GPU path computes in `float`, the CPU path in `double`.** Values are converted on the
 way in and back on the way out, so the same model does not produce the same numbers on both
 paths — expect agreement to roughly 7 significant digits instead of 16. This is normal for
-GPU kernels, but it is worth knowing before comparing results across the two. Only `Dense`
-layers use the GPU path; everything else runs on the CPU regardless of this flag.
-
-### A note on the removed `...Async` API
-
-Earlier versions exposed asynchronous counterparts (`TrainLoopAsync()`, `FitAsync()`,
-`GetResultsAsync()`). **They have been removed**, and nothing was lost by it — they were
-`async` without a single `await`, so they never gave up a thread. What parallelism they did
-attempt was per-neuron `Task.Run`, which is *slower* than a plain loop: the scheduling cost
-per neuron exceeds the arithmetic being scheduled.
-
-Worse, they were a second code path that quietly drifted from the first. Dropout was added
-to the synchronous path only, so the asynchronous one silently computed wrong gradients until
-the removal surfaced it.
-
-Parallelism is back, but across the **batch** rather than across neurons — that is the axis
-where there is real work to divide. See [Parallel training](#parallel-training-workers).
+GPU kernels, but it is worth knowing before comparing results across the two. Only the forward
+pass of `Dense` layers uses the GPU path, and it does not apply dropout; everything else runs on
+the CPU regardless of this flag.
 
 ## Saving and loading models
 
@@ -432,7 +422,7 @@ After training, a model can be saved to JSON and later loaded for inference. No 
 ```csharp
 model.SaveAsJson("save"); // writes save.json
 
-MDNN loaded = MDNN.LoadModel("save.json");   // "save" works too — the extension is optional
+NeuralNetwork loaded = NeuralNetwork.LoadModel("save.json");   // "save" works too — the extension is optional
 Tensor result = loaded.GetResults(new Tensor(inputsDataset[0]));   // one sample
 ```
 
@@ -460,7 +450,7 @@ moments and step count of `Adam` and the velocity of `Momentum` are stored with 
 and `Conv` layer. Training N steps, saving, loading and training M more gives a bit-identical
 result to N + M steps without the interruption. (Without the state, `Adam` would start over
 with zeroed moments, and its first steps after loading would be as large as at the very start
-of training.) The state roughly triples the file size; for a model used only for prediction:
+of training.) The state makes the file roughly 3–4× larger; for a model used only for prediction:
 
 ```csharp
 model.SaveAsJson("model", includeOptimizerState: false);
@@ -474,7 +464,7 @@ optimizer to `LoadModel`; it has to be the same kind as in the file, and the sav
 loaded into it:
 
 ```csharp
-MDNN model = MDNN.LoadModel("model", optimizer: new Adam(0.0001));
+NeuralNetwork model = NeuralNetwork.LoadModel("model", optimizer: new Adam(0.0001));
 ```
 
 The best model restored at the end of `TrainLoop()` keeps the optimizer state of the epoch it
@@ -484,22 +474,27 @@ comes from, so training can carry on from it directly.
 
 ### Tensor
 
-`Tensor` is the universal data type for multidimensional arrays. It stores:
+`Tensor` is the universal data type for multidimensional arrays. It holds the values as a flat
+row-major array (`Data`) and the dimensions (`Shape`).
 
-- the original multidimensional array (`OriginalInput`),
-- an equivalent flat array (`Data`) for faster computation,
-- and the shape as a list of dimensions (`Shape`).
+`new Tensor(array)` accepts any regular `double`, `int` or `float` array — one-dimensional, multidimensional (`double[,,]`) or jagged (`double[][][]`); `int`/`float` are converted to `double` and a ragged array is rejected. `new Tensor(data, shape)` wraps a flat array without copying it.
 
-`new Tensor(array)` accepts any regular `double`, `int` or `float` array — one-dimensional, multidimensional (`double[,,]`) or jagged (`double[][][]`); `int`/`float` are converted to `double` and a ragged array is rejected. It supports reshaping via `Reshape(int[] newShape)`, along with convenient element access and conversions between jagged and multidimensional arrays.
+- `Reshape(int[] newShape)` — change the shape, keeping the data
+- `GetSubTensor(i)` / `GetSubTensor(i, j)` — one sample (or one step of a sequence) as a new tensor
+- `Slice(start, length)` — a range of samples
+- `ToArray()` — the data as a regular .NET array of the tensor's shape (`double[]`, `double[,]`, …)
 
 ### Console output
 
-The static `ConsoleControler` class handles console output:
+The static `ConsoleController` class handles console output (`model.Info()` calls the first one):
 
 - `ShowModelInfo()` — prints detailed information about the model
 - `ShowEpochInfo()` — prints information about the current epoch during training
-- `ShowScoreOfmodel()` — prints the model's accuracy
-- `ErrorHandler()` — prints error messages
+- `ShowScore()` / `ShowDatasetScores()` — prints the model's accuracy
+- `ShowError()` — prints error messages
+
+The training loops print through it unless you turn it off: `Train.ShowModelInfo`,
+`Train.ConsoleReportCount` (how many epoch reports per run).
 
 ### NetworkContext
 
@@ -516,7 +511,7 @@ Each model owns a `NetworkContext` (`model.Context`) that holds its runtime conf
 | `SequenceTrain` | sequential (time-series) training mode |
 | `CalculationViaGpu` | GPU flag |
 
-`GeneralNeuralNetworkSettings` holds only process-wide defaults (the default activation functions and a shared random generator).
+`GeneralNeuralNetworkSettings` holds only process-wide fallbacks, used where no model is involved: the default activation of a layer constructed without one (`DefaultHiddenActivation`), the optimizer of a standalone layer (`DefaultOptimizer`) and the shared random generator of models without a seed (`Random`).
 
 ### Plotting
 
@@ -524,14 +519,14 @@ Charts of training and validation loss over epochs live in the separate `MDNN.Pl
 library, so the core library does not depend on ScottPlot. Plug it in once per model:
 
 ```csharp
-using My_DNN;   // GraphPlotter is in MDNN.Plotting, same namespace
+using MDNN;   // GraphPlotter is in the MDNN.Plotting package, same namespace
 
 model.Train.UseLossChart();   // TrainLoop then saves loss.png at the end
 ```
 
 The chart is saved as `loss.png` in the working directory, at the end of `TrainLoop()` and when
-training diverges. It makes overfitting or undertraining easy to spot. `ShowLossChartInTrainLoop
-= false` switches it off again. Without `UseLossChart()` no chart is drawn — the core library only
+training diverges. It makes overfitting or undertraining easy to spot. `ShowLossChart = false`
+switches it off again. Without `UseLossChart()` no chart is drawn — the core library only
 offers the hook `Train.LossChart(epochs, trainLoss, validLoss)`, which you can also point at your
 own plotting code.
 
@@ -542,7 +537,7 @@ This section describes what happens under the hood. It is not required reading t
 ### Object model
 
 ```
-MDNN (model)
+NeuralNetwork (model)
 ├── NetworkContext        per-model runtime config (loss, optimizer, input shape, flags)
 ├── LayerManager (Layers) ordered list of layers + lazy shape inference
 │   └── Layer             Dense · Conv · MaxPool · RNN
@@ -550,8 +545,8 @@ MDNN (model)
 └── Train                 training loops and the forward/backward entry points
 ```
 
-- `MDNN` is the top-level object. It owns a `NetworkContext`, a `LayerManager` (exposed as `model.Layers`), and a `Train` helper (`model.Train`).
-- `Layer` is the abstract base for every layer type. `Dense` and `RNN` are built from `Neuron` objects (they extend `LayerBasedOnNeurons`); `Conv` holds kernels and biases directly; `MaxPool` has no trainable parameters and only records which positions were selected.
+- `NeuralNetwork` is the top-level object. It owns a `NetworkContext`, a `LayerManager` (exposed as `model.Layers`), and a `Train` helper (`model.Train`).
+- `Layer` is the abstract base for every layer type. `Dense` and `RNN` are built from `Neuron` objects (they extend `NeuronLayer`); `Conv` holds kernels and biases directly; `MaxPool` has no trainable parameters and only records which positions were selected.
 - A `Neuron` holds its weights, bias, accumulated gradients, and its **own** optimizer instance.
 - `Tensor` is the data carrier passed between layers (a flat `Data` array plus a `Shape`).
 - `NetworkContext` (`model.Context`) holds the per-model state. Because this state is not global, two models in the same process are fully independent.
@@ -562,26 +557,28 @@ pass through the model each neuron also holds what it saw and produced on that p
 ```csharp
 foreach (Layer layer in model.Layers.Layers)
 {
-    if (layer is LayerBasedOnNeurons byNeurons)   // Dense, RNN
+    if (layer is NeuronLayer byNeurons)   // Dense, RNN
     {
         for (int i = 0; i < byNeurons.Neurons.Count; i++)
         {
             Neuron n = byNeurons.Neurons[i];
             Console.WriteLine($"{layer.Name} #{i}: bias {n.Bias}, weights [{string.Join(", ", n.Weights)}]");
             Console.WriteLine($"   input [{string.Join(", ", n.Inputs)}] -> w·x+b = {n.RawOutput} " +
-                              $"-> {n.Activation_Func.Name} -> {n.Output}");
+                              $"-> {n.Activation.Name} -> {n.Output}");
         }
     }
 }
 ```
 
-The state is read-only from outside (`Output`, `RawOutput`, `Inputs`, `Activation_Func`,
+The state is read-only from outside (`Output`, `RawOutput`, `Inputs`, `Activation`,
 `Optimizer`); only the library writes to it, so it cannot be changed out of step with training
 by accident. `Weights` returns the weight array itself.
 
 ### Lazy shape inference
 
-Layers are constructed without knowing their input size — you only specify the number of neurons (or kernels). On the first forward pass the model records the input shape into `Context.InputShape` and calls `Layers.SetInputSizeForFirstLayer()`, which walks the layers calling each one's `LayerAdjustment()`. Every layer derives its real input size from the previous layer's output size and only then allocates its parameters (neurons, kernels). This is why a layer's weights do not exist until the model first sees data.
+Layers are constructed without knowing their input size — you only specify the number of neurons (or kernels). On the first forward pass the model records the input shape into `Context.InputShape` and wires the chain in two steps: `WireShapes()` on every layer, left to right, derives each layer's input shape from the previous layer's output shape; then `MaterializeParameters()` allocates and initializes the parameters (neurons, kernels) in one left-to-right pass. This is why a layer's weights do not exist until the model first sees data. You can wire the model in advance with `model.Layers.SetInputShape(new[] { … })`.
+
+Because parameters are drawn in architecture order, two models with the same seed and the same architecture get the same weights no matter whether they were assembled with `Add()` or `Insert()`.
 
 ### Forward pass
 
@@ -659,7 +656,7 @@ Two consequences worth knowing:
 
 ### Weight initialization
 
-Dense and RNN neurons are initialized with a Xavier/He-style uniform scheme — `U(−1, 1) · sqrt(6 / n_inputs)` — and biases start at zero.
+Weights of `Dense` and `RNN` neurons and `Conv` kernels are initialized with a He-style uniform scheme — `U(−1, 1) · sqrt(6 / fan_in)`, where `fan_in` is the number of inputs of a neuron (for `Conv`, kernel height × width × input channels) — and biases start at zero.
 
 ### Correctness: gradient checking and parity with PyTorch
 

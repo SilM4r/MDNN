@@ -1,9 +1,14 @@
-﻿namespace My_DNN
+﻿namespace MDNN
 {
+    /// <summary>
+    /// An n-dimensional array of doubles: flat data in row-major order plus a shape.
+    /// </summary>
     public class Tensor
     {
+        /// <summary>Size of each dimension.</summary>
         public int[] Shape { get; private set; }
-        public double[] Data 
+        /// <summary>The elements as a flat array in row-major order.</summary>
+        public double[] Data
         {
             get 
             { 
@@ -19,7 +24,7 @@
             }
         }
 
-        public Array OriginalInput
+        private Array OriginalInput
         {
             get
             {
@@ -33,18 +38,21 @@
                     return _originalInput;
                 }
             }
-            private set { _originalInput = value; }
+            set { _originalInput = value; }
         }
 
         private Array? _originalInput = null;
         private double[]? _data = null;
 
-        // Přijme jakékoli pravidelné pole double/int/float — 1D, multidim i zubaté.
+        /// <summary>
+        /// Creates a tensor from any regular double/int/float array — 1D, multidimensional or jagged.
+        /// The shape is taken from the array.
+        /// </summary>
         public Tensor(Array input)
         {
             Type scalarType = ScalarType(input, out bool isJagged);
 
-            // double[], double[,,] … — tvar řekne Rank, data se zkopírují líně při prvním .Data
+            // double[], double[,,] … — the shape comes from Rank, the data is copied lazily on first .Data
             if (!isJagged && scalarType == typeof(double))
             {
                 OriginalInput = input;
@@ -54,29 +62,43 @@
                 return;
             }
 
-            // Zubaté pole má vždycky Rank 1, takže tvar se z Ranku vyčíst NEDÁ. Dřív to tak
-            // konstruktor dělal: z double[4][4][1] vznikl Shape [4] nad 16 prvky a Conv nad
-            // tím tiše vrátil nesmysl ([1,1,2] místo [3,3,2]), Dense spadl na IndexOutOfRange.
-            // Správně to uměl jen ConvertArrayToTensor — a na ten člověk nemusí přijít.
-            // GetJaggedShape zároveň odmítne nepravidelné pole.
+            // A jagged array always has Rank 1, so the shape CANNOT be read from Rank. The
+            // constructor used to do exactly that: double[4][4][1] became Shape [4] over 16
+            // elements, Conv silently returned nonsense ([1,1,2] instead of [3,3,2]) and Dense
+            // threw IndexOutOfRange. GetJaggedShape also rejects irregular arrays.
             //
-            // Plochou cestou, ne přes ConvertJaggedToMulti (Array.CreateInstance + SetValue
-            // po prvcích = reflexe a boxing na každý double). Změřeno na 5000×784:
-            //   double[][]  360.0 ms / 748.0 MB      <- reflexní cesta
-            //   int[][]      12.9 ms /  29.9 MB      <- plochá cesta
+            // Uses the flat path, not ConvertJaggedToMulti (Array.CreateInstance + per-element
+            // SetValue = reflection and boxing on every double). Measured on 5000×784:
+            //   double[][]  360.0 ms / 748.0 MB      <- reflection path
+            //   int[][]      12.9 ms /  29.9 MB      <- flat path
             //
-            // int/float se převedou na double rovnou, aby OriginalInput byl double jako všude jinde.
+            // int/float are converted to double right away, so OriginalInput is double like everywhere else.
             Shape = isJagged
                 ? GetJaggedShape(input)
                 : Enumerable.Range(0, input.Rank).Select(input.GetLength).ToArray();
             _data = FlattenArray(input);
         }
 
-        public Tensor(double[] Data, int[] Shape)
+        /// <summary>
+        /// Wraps flat row-major <paramref name="data"/> with the given <paramref name="shape"/>
+        /// without copying it — the tensor and the caller share the array.
+        /// </summary>
+        public Tensor(double[] data, int[] shape)
         {
-            this.Shape = Shape;
-            _data = Data;
+            ArgumentNullException.ThrowIfNull(data);
+            ArgumentNullException.ThrowIfNull(shape);
+
+            int size = shape.Aggregate(1, (a, b) => a * b);
+            if (size != data.Length)
+                throw new ArgumentException(
+                    $"The shape [{string.Join(", ", shape)}] has {size} elements, but the data has {data.Length}.");
+
+            Shape = shape;
+            _data = data;
         }
+        /// <summary>
+        /// Changes the shape in place; the number of elements must stay the same.
+        /// </summary>
         public void Reshape(int[] newShape)
         {
             int newSize = newShape.Aggregate(1, (a, b) => a * b);
@@ -88,37 +110,30 @@
             _originalInput = null;
         }
 
-        public object GetValue(int[] indices)
-        {
-            // Multidim podobu si vyžádá jen ten, kdo o ni stojí (Train v sekvenčním režimu
-            // ji přetypovává na double[]). Data se vyříznou plochou cestou jako u
-            // GetTensorValue, teprve pak se z nich případně poskládá pole.
-            return GetTensorValue(indices).OriginalInput;
-        }
-
-        // Výřez podtenzoru podle prvních `indices.Length` dimenzí.
+        // Previously this used Array.CreateInstance + a recursive FillSubTensor copying element
+        // by element via GetValue/SetValue — reflection and boxing on every double. Measured:
+        // 48 KB allocated per ONE sample slice. `TrainLoop` calls this for every sample of every
+        // epoch: for MNIST (49k samples, 20 epochs) that is ~1M calls, tens of GB just for slicing.
         //
-        // Dřív se to počítalo přes GetSubTensor: Array.CreateInstance + rekurzivní
-        // FillSubTensor, který kopíroval prvek po prvku pomocí GetValue/SetValue — tedy
-        // reflexe a boxing na každý double. Změřeno: 48 KB alokací na JEDEN výřez vzorku.
-        // A `TrainLoop` tohle volá na každý vzorek každé epochy: u MNIST (49k vzorků,
-        // 20 epoch) to je ~1M volání, tedy desítky GB jen za krájení.
-        //
-        // Data jsou plochá v row-major pořadí, takže výřez je souvislý blok — stačí spočítat
-        // offset a délku a jednou zkopírovat.
-        public Tensor GetTensorValue(int[] indices)
+        // The data is flat in row-major order, so the slice is a contiguous block — compute the
+        // offset and length and copy once.
+        /// <summary>
+        /// Returns the sub-tensor selected by fixing the first <c>indices.Length</c> dimensions
+        /// (e.g. <c>GetSubTensor(i)</c> = the i-th sample). The result is a copy.
+        /// </summary>
+        public Tensor GetSubTensor(params int[] indices)
         {
             if (indices.Length >= Shape.Length)
                 throw new ArgumentException("The number of indices must be less than the number of tensor dimensions.");
 
-            // délka bloku = součin zbývajících dimenzí
+            // block length = product of the remaining dimensions
             int blockSize = 1;
             for (int d = indices.Length; d < Shape.Length; d++)
             {
                 blockSize *= Shape[d];
             }
 
-            // offset = suma index[d] * (součin dimenzí napravo od d)
+            // offset = sum of index[d] * (product of the dimensions to the right of d)
             int offset = 0;
             int stride = blockSize;
             for (int d = indices.Length - 1; d >= 0; d--)
@@ -126,7 +141,7 @@
                 if (indices[d] < 0 || indices[d] >= Shape[d])
                 {
                     throw new ArgumentOutOfRangeException(nameof(indices),
-                        $"Index {indices[d]} je mimo rozsah dimenze {d} (velikost {Shape[d]}).");
+                        $"Index {indices[d]} is out of range for dimension {d} (size {Shape[d]}).");
                 }
 
                 offset += indices[d] * stride;
@@ -142,60 +157,69 @@
             return new Tensor(block, blockShape);
         }
 
-        public Array GetOriginalData()
+        /// <summary>
+        /// The data as a regular .NET array of the tensor's shape (<c>double[]</c>, <c>double[,]</c>, …).
+        /// </summary>
+        public Array ToArray()
         {
             return OriginalInput;
         }
 
-        public Array ReshapeToArray(double[] data, int[] shape)
+        private static Array ReshapeToArray(double[] data, int[] shape)
         {
             return BuildMultiDimArray(data, shape, 0);
         }
 
-        // Prázdný tenzor. Vrací ho Backward(computeInputGradient: false) — je to
-        // srozumitelnější než null a při omylu spadne na délce, ne až na nesmyslných číslech.
+        /// <summary>
+        /// An empty tensor (0 elements). Returned by <c>Backward(computeInputGradient: false)</c> —
+        /// clearer than null, and a mistake fails on the length rather than producing nonsense numbers.
+        /// </summary>
         public static Tensor Empty => new Tensor(Array.Empty<double>());
 
+        /// <summary>
+        /// Returns a copy of <paramref name="length"/> consecutive items along the first dimension,
+        /// starting at <paramref name="start"/>.
+        /// </summary>
         public Tensor Slice(int start, int length)
         {
             if (start < 0 || length <= 0 || start + length > Shape[0])
                 throw new ArgumentException("Invalid slice range!");
 
 
-            int sampleSize = Data.Length / Shape[0]; // Velikost jednoho vzorku (dle první dimenze)
+            int sampleSize = Data.Length / Shape[0]; // size of one sample (along the first dimension)
             double[] slicedData = new double[length * sampleSize];
 
             Array.Copy(Data, start * sampleSize, slicedData, 0, length * sampleSize);
 
             int[] newShape = (int[])Shape.Clone();
-            newShape[0] = length; // První dimenze je teď zkrácená
+            newShape[0] = length; // the first dimension is now shortened
 
             return new Tensor(slicedData, newShape);
         }
 
-        // Snímek vektoru jako 1D tenzor — KOPIE, ne okno do zdrojového pole.
+        // Layers return their output through this. They used to do `new Tensor(output)`, but
+        // `output` is a working array the layer overwrites on every pass, and Tensor copies the
+        // data only on the first access to `.Data`. A result kept from the first forward pass
+        // therefore CHANGED RETROACTIVELY after the second one.
         //
-        // Vrstvy tímhle vracejí svůj výstup. Dřív dělaly `new Tensor(output)`, jenže `output`
-        // je pracovní pole, které si vrstva přepisuje při každém průchodu, a Tensor si data
-        // kopíruje teprve při prvním sáhnutí na `.Data`. Výsledek schovaný z prvního forwardu
-        // se tak po druhém forwardu ZPĚTNĚ ZMĚNIL.
-        //
-        // Nestojí to nic navíc: `new Tensor(pole)` počítá Shape přes LINQ a kopii stejně
-        // udělá ve `FlattenArray` při prvním čtení. Tady se rovnou nastaví `_data`, takže
-        // je to o jednu kopii stejně a o ten LINQ míň. Změřeno: 200k průchodů nad vrstvou
-        // o 128 neuronech 21 ms / 243 MB → 13 ms / 214 MB.
+        // It costs nothing extra: `new Tensor(array)` computes Shape via LINQ and makes the copy
+        // in `FlattenArray` on first read anyway. Here `_data` is set directly — the same one copy,
+        // minus the LINQ. Measured: 200k passes over a 128-neuron layer 21 ms / 243 MB → 13 ms / 214 MB.
+        /// <summary>
+        /// A snapshot of the vector as a 1D tensor — a COPY, not a window into the source array.
+        /// </summary>
         public static Tensor FromVector(double[] source)
         {
             return new Tensor((double[])source.Clone(), new int[] { source.Length });
         }
 
-        // Zploští [h][w][c] jagged pole rovnou do Tensoru s daným tvarem.
+        // Flattens an [h][w][c] jagged array directly into a Tensor of the given shape.
         //
-        // Conv i MaxPool dřív vracely `new Tensor(ConvertJaggedToMulti(output))`, což na
-        // KAŽDÝ forward postavilo přes reflexi (Array.CreateInstance + SetValue po prvcích,
-        // tedy boxing na každý double) kopii celého výstupu. Změřeno: 8 MB alokací na jeden
-        // vzorek CNN. Tady se jen jednou projde a zapíše do plochého pole.
-        public static Tensor FromJagged3D(double[][][] source, int[] shape)
+        // Conv and MaxPool used to return `new Tensor(ConvertJaggedToMulti(output))`, which on
+        // EVERY forward pass built a copy of the whole output via reflection (Array.CreateInstance
+        // + per-element SetValue, i.e. boxing on every double). Measured: 8 MB allocated per CNN
+        // sample. Here it is a single pass writing into a flat array.
+        internal static Tensor FromJagged3D(double[][][] source, int[] shape)
         {
             double[] flat = new double[shape[0] * shape[1] * shape[2]];
 
@@ -215,30 +239,23 @@
             return new Tensor(flat, shape);
         }
 
-        public static Array ConvertJaggedToMulti(Array jaggedArray)
+        internal static Array ConvertJaggedToMulti(Array jaggedArray)
         {
             int[] shape = GetJaggedShape(jaggedArray);
 
-            // Vytvoříme prázdné multidimenzionální pole odpovídajícího tvaru
+            // Create an empty multidimensional array of the matching shape
             Array multiArray = Array.CreateInstance(typeof(double), shape);
 
-            // Rekurzivně zkopírujeme hodnoty do multidimenzionálního pole
+            // Recursively copy the values into the multidimensional array
             CopyJaggedToMulti(jaggedArray, multiArray, new int[0]);
 
             return multiArray;
         }
 
-        // Dnes totéž co `new Tensor(array)` — konstruktor umí všechny vstupy sám.
-        // Zůstává kvůli zpětné kompatibilitě.
-        public static Tensor ConvertArrayToTensor(Array array)
-        {
-            return new Tensor(array);
-        }
-
-        // Typ skalárů v poli. Rozbalí VŠECHNY úrovně jagged pole, ne jen jednu. Dřív se
-        // odloupla jedna, takže `double[][]` prošlo, ale `double[][][]` skončilo na hlášce
-        // „invalid type on input array" — a to je přesně tvar sekvenčních dat
-        // ([sekvence][krok][rys]), tedy případ, kvůli kterému sekvenční trénink existuje.
+        // Scalar type of the array. Unwraps ALL levels of a jagged array, not just one. Previously
+        // only one level was peeled, so `double[][]` passed but `double[][][]` failed with
+        // "invalid type on input array" — exactly the shape of sequence data
+        // ([sequence][step][feature]), the very case sequence training exists for.
         private static Type ScalarType(Array array, out bool isJagged)
         {
             Type elementType = array.GetType().GetElementType()!;
@@ -250,9 +267,9 @@
                 isJagged = true;
             }
 
-            // Porovnání na typ, ne na název: .NET jména jsou "Int32"/"Single"/"Double",
-            // takže dřívější test na "Int"/"Float" nikdy neprošel a int i float vstupy
-            // knihovna odmítala — přestože je vlastní chybová hláška slibuje.
+            // Compare types, not names: .NET names are "Int32"/"Single"/"Double", so the former
+            // check for "Int"/"Float" never matched and the library rejected int and float inputs —
+            // even though its own error message promised them.
             if (elementType != typeof(double) && elementType != typeof(int) && elementType != typeof(float))
             {
                 throw new ArgumentException(
@@ -262,14 +279,14 @@
             return elementType;
         }
 
-        // Tvar zubatého pole — a kontrola, že je opravdu PRAVIDELNÉ.
+        // Shape of a jagged array — and a check that it really is REGULAR.
         //
-        // Tvar se bere z prvního podpole každé úrovně. Bez kontroly se zbytek mlčky
-        // přizpůsobil, takže nepravidelné pole prošlo a data se zamíchala:
-        //   int[][] { {1,2}, {3,4,5}, {6} }  ->  tvar [3,2] nad šesti prvky
-        // Šest prvků se do 3×2 vejde, takže ani délka nic neprozradila. U double[][]
-        // to naopak spadlo na IndexOutOfRange z hloubi kopírování — tři typy, tři různá
-        // chování a ani jedno správné.
+        // The shape is taken from the first sub-array at each level. Without the check the rest
+        // was silently assumed to match, so an irregular array passed and the data got scrambled:
+        //   int[][] { {1,2}, {3,4,5}, {6} }  ->  shape [3,2] over six elements
+        // Six elements fit into 3×2, so not even the length gave it away. For double[][] it
+        // instead threw IndexOutOfRange deep in the copying — three types, three different
+        // behaviours, none of them correct.
         private static int[] GetJaggedShape(Array array)
         {
             List<int> shape = new List<int>();
@@ -286,7 +303,7 @@
             return result;
         }
 
-        // Všechna podpole na téže úrovni musí být stejně dlouhá, jinak pole nemá tvar.
+        // All sub-arrays at the same level must have the same length, otherwise the array has no shape.
         private static void EnsureRectangular(Array array, int[] shape, int depth)
         {
             if (depth >= shape.Length)
@@ -304,7 +321,7 @@
 
             if (depth + 1 >= shape.Length)
             {
-                return;   // poslední úroveň drží skaláry, ne podpole
+                return;   // the last level holds scalars, not sub-arrays
             }
 
             for (int i = 0; i < array.Length; i++)
@@ -340,15 +357,15 @@
             }
         }
 
-        // Zploští libovolné pole (1D, multidim i jagged) do double[] v row-major pořadí.
+        // Flattens any array (1D, multidimensional or jagged) into a double[] in row-major order.
         //
-        // Dřív to bylo `foreach (var item in array)` nad `System.Array` plus `List<double>`.
-        // Obojí bolelo: foreach nad netypovaným Array vrací `object`, takže se KAŽDÝ double
-        // zaboxoval, a List se zdvojnásobováním realokoval. Payload 6 KB (784 doublů) stál
-        // ~40 KB alokací, tedy 6,5x navíc — a `Tensor.Data` se volá prakticky pořád.
+        // Previously this was `foreach (var item in array)` over `System.Array` plus a `List<double>`.
+        // Both hurt: foreach over an untyped Array yields `object`, so EVERY double was boxed, and
+        // the List reallocated as it doubled. A 6 KB payload (784 doubles) cost ~40 KB of
+        // allocations, 6.5× overhead — and `Tensor.Data` is called practically all the time.
         //
-        // Nově: napřed se spočítá přesná délka, alokuje se jedno pole, a kopíruje se
-        // typovanými cestami. Pro double libovolného ranku stačí Buffer.BlockCopy.
+        // Now: compute the exact length first, allocate one array, and copy along typed paths.
+        // For double of any rank, Buffer.BlockCopy is enough.
         private static double[] FlattenArray(Array array)
         {
             double[] result = new double[CountElements(array)];
@@ -357,8 +374,8 @@
             return result;
         }
 
-        // Kolik skalárů pole obsahuje. U jagged se musí sečíst podpole (můžou být různě
-        // dlouhá), u 1D i multidim stačí Length.
+        // How many scalars the array contains. For jagged arrays the sub-arrays must be summed
+        // (they may differ in length); for 1D and multidimensional arrays Length is enough.
         private static int CountElements(Array array)
         {
             if (array.GetType().GetElementType()?.IsArray != true)
@@ -381,7 +398,7 @@
         {
             Type? elementType = array.GetType().GetElementType();
 
-            // jagged → rekurze přes podpole (GetValue vrací referenci, neboxuje se)
+            // jagged → recurse into sub-arrays (GetValue returns a reference, no boxing)
             if (elementType?.IsArray == true)
             {
                 for (int i = 0; i < array.Length; i++)
@@ -394,9 +411,9 @@
                 return;
             }
 
-            // double libovolného ranku → jedno blokové kopírování, žádný boxing.
-            // Buffer.BlockCopy funguje i na multidim polích primitiv a row-major pořadí
-            // odpovídá tomu, co od Data očekává zbytek knihovny.
+            // double of any rank → one block copy, no boxing.
+            // Buffer.BlockCopy works on multidimensional primitive arrays too, and the row-major
+            // order matches what the rest of the library expects from Data.
             if (elementType == typeof(double))
             {
                 Buffer.BlockCopy(array, 0, target, written * sizeof(double), array.Length * sizeof(double));
@@ -404,7 +421,7 @@
                 return;
             }
 
-            // int/float 1D — typovaná smyčka bez boxingu
+            // int/float 1D — typed loop without boxing
             if (array is int[] ints)
             {
                 for (int i = 0; i < ints.Length; i++) target[written++] = ints[i];
@@ -417,13 +434,13 @@
                 return;
             }
 
-            // Zbytek (např. int[,]) — vzácné, tady se boxingu nevyhneme.
+            // Everything else (e.g. int[,]) — rare; boxing cannot be avoided here.
             foreach (object? item in array)
             {
                 target[written++] = Convert.ToDouble(item);
             }
         }
-        public static Array BuildMultiDimArray(double[] data, int[] shape, int offset = 0)
+        private static Array BuildMultiDimArray(double[] data, int[] shape, int offset = 0)
         {
             if (shape.Length == 0)
                 throw new ArgumentException("Shape must not be empty.");

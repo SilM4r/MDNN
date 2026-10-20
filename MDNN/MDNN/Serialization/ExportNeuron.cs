@@ -1,15 +1,16 @@
 ﻿using System.Text.Json.Serialization;
 
-namespace My_DNN.Save_neural_network
+namespace MDNN.Serialization
 {
-    public class ExportNeuron
+    // Property names are JSON keys of the model file format — do not rename them.
+    internal class ExportNeuron
     {
         public double[] Weights { get; set; }
         public double Bias { get; set; }
 
-        // Stav optimizeru tohoto neuronu (u Adamu momenty m, v a krok t) — viz
-        // Optimizer.ExportState. null = neukládá se (SaveAsJson(..., includeOptimizerState:
-        // false), SGD, starší soubory); načtený neuron pak začne s prázdným stavem.
+        // Optimizer state of this neuron (for Adam the moments m, v and step t) — see
+        // Optimizer.ExportState. null = not saved (SaveAsJson(..., includeOptimizerState:
+        // false), SGD, older files); the loaded neuron then starts with empty state.
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public Dictionary<string, double[]>? OptimizerState { get; set; }
 

@@ -1,52 +1,63 @@
-﻿using My_DNN.Layers;
-using My_DNN.Layers.classes;
-using My_DNN.Save_neural_network;
+﻿using MDNN.Layers;
+using MDNN.Serialization;
+using MDNN.Activations;
 
 
-namespace My_DNN
+namespace MDNN
 {
+    /// <summary>
+    /// The ordered list of a model's layers; the last layer is the output layer.
+    /// </summary>
     public class LayerManager
     {
         private List<Layer> layersList = new List<Layer>();
 
-        public List<Layer> Layers
-        {
-            get { return layersList; }
-        }
+        // Read-only view: layers are added and removed only through Add/Insert/RemoveAt,
+        // which also rewire the shapes of the chain. A layer added straight into the list
+        // would stay unwired.
+        /// <summary>
+        /// The layers in order, from input to output (read-only; use Add/Insert/RemoveAt to change).
+        /// </summary>
+        public IReadOnlyList<Layer> Layers => layersList;
 
-        // Má některá vrstva zapojený tvar, ale ještě ne parametry? Tohle je signál pro
-        // model, že je před forwardem potřeba doběhnout materializaci.
-        public bool HasUnmaterializedLayers => layersList.Any(layer => !layer.IsMaterialized);
+        // Does any layer have its shape wired but no parameters yet? Signals the model
+        // that materialization must finish before the forward pass.
+        internal bool HasUnmaterializedLayers => layersList.Any(layer => !layer.IsMaterialized);
         private NetworkContext context;
 
-        public LayerManager(Layer Output_Layer, NetworkContext context)
+        internal LayerManager(Layer outputLayer, NetworkContext context)
         {
             this.context = context;
             context.OptimizerChanged = ReplaceOptimizer;
-            Output_Layer.Context = context;
-            layersList = new List<Layer> { Output_Layer };
+            outputLayer.Context = context;
+            layersList = new List<Layer> { outputLayer };
             MarkLayerRoles();
         }
-        public LayerManager(List<BaseExportLayer> exportLayers, NetworkContext context)
+        internal LayerManager(List<BaseExportLayer> exportLayers, NetworkContext context)
         {
             this.context = context;
             context.OptimizerChanged = ReplaceOptimizer;
             layersList = new List<Layer>();
+
+            // The model's optimizer is passed to the layers directly. Previously the global
+            // GeneralNeuralNetworkSettings.DefaultOptimizer was overwritten for this and the constructors
+            // cloned from it — two loads on two threads could swap each other's optimizer.
+            MDNN.Optimizers.Optimizer optimizer = context.Optimizer;
 
             foreach (BaseExportLayer layer in exportLayers)
             {
 
                 if (layer.LayerType == "Dense")
                 {
-                    layersList.Add(new Dense((ExportDenseLayer)layer));
+                    layersList.Add(new Dense((ExportDenseLayer)layer, optimizer));
                 }
                 else if (layer.LayerType == "RNN")
                 {
-                    layersList.Add(new RNN((ExportRnnLayer)layer));
+                    layersList.Add(new RNN((ExportRnnLayer)layer, optimizer));
                 }
                 else if (layer.LayerType == "Conv")
                 {
-                    layersList.Add(new Conv((ExportCNNLayer)layer));
+                    layersList.Add(new Conv((ExportCNNLayer)layer, optimizer));
                 }
                 else if (layer.LayerType == "MaxPool")
                 {
@@ -61,8 +72,8 @@ namespace My_DNN
             foreach (Layer l in layersList) l.Context = context;
             MarkLayerRoles();
         }
-        // Správce už hotových vrstev (replik) — bez zapojování a materializace, ty mají
-        // vrstvy po originálu. Jen jim nastaví kontext a role.
+        // Manager of ready-made layers (replicas) — no wiring or materialization, the layers
+        // inherit those from the original. Only sets their context and roles.
         internal static LayerManager ForReplica(List<Layer> layers, NetworkContext context)
         {
             return new LayerManager(context, layers);
@@ -76,8 +87,8 @@ namespace My_DNN
             MarkLayerRoles();
         }
 
-        // Model dostal jiný optimizer — každá vrstva si vezme jeho čerstvý klon.
-        private void ReplaceOptimizer(My_DNN.Optimizers.Optimizer prototype)
+        // The model got a different optimizer — each layer takes a fresh clone of it.
+        private void ReplaceOptimizer(MDNN.Optimizers.Optimizer prototype)
         {
             foreach (Layer layer in layersList)
             {
@@ -85,11 +96,16 @@ namespace My_DNN
             }
         }
 
-        public void SetInputSizeForFirstLayer(int[]? input_size = null)
+        /// <summary>
+        /// Sets the input shape (or uses the one already in the context), wires all layer shapes
+        /// and initializes their parameters.
+        /// </summary>
+        /// <param name="inputShape">Shape of one input sample; <c>null</c> keeps the context's current shape.</param>
+        public void SetInputShape(int[]? inputShape = null)
         {
-            if (input_size != null)
+            if (inputShape != null)
             {
-                context.InputShape = input_size;
+                context.InputShape = inputShape;
             }
 
             foreach (int size in context.InputShape)
@@ -104,9 +120,9 @@ namespace My_DNN
             MaterializeAll();
         }
 
-        // Kdo je výstupní vrstva. Musí se přepočítat při KAŽDÉ změně řetězu — po Insert
-        // nebo RemoveAt se poslední vrstvou může stát někdo jiný, a kdyby si starý příznak
-        // nechal, dostal by globální dropout (viz Layer.IsOutputLayer).
+        // Which layer is the output layer. Must be recomputed on EVERY chain change — after Insert
+        // or RemoveAt a different layer may become last, and a layer keeping a stale flag would get
+        // the global dropout (see Layer.IsOutputLayer).
         private void MarkLayerRoles()
         {
             for (int i = 0; i < layersList.Count; i++)
@@ -115,13 +131,13 @@ namespace My_DNN
             }
         }
 
-        // Zapojí tvary zleva doprava. Nic nelosuje, takže se to smí volat kolikrát chce —
-        // po každé změně struktury. Když vstup modelu ještě neznáme, neudělá nic a tvary
-        // se dopočítají až při prvním forwardu.
-        public void RewireChain()
+        // Wires shapes left to right. Draws nothing random, so it may be called any number of
+        // times — after every structural change. If the model input is not known yet it does
+        // nothing and shapes are computed on the first forward pass.
+        internal void RewireChain()
         {
-            // ZÁMĚRNĚ před early returnem níž: role vrstev jdou určit i tehdy, když
-            // ještě neznáme tvar vstupu a zapojení se tím pádem přeskočí.
+            // DELIBERATELY before the early return below: layer roles can be determined even
+            // when the input shape is not known yet and wiring is skipped.
             MarkLayerRoles();
 
             int[] inputShape = EffectiveInputShape();
@@ -135,14 +151,14 @@ namespace My_DNN
 
             for (int i = 1; i < layersList.Count; i++)
             {
-                layersList[i].WireShapes(null, layersList[i - 1].Output_size_and_shape);
+                layersList[i].WireShapes(null, layersList[i - 1].OutputShape);
             }
         }
 
-        // Materializace JEDNÍM průchodem zleva doprava. Díky tomu je pořadí losování funkcí
-        // architektury, ne historie skládání — dvě stejné sítě se stejným seedem tak vyjdou
-        // stejně bez ohledu na to, jestli vznikly přes Add() nebo Insert().
-        public void MaterializeAll()
+        // Materialization in ONE left-to-right pass. The draw order is thus a function of the
+        // architecture, not of the build history — two identical networks with the same seed come
+        // out the same regardless of whether they were built via Add() or Insert().
+        internal void MaterializeAll()
         {
             foreach (Layer layer in layersList)
             {
@@ -150,9 +166,9 @@ namespace My_DNN
             }
         }
 
-        // Vstupní tvar modelu. Přednost má Context; u NAČTENÉHO modelu ho ale Context nezná,
-        // zatímco první vrstva ano (má ho ze souboru) — bez téhle větve by se po Add()
-        // do načteného modelu nezapojila nová vrstva a forward spadl na IndexOutOfRange.
+        // The model's input shape. Context takes precedence; for a LOADED model, however, Context
+        // does not know it while the first layer does (from the file) — without this branch a layer
+        // added via Add() to a loaded model would stay unwired and the forward pass would throw IndexOutOfRange.
         private int[] EffectiveInputShape()
         {
             if (context.InputShape.Length > 0 && context.InputShape[0] > 0)
@@ -162,7 +178,7 @@ namespace My_DNN
 
             if (layersList.Count > 0)
             {
-                int[] firstLayerInput = layersList[0].Input_size_and_shape;
+                int[] firstLayerInput = layersList[0].InputShape;
                 if (firstLayerInput.Length > 0 && firstLayerInput[0] > 0)
                 {
                     return firstLayerInput;
@@ -172,42 +188,63 @@ namespace My_DNN
             return new int[] { 0 };
         }
 
-        public void Add(Layer Hidden_Layer)
+        /// <summary>
+        /// Adds a hidden layer just before the output layer.
+        /// </summary>
+        public void Add(Layer layer)
         {
-            Hidden_Layer.Context = context;
-            layersList.Insert(layersList.Count() - 1, Hidden_Layer);
+            layer.Context = context;
+            layersList.Insert(layersList.Count() - 1, layer);
             RewireChain();
         }
-        public void Insert(int position, Layer Hidden_Layer)
+        /// <summary>
+        /// Inserts a layer at <paramref name="position"/> (0 = first layer).
+        /// </summary>
+        public void Insert(int position, Layer layer)
         {
-            if (position > layersList.Count())
+            if (position < 0 || position > layersList.Count())
             {
-                throw new ArgumentOutOfRangeException(nameof(position), position, "Position must be less than or equal to the number of layers (position <= Layers.Count).");
+                throw new ArgumentOutOfRangeException(nameof(position), position, "Position must be in the range 0 ≤ position ≤ Layers.Count.");
             }
 
-            Hidden_Layer.Context = context;
-            layersList.Insert(position, Hidden_Layer);
+            layer.Context = context;
+            layersList.Insert(position, layer);
             RewireChain();
         }
+        /// <summary>
+        /// Removes the layer at <paramref name="position"/>. The only remaining layer cannot be removed.
+        /// </summary>
         public void RemoveAt(int position)
         {
-            if (position >= layersList.Count())
+            if (position < 0 || position >= layersList.Count())
             {
-                throw new ArgumentOutOfRangeException(nameof(position), position, "Position must be less than the number of layers (position < Layers.Count).");
+                throw new ArgumentOutOfRangeException(nameof(position), position, "Position must be in the range 0 ≤ position < Layers.Count.");
+            }
+
+            // A model always has an output layer; to replace it use Clear(outputLayer).
+            if (layersList.Count == 1)
+            {
+                throw new InvalidOperationException("The only layer of the model cannot be removed. Use Clear(outputLayer) to replace it.");
             }
 
             layersList.RemoveAt(position);
             RewireChain();
         }
-        public void OutputLayerActivationFunc(Activation_func activation_func)
+        /// <summary>
+        /// Sets the activation function of the output layer.
+        /// </summary>
+        public void SetOutputActivation(ActivationFunction activation)
         {
-            layersList[layersList.Count() - 1].Activation_Func = activation_func;
+            layersList[layersList.Count() - 1].Activation = activation;
         }
-        public void ClearAllLayersAndSetNewOutputLayer(Layer Output_Layer)
+        /// <summary>
+        /// Removes all layers and starts over with <paramref name="outputLayer"/> as the only layer.
+        /// </summary>
+        public void Clear(Layer outputLayer)
         {
-            Output_Layer.Context = context;
-            layersList = new List<Layer> { Output_Layer };
-            MarkLayerRoles();
+            outputLayer.Context = context;
+            layersList = new List<Layer> { outputLayer };
+            RewireChain();
         }
     }
 }

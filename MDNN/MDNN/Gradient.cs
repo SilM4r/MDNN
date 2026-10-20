@@ -1,71 +1,78 @@
-﻿using My_DNN.Activation_functions;
-using My_DNN.Layers.classes;
+﻿using MDNN.Activations;
+using MDNN.Layers;
 
 
 
-namespace My_DNN
+namespace MDNN
 {
-    static public class Gradient
+    /// <summary>
+    /// Runs the backward pass of a model (loss gradient through all layers).
+    /// </summary>
+    internal static class Gradient
     {
 
-        // ---------------------------------------------------------------- konvence B
+        // ---------------------------------------------------------------- convention B
         //
-        // Backward jedním průchodem. Proti staré cestě mizí dvoufázovost: dřív se nejdřív
-        // spočítalo celé pole gradientů (GetGradients) a teprve pak se ve druhém průchodu
-        // aplikovalo (Train.Propagation). Teď každá vrstva rovnou naakumuluje své gradienty
-        // a vrátí ∂L/∂input pro tu pod sebou.
-        //
-        // Nic se nevrací — výsledkem jsou naakumulované gradienty ve vrstvách.
-        public static void RunBackward(Tensor target_values, MDNN model, Tensor? output_values_from_model = null)
+        // Previously backpropagation had two phases: first the whole array of gradients was
+        // computed, then applied in a second pass. Now each layer accumulates its gradients
+        // directly and returns ∂L/∂input for the layer below.
+        /// <summary>
+        /// Backpropagates the loss for <paramref name="targets"/> through all layers in a single pass.
+        /// Nothing is returned; the result is the gradients accumulated in the layers.
+        /// </summary>
+        /// <param name="targets">Expected output for the last forward pass.</param>
+        /// <param name="model">The model whose layers receive the gradients.</param>
+        /// <param name="outputs">Output to use instead of the last layer's <c>Output</c>; optional.</param>
+        public static void RunBackward(Tensor targets, NeuralNetwork model, Tensor? outputs = null)
         {
-            List<Layer> layers = model.Layers.Layers;
+            IReadOnlyList<Layer> layers = model.Layers.Layers;
             Layer lastLayer = layers[^1];
 
-            if (model.Context.Loss.RequiresSoftmax && !lastLayer.Activation_Func.Apply_to_layer)
+            if (model.Context.Loss.RequiresSoftmax && !lastLayer.Activation.AppliesToLayer)
             {
                 throw new InvalidOperationException(
                     "CrossEntropy requires a Softmax output layer.");
             }
 
-            if ((lastLayer.Layer_output == null && output_values_from_model == null)
-                || lastLayer.Layer_raw_output == null)
+            if ((lastLayer.Output == null && outputs == null)
+                || lastLayer.RawOutput == null)
             {
                 throw new ArgumentException(
-                    "Feedforward must be run before backpropagation. it is recommended to use trainLoop() in the Train class or fit()");
+                    "FeedForward must run before BackPropagation. Use Train.Fit() or one of the training loops, which run both.");
             }
 
-            Tensor outputTensor = output_values_from_model ?? lastLayer.Layer_output!;
+            Tensor outputTensor = outputs ?? lastLayer.Output!;
 
-            if (target_values.Data.Length != outputTensor.Data.Length)
+            if (targets.Data.Length != outputTensor.Data.Length)
             {
                 throw new ArgumentException(
                     $"The output layer has {outputTensor.Data.Length} values but the target has " +
-                    $"{target_values.Data.Length}. The number of targets must match the number of output neurons.");
+                    $"{targets.Data.Length}. The number of targets must match the number of output neurons.");
             }
 
-            // Fúze softmax + CrossEntropy: loss vrací rovnou ∂L/∂z = s − t. Softmax tam
-            // logicky patří k loss funkci, ne k vrstvě — proto preActivation, ne druhý
-            // vstupní bod do backwardu.
+            // Fused softmax + CrossEntropy: the loss returns ∂L/∂z = s − t directly. Here softmax
+            // logically belongs to the loss function, not to the layer — hence the preActivation
+            // flag rather than a second entry point into Backward.
             bool fusedSoftmaxCE = model.Context.Loss.RequiresSoftmax
-                                  && lastLayer.Activation_Func.Apply_to_layer;
+                                  && lastLayer.Activation.AppliesToLayer;
 
-            // ∂L/∂output BEZ derivace aktivace. Každá vrstva si act' dodá po svém
-            // (Conv ano, RNN ne — RTRL citlivosti ji už obsahují).
+            // ∂L/∂output WITHOUT the activation derivative. Each layer applies act' its own way
+            // (Conv does, RNN does not — its RTRL sensitivities already include it).
             double[] dLossDOutput = new double[outputTensor.Data.Length];
             for (int i = 0; i < dLossDOutput.Length; i++)
             {
                 dLossDOutput[i] = model.Context.Loss.DerivativeOfLossFunction(
-                    outputTensor.Data[i], target_values.Data[i]);
+                    outputTensor.Data[i], targets.Data[i]);
             }
 
-            model.Context.Loss.CalculateLoss(outputTensor.Data, target_values.Data);
+            model.Context.Loss.CalculateLoss(outputTensor.Data, targets.Data);
 
             Tensor grad = new Tensor(dLossDOutput);
             grad = lastLayer.Backward(grad, preActivation: fusedSoftmaxCE);
 
             for (int i = layers.Count - 2; i >= 0; i--)
             {
-                // Vstupní gradient PRVNÍ vrstvy nikdo nepřevezme — pod ní už nic není.
+                // Nobody consumes the FIRST layer's input gradient — there is nothing below it.
                 grad = layers[i].Backward(grad, computeInputGradient: i > 0);
             }
         }

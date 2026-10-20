@@ -1,17 +1,20 @@
-﻿using My_DNN.Layers;
-using My_DNN.Layers.classes;
+﻿using MDNN.Layers;
 
 
-namespace My_DNN
+namespace MDNN
 {
-    public static class ConsoleControler
+    /// <summary>
+    /// Console output of the library: model summary, training progress, scores and errors.
+    /// </summary>
+    public static class ConsoleController
     {
-        public static void ShowModelInfo(MDNN model)
+        /// <summary>Prints the model summary: inputs, outputs, loss, optimizer and a table of layers.</summary>
+        public static void ShowModelInfo(NeuralNetwork model)
         {
             if (model.Layers.Layers.Count != 0)
             {
-                Console.WriteLine($"Number of input : {string.Join(", ", model.Layers.Layers[0].Input_size_and_shape) }");
-                Console.WriteLine($"Number of output: {string.Join(", ", model.Layers.Layers[model.Layers.Layers.Count() - 1].Output_size_and_shape)}");
+                Console.WriteLine($"Number of input : {string.Join(", ", model.Layers.Layers[0].InputShape) }");
+                Console.WriteLine($"Number of output: {string.Join(", ", model.Layers.Layers[model.Layers.Layers.Count() - 1].OutputShape)}");
                 Console.WriteLine($"Number of hidden layers: {model.Layers.Layers.Count() - 1}");
                 Console.WriteLine($"Schema layers: {model.Schema}");
             }
@@ -44,59 +47,61 @@ namespace My_DNN
                 switch (layer)
                 {
                     case Dense dense:
-                        if (dense.Input_size_and_shape[0] == 0)
+                        if (dense.InputShape[0] == 0)
                         {
-                            shapeString = "unknow";
+                            shapeString = "unknown";
                             isEmptyInput = true;
                         }
                         else
                         {
-                            shapeString = dense.Input_size_and_shape[0].ToString();
+                            shapeString = dense.InputShape[0].ToString();
                         }
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
-                        Console.WriteLine($"| {numberOfLayer}. Name: {dense.Name} | Number of neurons: {dense.Neurons.Count} | Number of inputs: {shapeString} | Activation func: {dense.Activation_Func.Name} |");
+                        Console.WriteLine($"| {numberOfLayer}. Name: {dense.Name} | Number of neurons: {dense.Neurons.Count} | Number of inputs: {shapeString} | Activation func: {dense.Activation.Name} |");
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
                         break;
                     case RNN rnn:
-                        if (rnn.Input_size_and_shape[0] == 0)
+                        if (rnn.InputShape[0] == 0)
                         {
-                            shapeString = "unknow";
+                            shapeString = "unknown";
                             isEmptyInput = true;
                         }
                         else
                         {
-                            shapeString = rnn.Input_size_and_shape[0].ToString();
+                            shapeString = rnn.InputShape[0].ToString();
                         }
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
-                        Console.WriteLine($"| {numberOfLayer}. Name: {rnn.Name} | Number of neurons: {rnn.Neurons.Count} | Number of inputs: {rnn.Input_size_and_shape[0]} (+ {rnn.Input_size_and_shape[0]} Recurrents inputs) | Activation func: {rnn.Activation_Func.Name} |");
+                        // The recurrence is diagonal: each neuron gets ONE extra input, its own
+                        // previous output — not the whole layer (see README, RTRL).
+                        Console.WriteLine($"| {numberOfLayer}. Name: {rnn.Name} | Number of neurons: {rnn.Neurons.Count} | Number of inputs: {shapeString} (+ 1 recurrent input per neuron) | Activation func: {rnn.Activation.Name} |");
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
                         break;
                     case Conv conv:
-                        if (conv.Output_size_and_shape.Length == 1)
+                        if (conv.OutputShape.Length == 1)
                         {
-                            shapeString = "unknow";
+                            shapeString = "unknown";
                             isEmptyInput = true;
                         }
                         else
                         {
-                            shapeString = $"[{conv.Output_size_and_shape[0]},{conv.Output_size_and_shape[1]},{conv.Output_size_and_shape[2]}]";
+                            shapeString = $"[{conv.OutputShape[0]},{conv.OutputShape[1]},{conv.OutputShape[2]}]";
                         }
 
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
-                        Console.WriteLine($"| {numberOfLayer}. Name: {conv.Name} | Number of kernels: {conv.Kernel.Count()} | Kernel size:{conv.Kernel[0].Count()}*{conv.Kernel[0][0].Count()} | Output shape: {shapeString} | Activation func: {conv.Activation_Func.Name} |");
+                        Console.WriteLine($"| {numberOfLayer}. Name: {conv.Name} | Number of kernels: {conv.Kernels.Count()} | Kernel size:{conv.Kernels[0].Count()}*{conv.Kernels[0][0].Count()} | Output shape: {shapeString} | Activation func: {conv.Activation.Name} |");
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
                         break;
                     case MaxPool pool:
 
 
-                        if (pool.Output_size_and_shape.Length == 1)
+                        if (pool.OutputShape.Length == 1)
                         {
-                            shapeString = "unknow";
+                            shapeString = "unknown";
                             isEmptyInput = true;
                         }
                         else
                         {
-                            shapeString = $"[{pool.Output_size_and_shape[0]},{pool.Output_size_and_shape[1]},{pool.Output_size_and_shape[2]}]";
+                            shapeString = $"[{pool.OutputShape[0]},{pool.OutputShape[1]},{pool.OutputShape[2]}]";
                         }
 
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
@@ -115,23 +120,26 @@ namespace My_DNN
                 Console.WriteLine($"! Warning !");
                 Console.WriteLine("These are indicative model data only!");
                 Console.WriteLine("This information is before the input values are set, so some data may be missing from the model. ");
-                Console.WriteLine("It fills in on the first pass through the model; to set it earlier, call model.Layers.SetInputSizeForFirstLayer(new int[] { … }).");
+                Console.WriteLine("It fills in on the first pass through the model; to set it earlier, call model.Layers.SetInputShape(new int[] { … }).");
             }   
             else
             {
                 Console.WriteLine($"Total trainable params: {CountTrainableParams(model)}");
                 Console.WriteLine($"Current epoch: {model.Train.CurrentEpoch}");
                 Console.WriteLine($"Target epoch: {model.Train.TotalEpoch}");
-                Console.WriteLine($"Size of mini batch: {model.Train.MiniBatch}");
+                Console.WriteLine($"Size of mini batch: {model.Train.MiniBatchSize}");
             }
 
             Console.WriteLine();
         }
 
-        // Počet trénovatelných parametrů modelu.
-        // Conv = numFilters × (kH × kW × inChannels) + biasy; dřív chybělo × numFilters
-        // (Kernel.Length) → conv se drasticky podpočítával. MaxPool a spol. = 0 parametrů.
-        public static int CountTrainableParams(MDNN model)
+        // Conv = numFilters × (kH × kW × inChannels) + biases; previously the × numFilters
+        // (Kernels.Length) factor was missing, so conv layers were heavily undercounted.
+        /// <summary>
+        /// Returns the number of trainable parameters of the model. MaxPool and similar layers
+        /// contribute 0.
+        /// </summary>
+        public static int CountTrainableParams(NeuralNetwork model)
         {
             int total = 0;
             foreach (Layer layer in model.Layers.Layers)
@@ -139,14 +147,14 @@ namespace My_DNN
                 switch (layer)
                 {
                     case Dense dense:
-                        total += dense.Neurons.Count * dense.Input_size_and_shape[0] + dense.Neurons.Count;
+                        total += dense.Neurons.Count * dense.InputShape[0] + dense.Neurons.Count;
                         break;
                     case RNN rnn:
-                        total += rnn.Neurons.Count * (rnn.Input_size_and_shape[0] + 1) + rnn.Neurons.Count;
+                        total += rnn.Neurons.Count * (rnn.InputShape[0] + 1) + rnn.Neurons.Count;
                         break;
                     case Conv conv:
-                        total += conv.Kernel.Length
-                                 * (conv.Kernel[0].Count() * conv.Kernel[0][0].Count() * conv.Kernel[0][0][0].Count())
+                        total += conv.Kernels.Length
+                                 * (conv.Kernels[0].Count() * conv.Kernels[0][0].Count() * conv.Kernels[0][0][0].Count())
                                  + conv.Biases.Length;
                         break;
                 }
@@ -154,16 +162,24 @@ namespace My_DNN
             return total;
         }
 
-        public static void ShowEpochInfo(MDNN model,double? trainLoss = null, double? validLoss = null, double? validAccuracy = null)
+        /// <summary>
+        /// Prints a training progress report: epoch, losses, validation accuracy, best valid loss
+        /// and the estimated time to completion.
+        /// </summary>
+        /// <param name="model">The model being trained.</param>
+        /// <param name="trainLoss">Training loss; when null, the model's current average loss is printed as "Loss".</param>
+        /// <param name="validLoss">Validation loss; when null (and <paramref name="trainLoss"/> is set), it is read from the model's loss function.</param>
+        /// <param name="validAccuracy">Validation accuracy in percent; omitted from the output when null.</param>
+        public static void ShowEpochInfo(NeuralNetwork model, double? trainLoss = null, double? validLoss = null, double? validAccuracy = null)
         {
             DateTime timeNow = DateTime.Now;
 
             TimeSpan subTime;
             TimeSpan estimatedCompletionTime;
 
-            // Stav je per-Train instance (dřív statiky) → druhý trénink v procesu už nepočítá
-            // z časů toho prvního. pastEpochs == 0 se navíc explicitně ošetří: dělení nulou
-            // dávalo TimeSpan z Infinity ticků → OverflowException.
+            // The state lives on the Train instance (previously statics), so a second training run
+            // in the process no longer uses the first run's times. pastEpochs == 0 is handled
+            // explicitly: dividing by zero produced a TimeSpan of Infinity ticks → OverflowException.
             uint pastEpochs = model.Train.CurrentEpoch >= model.Train.LastReportEpoch
                 ? model.Train.CurrentEpoch - model.Train.LastReportEpoch
                 : 0;
@@ -184,8 +200,8 @@ namespace My_DNN
                 subTime = timeNow - model.Train.LastReportTime;
                 estimatedCompletionTime = (subTime * remainingEpochs) / pastEpochs;
             }
-            // Stejná stráž jako u Percent(): TotalEpoch == 0 je legitimní (ruční trénink
-            // přes Fit/UpdateParams epochy nemá), a dělením nulou z toho vycházelo „NaN %".
+            // Same guard as in Percent(): TotalEpoch == 0 is legitimate (manual training via
+            // Fit/UpdateParams has no epochs), and dividing by zero printed "NaN %".
             string progress = model.Train.TotalEpoch > 0
                 ? $"{(double)model.Train.CurrentEpoch / model.Train.TotalEpoch * 100:0.00} %"
                 : "—";
@@ -214,7 +230,7 @@ namespace My_DNN
                 Console.WriteLine($"Valid accuracy: {validAccuracy:0.00} %");
             }
 
-            // nejlepší valid loss zatím + epocha, kde padl (vynech, dokud žádný report neproběhl)
+            // best valid loss so far + the epoch it was reached (skipped until the first report)
             if (model.Train.LowestValidLoss != double.MaxValue)
             {
                 Console.WriteLine($"Best valid loss: {model.Train.LowestValidLoss} @ epoch {model.Train.BestEpoch}");
@@ -230,31 +246,42 @@ namespace My_DNN
             model.Train.LastReportTime = DateTime.Now;
         }
 
-        // Úspěšnost v procentech. Prázdná sada je legitimní stav (uživatel vypnul závěrečné
-        // testování, nebo mu sada vyšla prázdná) — bez téhle stráže dalo 0/0 hodnotu NaN
-        // a výpis hlásil „Precision: NaN%".
+        // Accuracy in percent. An empty set is a legitimate state (the user turned off the final
+        // test, or the set came out empty) — without this guard 0/0 gave NaN and the output
+        // read "Accuracy: NaN%".
         //
-        // Počítá se v `double`. Dřív tu byl trojitý cast na `float` jen kvůli výpisu, což
-        // ubíralo cifry a plodilo hodnoty jako „60.000004 %".
+        // Computed in `double`. Previously a triple cast to `float` (just for printing) lost
+        // digits and produced values like "60.000004 %".
         private static string Percent(int part, int whole)
             => whole > 0
                 ? $"{(double)part / whole * 100:0.00} %"
                 : "n/a (no samples)";
 
-        public static void ShowScoreOfmodel(int score,int maxScore)
+        /// <summary>
+        /// Prints the result of an evaluation: accuracy and the numbers of correct and wrong samples.
+        /// </summary>
+        /// <param name="score">Number of correctly predicted samples.</param>
+        /// <param name="maxScore">Total number of evaluated samples.</param>
+        public static void ShowScore(int score, int maxScore)
         {
             Console.WriteLine();
             Console.WriteLine("------------- Model Score ------------- ");
-            Console.WriteLine($"Precision: {Percent(score, maxScore)}");
+            Console.WriteLine($"Accuracy: {Percent(score, maxScore)}");
             Console.WriteLine($"Total number of samples tested: {maxScore}");
             Console.WriteLine($"Number of correctly guessed tested samples: {score}");
             Console.WriteLine($"Number of mistyped samples tested: {maxScore - score}");
             Console.WriteLine();
         }
         
-        // `test` je nullable: uživatel, který si datasety zadal přes SetDatasets(), testovací
-        // sadu dodat nemusí. Pak se prostě neuvede — vymýšlet si ji z validační by klamalo.
-        public static void ShowComplexScoreOfmodel((int, int)? test, (int,int) train,(int,int) valid)
+        // Making up a test set from the validation set would be misleading, so a missing one is
+        // simply not shown.
+        /// <summary>
+        /// Prints accuracy on the test, train and validation datasets.
+        /// </summary>
+        /// <param name="test">(correct, total) on the test set; null when no test set was supplied via SetDatasets().</param>
+        /// <param name="train">(correct, total) on the training set.</param>
+        /// <param name="valid">(correct, total) on the validation set.</param>
+        public static void ShowDatasetScores((int Correct, int Total)? test, (int Correct, int Total) train, (int Correct, int Total) valid)
         {
             Console.WriteLine();
             Console.WriteLine("------------- Model Score ------------- ");
@@ -262,7 +289,7 @@ namespace My_DNN
             if (test != null)
             {
                 (int correct, int total) = test.Value;
-                Console.WriteLine($"Precision on test dataset: {Percent(correct, total)}");
+                Console.WriteLine($"Accuracy on test dataset: {Percent(correct, total)}");
                 Console.WriteLine($"Total number of samples tested on test dataset: {total}");
                 Console.WriteLine($"Number of correctly guessed tested samples on test dataset: {correct}");
                 Console.WriteLine($"Number of mistyped samples tested on test dataset: {total - correct}");
@@ -273,11 +300,12 @@ namespace My_DNN
             }
 
             Console.WriteLine();
-            Console.WriteLine($"Precision on train dataset: {Percent(train.Item1, train.Item2)}");
-            Console.WriteLine($"Precision on valid dataset: {Percent(valid.Item1, valid.Item2)}");
+            Console.WriteLine($"Accuracy on train dataset: {Percent(train.Item1, train.Item2)}");
+            Console.WriteLine($"Accuracy on valid dataset: {Percent(valid.Item1, valid.Item2)}");
             Console.WriteLine();
         }
 
+        /// <summary>Prints a notice that training was stopped early, with the best valid loss and its epoch.</summary>
         public static void ShowEarlyStopping(uint epoch, uint patience, double bestLoss, uint bestEpoch)
         {
             Console.WriteLine();
@@ -288,11 +316,16 @@ namespace My_DNN
         }
 
 
-        // POUZE vypíše chybu. Dřív tu na `fatalError: true` bylo `Environment.Exit(0)` —
-        // knihovna zabila hostitelský proces, a ještě s kódem 0 = „úspěch". Řízení toku
-        // teď patří volajícímu: kdo chybu hlásí, ať si taky vyhodí výjimku
-        // (viz TrainingDivergedException). `fatalError` už jen mění hlavičku výpisu.
-        public static void ErrorHandler(string name, string description, bool fatalError = false)
+        // Previously `fatalError: true` called `Environment.Exit(0)` — the library killed the host
+        // process, with exit code 0 ("success") at that. Control flow now belongs to the caller.
+        /// <summary>
+        /// ONLY prints an error; it does not throw or exit. The caller that reports the error is
+        /// responsible for throwing (see <see cref="TrainingDivergedException"/>).
+        /// </summary>
+        /// <param name="name">Short name of the error.</param>
+        /// <param name="description">Description of the error.</param>
+        /// <param name="fatalError">Only changes the header of the output.</param>
+        public static void ShowError(string name, string description, bool fatalError = false)
         {
             Console.WriteLine();
             Console.WriteLine(fatalError
@@ -300,17 +333,6 @@ namespace My_DNN
                 : "----------------------   Error  ---------------------- ");
             Console.WriteLine($"Name: {name}");
             Console.WriteLine($"Description: {description} ");
-        }
-
-        private static string WriteSpace(int x, int y)
-        {
-            string res = "";
-            for (int j = x; j < y; j++)
-            {
-                res += " ";
-            }
-
-            return res;
         }
     }
 }

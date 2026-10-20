@@ -5,11 +5,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
-    <!-- Aplikace cílí na net9.0, ale spouštět se může na stroji, kde je nainstalovaný
-         jen novější runtime (typicky Rider s vlastním .NET v ~/.dotnet). Bez tohohle
-         skončí start na "The following frameworks were found: 10.0.8" a exit code 150,
-         protože přechod přes HLAVNÍ verzi runtime je ve výchozím stavu vypnutý.
-         LatestMajor = "spusť na nejnovějším, co je k dispozici". -->
+    <!-- The app targets net9.0 but may run on a machine that only has a newer runtime
+         installed (typically Rider with its own .NET in ~/.dotnet). Without this, startup
+         fails with "The following frameworks were found: 10.0.8" and exit code 150,
+         because rolling forward across a MAJOR runtime version is off by default.
+         LatestMajor = "run on the newest one available". -->
     <RollForward>LatestMajor</RollForward>
   </PropertyGroup>
 
@@ -30,8 +30,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Referenční hodnoty z PyTorche pro TorchParityTests. Commitují se, aby CI
-         nepotřebovalo Python; přegenerovat jde přes tools/torch_fixtures/. -->
+    <!-- Reference values from PyTorch for TorchParityTests. They are committed so CI
+         does not need Python; regenerate them with tools/torch_fixtures/. -->
     <Content Include="Fixtures\**\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

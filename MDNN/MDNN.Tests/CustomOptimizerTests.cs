@@ -1,25 +1,25 @@
 using System;
 using Xunit;
-using My_DNN;
-using My_DNN.Layers;
-using My_DNN.Layers.classes;
-using My_DNN.Activation_functions;
-using My_DNN.Optimizers;
+using MDNN;
+using MDNN.Layers;
+using MDNN.Activations;
+using MDNN.Optimizers;
+using MDNN.Losses;
 
 namespace MDNN.Tests;
 
 /// <summary>
-/// Vlastní optimizer zděděný z `Optimizer` musí jít použít, jak slibuje README.
+/// A custom optimizer derived from `Optimizer` must be usable, as the README promises.
 ///
-/// Dřív se optimizer pro každý neuron klonoval podle jména a `switch` znal jen SGD,
-/// Adam a Momentum — vlastní optimizer spadl na „this optimizer does not exist" hned
-/// při sestavení první vrstvy. A výjimka nechala vrstvu napůl přestavěnou: neurony už
-/// byly nové, s GLOBÁLNÍM SGD(0.0001) z konstruktoru, takže další volání prošlo a model
-/// tiše trénoval úplně jiným optimizerem.
+/// Previously the per-neuron optimizer was cloned by name and the `switch` only knew SGD, Adam
+/// and Momentum, so a custom optimizer failed with "this optimizer does not exist" while building
+/// the first layer. The exception also left the layer half rebuilt (new neurons with the GLOBAL
+/// SGD(0.0001) from the constructor), so the next call succeeded and the model silently trained
+/// with a completely different optimizer.
 /// </summary>
 public class CustomOptimizerTests
 {
-    /// <summary>Krok o pevnou délku proti znaménku gradientu — jiný výsledek než SGD/Adam.</summary>
+    /// <summary>Fixed-size step against the sign of the gradient; gives a different result than SGD/Adam.</summary>
     private sealed class SignStep : Optimizer
     {
         private readonly double step;
@@ -31,7 +31,7 @@ public class CustomOptimizerTests
         public override double Update(double w, double gradient, int paramIndex) => w - step * Math.Sign(gradient);
     }
 
-    /// <summary>Optimizer, jehož klonování selže — simuluje chybu při sestavení vrstvy.</summary>
+    /// <summary>Optimizer whose cloning fails; simulates an error while building a layer.</summary>
     private sealed class BrokenClone : Optimizer
     {
         public override string Name => "BrokenClone";
@@ -59,7 +59,7 @@ public class CustomOptimizerTests
     [Fact]
     public void Dense_trains_with_a_custom_optimizer()
     {
-        var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SignStep(0.25), new MSE(), seed: 3);
+        var model = new NeuralNetwork(new Dense(1, new Linear()), new SignStep(0.25), new MSE(), seed: 3);
         model.GetResults(X);
         var neuron = ((Dense)model.Layers.Layers[0]).Neurons[0];
         double before = neuron.Weights[0];
@@ -68,13 +68,13 @@ public class CustomOptimizerTests
         model.Train.UpdateParams();
 
         Assert.IsType<SignStep>(neuron.Optimizer);
-        Assert.Equal(0.25, Math.Abs(neuron.Weights[0] - before), 12);   // krok přesně 0.25, ne SGD
+        Assert.Equal(0.25, Math.Abs(neuron.Weights[0] - before), 12);   // step of exactly 0.25, not SGD
     }
 
     [Fact]
     public void Each_neuron_gets_its_own_instance_of_the_custom_optimizer()
     {
-        var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SignStep(0.25), new MSE(), seed: 3);
+        var model = new NeuralNetwork(new Dense(2, new Linear()), new SignStep(0.25), new MSE(), seed: 3);
         model.GetResults(X);
         var neurons = ((Dense)model.Layers.Layers[0]).Neurons;
 
@@ -85,7 +85,7 @@ public class CustomOptimizerTests
     [Fact]
     public void Conv_trains_with_a_custom_optimizer()
     {
-        var model = new My_DNN.MDNN(new Conv(2, 2, new Linear(), "valid"), new SignStep(0.25), new MSE(), seed: 1);
+        var model = new NeuralNetwork(new Conv(2, 2, new Linear(), "valid"), new SignStep(0.25), new MSE(), seed: 1);
 
         model.Train.Fit(new Tensor(Image()), new Tensor(new double[3 * 3 * 2]));
         model.Train.UpdateParams();
@@ -101,32 +101,32 @@ public class CustomOptimizerTests
     public void CreateFresh_keeps_hyperparameters_and_drops_state(Optimizer optimizer)
     {
         Optimizer pristine = optimizer.CreateFresh();
-        for (int step = 0; step < 3; step++) optimizer.Update(1.0, 0.5, 0);   // rozjet stav
+        for (int step = 0; step < 3; step++) optimizer.Update(1.0, 0.5, 0);   // build up state
 
         Optimizer fresh = optimizer.CreateFresh();
 
         Assert.NotSame(optimizer, fresh);
         Assert.Equal(optimizer.GetType(), fresh.GetType());
         Assert.Equal(optimizer.Hyperparameters, fresh.Hyperparameters);
-        // první krok čerstvého = první krok nedotčeného, tedy žádný zděděný moment
+        // first step of the fresh one = first step of the untouched one, i.e. no inherited moment
         Assert.Equal(pristine.Update(1.0, 0.5, 0), fresh.Update(1.0, 0.5, 0));
     }
 
     [Fact]
     public void Failed_dense_build_does_not_leave_the_layer_half_built()
     {
-        var model = new My_DNN.MDNN(new Dense(1, new Linear()), new BrokenClone(), new MSE(), seed: 3);
+        var model = new NeuralNetwork(new Dense(1, new Linear()), new BrokenClone(), new MSE(), seed: 3);
 
         Assert.Throws<InvalidOperationException>(() => model.GetResults(X));
-        // Dřív tady druhé volání prošlo a model trénoval globálním SGD(0.0001).
+        // Previously the second call succeeded here and the model trained with the global SGD(0.0001).
         Assert.Throws<InvalidOperationException>(() => model.Train.Fit(X, T));
-        Assert.False(model.Layers.Layers[0].IsMaterialized);   // zůstaly zástupné neurony z konstruktoru
+        Assert.False(model.Layers.Layers[0].IsMaterialized);   // the placeholder neurons from the constructor remain
     }
 
     [Fact]
     public void Failed_conv_build_does_not_leave_the_layer_half_built()
     {
-        var model = new My_DNN.MDNN(new Conv(2, 2, new Linear(), "valid"), new BrokenClone(), new MSE(), seed: 1);
+        var model = new NeuralNetwork(new Conv(2, 2, new Linear(), "valid"), new BrokenClone(), new MSE(), seed: 1);
 
         Assert.Throws<InvalidOperationException>(() => model.GetResults(new Tensor(Image())));
         Assert.Throws<InvalidOperationException>(() => model.GetResults(new Tensor(Image())));

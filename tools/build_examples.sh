@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Přeloží všechny příklady z repozitáře MDNN_examples proti TÉHLE verzi knihovny.
+# Builds all examples from the MDNN_examples repository against THIS version of the library.
 #
-# Příklady v "more examples/" jsou program.txt, ne projekty — do teď je šlo ověřit jen tak,
-# že si je někdo ručně zkopíroval do projektu. Tři chyby v knihovně se tak našly až
-# ručním spuštěním příkladů. Tenhle skript každý program.txt zabalí do dočasného
-# konzolového projektu s odkazem na knihovnu a přeloží ho; přeloží i hlavní MDNN_example.sln.
-# Nespouští je (některé potřebují data, která v repu nejsou) — hlídá, že sedí na API.
+# The examples in "more examples/" are program.txt files, not projects; until now the only way to
+# check them was to copy them into a project by hand, and three library bugs were found only by
+# running the examples manually. This script wraps each program.txt in a temporary console
+# project that references the library and builds it; it also builds the main MDNN_example.sln.
+# It does not run them (some need data that is not in the repo); it checks they match the API.
 #
-# Použití:  tools/build_examples.sh <cesta k MDNN_examples>
+# Usage:  tools/build_examples.sh <path to MDNN_examples>
 set -euo pipefail
 
-examples="$(cd "${1:?Použití: tools/build_examples.sh <cesta k MDNN_examples>}" && pwd)"
+examples="$(cd "${1:?Usage: tools/build_examples.sh <path to MDNN_examples>}" && pwd)"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 lib="$root/MDNN/MDNN/MDNN.csproj"
 plotting="$root/MDNN/MDNN.Plotting/MDNN.Plotting.csproj"
@@ -21,7 +21,7 @@ failed=0
 
 echo "== MDNN_example.sln"
 if ! dotnet build "$examples/MDNN_example/MDNN_example.sln" -c Release -nologo -v quiet; then
-    echo "::error::Hlavní příklad MDNN_example.sln nejde přeložit"
+    echo "::error::The main example MDNN_example.sln does not build"
     failed=1
 fi
 
@@ -33,9 +33,9 @@ while IFS= read -r -d '' program; do
     mkdir -p "$dir"
     cp "$program" "$dir/Program.cs"
 
-    # MDNN.Plotting jen příkladům, které graf opravdu používají. Kdyby ho dostal každý,
-    # přišel by s ním i ScottPlot a příklad, který na ScottPlot omylem spoléhá (bez
-    # MDNN.Plotting ho uživatel mít nebude), by tady prošel.
+    # MDNN.Plotting only for examples that actually use the chart. If every example got it,
+    # ScottPlot would come along too, and an example that accidentally relies on ScottPlot
+    # (which a user without MDNN.Plotting will not have) would pass here.
     plotting_ref=""
     if grep -qE 'UseLossChart|GraphPlotter' "$program"; then
         plotting_ref="<ProjectReference Include=\"$plotting\" />"
@@ -58,10 +58,10 @@ CSPROJ
 
     echo "== $name"
     if ! dotnet build "$dir/Example.csproj" -c Release -nologo -v quiet; then
-        echo "::error::Příklad „$name\" nejde přeložit"
+        echo "::error::Example \"$name\" does not build"
         failed=1
     fi
 done < <(find "$examples" -name program.txt -not -path '*/bin/*' -not -path '*/obj/*' -print0 | sort -z)
 
-echo "Přeloženo: hlavní projekt + $i program.txt"
+echo "Built: main project + $i program.txt"
 exit "$failed"

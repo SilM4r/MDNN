@@ -1,27 +1,26 @@
 using System;
 using Xunit;
-using My_DNN;
-using My_DNN.Layers;
-using My_DNN.Layers.classes;
-using My_DNN.Activation_functions;
-using My_DNN.Optimizers;
-using My_DNN.Loss_functions;
+using MDNN;
+using MDNN.Layers;
+using MDNN.Activations;
+using MDNN.Optimizers;
+using MDNN.Losses;
 
 namespace MDNN.Tests;
 
 /// <summary>
-/// Chybové stavy hlásí konkrétní typ výjimky, ne obecnou <see cref="Exception"/>. Volající
-/// tak může chytit jen to, co umí ošetřit (špatný argument × špatný stav × nepodporované),
-/// a kód, který chytá <c>Exception</c>, funguje beze změny dál.
+/// Error states throw a specific exception type, not a plain <see cref="Exception"/>. Callers can
+/// catch only what they can handle (bad argument vs. bad state vs. unsupported), and code that
+/// catches <c>Exception</c> keeps working unchanged.
 /// </summary>
 public class ExceptionTypeTests
 {
-    private static My_DNN.MDNN Model()
+    private static NeuralNetwork Model()
     {
-        var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.1), new MSE(), seed: 1);
-        model.Train.ShowLossChartInTrainLoop = false;
-        model.Train.ShowModelInfoIntrainLoop = false;
-        model.Train.AutoSaveInTrainLoop = false;
+        var model = new NeuralNetwork(new Dense(1, new Linear()), new SGD(0.1), new MSE(), seed: 1);
+        model.Train.ShowLossChart = false;
+        model.Train.ShowModelInfo = false;
+        model.Train.AutoSave = false;
         return model;
     }
 
@@ -36,9 +35,9 @@ public class ExceptionTypeTests
     [Fact]
     public void Inputs_and_targets_with_different_sample_counts()
     {
-        // Pozn.: tenhle případ odmítne už LabeledData (vlastní ArgumentException), takže se
-        // k převedené kontrole v Train.CheckTensorShapes nedostane — test hlídá výsledný typ
-        // výjimky, ne ten konkrétní řádek. Prošel by i před převodem.
+        // Note: LabeledData already rejects this case (its own ArgumentException), so the check
+        // in Train.CheckTensorShapes is never reached. The test guards the resulting exception
+        // type, not that particular line; it would have passed before the conversion too.
         var model = Model();
         Assert.Throws<ArgumentException>(() =>
             model.Train.TrainLoop(new double[,] { { 1 }, { 2 }, { 3 } }, new double[,] { { 1 }, { 2 } }, 1, 1));
@@ -55,14 +54,14 @@ public class ExceptionTypeTests
         Assert.Throws<InvalidOperationException>(() => model.Train.TrainLoop(x, y, 1, 1));
     }
 
-    private sealed class Identity : LayerWithUntrainedParameters
+    private sealed class Identity : ParameterlessLayer
     {
         private int[] shape = { 0 };
         public override string Name => "Identity";
-        public override int[] Input_size_and_shape => shape;
-        public override int[] Output_size_and_shape => shape;
-        public override Tensor? Layer_output => null;
-        public override Tensor? Layer_raw_output => null;
+        public override int[] InputShape => shape;
+        public override int[] OutputShape => shape;
+        public override Tensor? Output => null;
+        public override Tensor? RawOutput => null;
         public override Tensor FeedForward(Tensor input_values) => input_values;
         public override void WireShapes(int? n = null, int[]? input = null) { if (input != null) shape = input; }
         public override void MaterializeParameters() { }
@@ -79,5 +78,40 @@ public class ExceptionTypeTests
 
         var ex = Assert.Throws<NotSupportedException>(() => model.SaveAsJsonString());
         Assert.Contains("Identity", ex.Message);
+    }
+
+    // Conv and MaxPool parameters used to be unchecked: an unknown padding silently behaved like
+    // "valid", and a zero or negative size failed only deep inside an allocation or a division by zero.
+    [Theory]
+    [InlineData("smae")]
+    [InlineData("full")]
+    [InlineData("")]
+    public void Conv_rejects_unknown_padding(string padding)
+    {
+        Assert.Throws<ArgumentException>(() => new Conv(2, 3, new ReLU(), padding));
+    }
+
+    [Fact]
+    public void Conv_padding_ignores_case()
+    {
+        Assert.Equal("same", new Conv(2, 3, new ReLU(), "SAME").Padding);
+    }
+
+    [Fact]
+    public void Conv_and_MaxPool_reject_non_positive_sizes()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new Conv(0, 3));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new Conv(2, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new MaxPool(0));
+    }
+
+    [Fact]
+    public void Conv_kernel_larger_than_input_is_rejected_with_valid_padding()
+    {
+        var model = Model();
+        model.Layers.Add(new Conv(2, 5, new ReLU(), "valid"));
+
+        var ex = Assert.Throws<ArgumentException>(() => model.GetResults(new Tensor(new double[3, 3, 1])));
+        Assert.Contains("does not fit", ex.Message);
     }
 }

@@ -1,9 +1,9 @@
 ﻿using System.Runtime.InteropServices;
 
-namespace My_DNN
+namespace MDNN
 {
     
-    public static class GPUManager
+    internal static class GPUManager
     {
         [DllImport("gpu.dll", CallingConvention = CallingConvention.Cdecl)]
         public static extern void LayerCalculation(float[] a, float[] b, float[] c, float[] result, int size, int quantity);

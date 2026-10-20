@@ -1,49 +1,68 @@
-﻿using My_DNN.Save_neural_network;
-using My_DNN.Optimizers;
+﻿using MDNN.Serialization;
+using MDNN.Optimizers;
+using MDNN.Activations;
 
-namespace My_DNN
+namespace MDNN
 {
 
+    /// <summary>
+    /// A single neuron: weights, bias, activation and its own optimizer state.
+    /// Used by <c>Dense</c> and <c>RNN</c> layers.
+    /// </summary>
     public class Neuron
     {
+        /// <summary>The neuron's weights, one per input.</summary>
         public double[] Weights
         {
             get { return weights; }
         }
+        /// <summary>The neuron's bias.</summary>
         public double Bias
         {
             get { return bias; }
         }
 
-        
-        // Stav neuronu jde zvenku ČÍST (výpis vah, výstupů… při učení se, jak síť počítá),
-        // ale zapisuje do něj jen knihovna. Dřív to byla veřejná pole a kdo nastavil třeba
-        // `inputs` nebo `optimizer` mimo pořadí, které vrstva čeká, dostal tiše špatný výpočet.
+
+        // The neuron's state can be READ from outside (inspecting weights, outputs… to learn
+        // how the network computes), but only the library writes to it. Previously these were
+        // public fields, and setting e.g. `inputs` or `optimizer` out of the order the layer
+        // expects silently gave a wrong computation.
         //
-        // Výstup a vstupy jsou z POSLEDNÍHO průchodu neuronem.
+        // Output and inputs are from the LAST pass through the neuron.
+        /// <summary>Output of the last forward pass (after activation).</summary>
         public double Output { get; internal set; }
-        public double RawOutput { get; internal set; }   // před aktivací (w · x + b)
+        /// <summary>Output of the last forward pass before activation (w · x + b).</summary>
+        public double RawOutput { get; internal set; }   // before activation (w · x + b)
+        /// <summary>Inputs of the last forward pass.</summary>
         public double[] Inputs { get; internal set; }
 
-        public Activation_func Activation_Func { get; internal set; }
+        /// <summary>The neuron's activation function.</summary>
+        public ActivationFunction Activation { get; internal set; }
+        /// <summary>The optimizer that updates this neuron's weights and bias (holds its own state).</summary>
         public Optimizer Optimizer { get; internal set; }
 
         private double[] weights;
         private double bias;
-        
+
         internal double[] gradientsW;
-        // internal kvůli paritním testům proti PyTorchi — bez čtení gradientu biasu
-        // by se dal porovnat jen gradient vah. Veřejné API zůstává beze změny.
+        // internal for the parity tests against PyTorch — without reading the bias gradient
+        // only the weight gradients could be compared. The public API stays unchanged.
         internal double gradientsB;
 
         private int mini_batch_size = 0;
 
-        // `random` = zdroj náhody pro inicializaci vah. Předává ho vrstva ze svého
-        // NetworkContextu (kvůli reprodukovatelnosti přes seed); null = samostatný neuron
-        // bez modelu, spadne se na sdílený globální generátor jako dřív.
-        public Neuron(int numberOfInputs, Activation_func activationFunction, Random? random = null)
+        // `random` = randomness source for weight initialization. The layer passes it from its
+        // NetworkContext (for seed reproducibility); null = a standalone neuron without a model,
+        // falling back to the shared global generator.
+        /// <summary>
+        /// Creates a neuron with randomly initialized weights (uniform in ±√(6 / inputs)) and zero bias.
+        /// </summary>
+        /// <param name="numberOfInputs">Number of inputs (= number of weights).</param>
+        /// <param name="activation">Activation function.</param>
+        /// <param name="random">Random source for initialization; <c>null</c> = the global generator.</param>
+        public Neuron(int numberOfInputs, ActivationFunction activation, Random? random = null)
         {
-            Random rnd = random ?? GeneralNeuralNetworkSettings.rnd;
+            Random rnd = random ?? GeneralNeuralNetworkSettings.Random;
 
             weights = new double[numberOfInputs];
             Inputs = new double[numberOfInputs];
@@ -51,7 +70,7 @@ namespace My_DNN
 
             Output = 0;
 
-            // limit je pro všechny váhy stejný → počítat ho ve smyčce bylo zbytečné
+            // the limit is the same for all weights, so it is computed once outside the loop
             double limit = numberOfInputs > 0 ? Math.Sqrt(6.0 / numberOfInputs) : 0;
 
             for (int i = 0; i < numberOfInputs; i++)
@@ -62,11 +81,14 @@ namespace My_DNN
             bias = 0;
 
             ResetGradients();
-            Optimizer = Optimizer.Clone_optimizer(GeneralNeuralNetworkSettings.optimizer);
-            Activation_Func = activationFunction;
+            Optimizer = GeneralNeuralNetworkSettings.DefaultOptimizer.CreateFresh();
+            Activation = activation;
         }
 
-        public Neuron(ExportNeuron exportNeuron, Activation_func activationFunction)
+        // `optimizerPrototype` = prototype whose fresh clone the neuron gets (passed by the layer
+        // from the context of the model being loaded). null = standalone neuron without a model →
+        // the global default optimizer, as in the constructor above.
+        internal Neuron(ExportNeuron exportNeuron, ActivationFunction activation, Optimizer? optimizerPrototype = null)
         {
 
             weights = exportNeuron.Weights;
@@ -78,10 +100,10 @@ namespace My_DNN
             Output = 0;
 
             ResetGradients();
-            Optimizer = Optimizer.Clone_optimizer(GeneralNeuralNetworkSettings.optimizer);
-            Activation_Func = activationFunction;
+            Optimizer = (optimizerPrototype ?? GeneralNeuralNetworkSettings.DefaultOptimizer).CreateFresh();
+            Activation = activation;
 
-            // Navázání tréninku: optimizer pokračuje se stavem, se kterým se model uložil.
+            // Resuming training: the optimizer continues with the state the model was saved with.
             if (exportNeuron.OptimizerState != null)
             {
                 Optimizer.ImportState(exportNeuron.OptimizerState);
@@ -89,11 +111,11 @@ namespace My_DNN
         }
 
 
-        // Nastavení konkrétních vah a biasu zvenčí. Potřebné pro paritní testy proti
-        // PyTorchi: obě strany musí startovat z BITOVĚ stejných parametrů, jinak by se
-        // porovnávala náhodná inicializace, ne výpočet. `Weights` je sice veřejné, ale
-        // jen ke čtení (vrací pole, takže by šlo mutovat prvek po prvku) a `Bias` je
-        // scalar bez setteru — tohle obojí obsluhuje na jednom místě.
+        // Sets specific weights and bias from outside. Needed for the parity tests against
+        // PyTorch: both sides must start from BIT-identical parameters, otherwise the tests would
+        // compare random initialization, not the computation. `Weights` is public but read-only
+        // (it returns the array, so it could be mutated element by element) and `Bias` is a
+        // scalar without a setter — this handles both in one place.
         internal void SetParamsForTests(double[] newWeights, double newBias)
         {
             if (newWeights.Length != weights.Length)
@@ -104,21 +126,25 @@ namespace My_DNN
             bias = newBias;
         }
 
+        /// <summary>
+        /// Computes the neuron's output for the given inputs: activation(w · x + b).
+        /// Also stores <see cref="Inputs"/>, <see cref="RawOutput"/> and <see cref="Output"/>.
+        /// </summary>
         public double FeedForward(double[] values)
         {
             Inputs = values;
 
-            // Skalární součin w · x. Dvě věci, obě kvůli rychlosti:
+            // Dot product w · x. Two things, both for speed:
             //
-            // 1) Sčítá se do LOKÁLNÍCH proměnných, ne rovnou do pole `raw_output`. Pole objektu
-            //    znamená zápis do paměti v každé iteraci; lokální součet zůstane v registru
-            //    (změřeno: 3,75× rychlejší).
+            // 1) It sums into LOCAL variables, and RawOutput is assigned only once at the end.
+            //    Accumulating into a property/field of the object would mean a memory write on
+            //    every iteration; a local sum stays in a register (measured: 3.75× faster).
             //
-            // 2) Čtyři nezávislé součty místo jednoho. S jedním každé sčítání čeká, až doběhne
-            //    předchozí (sčítání v plovoucí čárce má latenci několika taktů), takže procesor
-            //    stojí. Čtyři řetězy běží souběžně (změřeno: 2,45× rychlejší, SIMD navíc nedá
-            //    nic). Matematicky je to tentýž součet, jen v jiném pořadí — výsledek se proto
-            //    může lišit v posledním bitu (~1e-16) od sčítání zleva doprava.
+            // 2) Four independent sums instead of one. With a single sum each addition waits for
+            //    the previous one (floating-point addition has a latency of several cycles), so the
+            //    CPU stalls. Four chains run in parallel (measured: 2.45× faster; SIMD adds nothing
+            //    on top). Mathematically it is the same sum in a different order — so the result may
+            //    differ in the last bit (~1e-16) from left-to-right summation.
             double s0 = 0, s1 = 0, s2 = 0, s3 = 0;
             int i = 0;
             for (; i <= values.Length - 4; i += 4)
@@ -130,33 +156,25 @@ namespace My_DNN
             }
 
             double sum = (s0 + s1) + (s2 + s3);
-            for (; i < values.Length; i++)   // zbytek, když počet vstupů není dělitelný 4
+            for (; i < values.Length; i++)   // remainder when the input count is not divisible by 4
             {
                 sum += values[i] * weights[i];
             }
 
             RawOutput = sum + bias;
-            Output = Activation_Func.Apply(RawOutput);
+            Output = Activation.Apply(RawOutput);
 
             return Output;
         }
 
-        public void BackPropagation(double e, double learningRate)
-        {
-
-            for (int i = 0; i < Weights.Length; i++)
-            {
-                Weights[i] -= learningRate * e * Inputs[i];
-            }
-            bias -= learningRate * e * 1;
-        }
-        // ---------------------------------------------------------------- repliky
+        // ---------------------------------------------------------------- replicas
         //
-        // Replika pro data-paralelní trénink (Train.Workers > 1). Pole vah SDÍLÍ s originálem
-        // — během dávky se váhy jen čtou a mění je až UpdateParams originálu, po dávce, kdy
-        // repliky stojí. Díky tomu se váhy mezi dávkami nemusí kopírovat. Vlastní má
-        // všechno, co se mění během průchodu: gradienty, čítač dávky, vstupy a výstupy.
-        // Bias je skalár, takže sdílet nejde — přenáší ho SyncBiasFrom před každou dávkou.
+        // Replica for data-parallel training (Train.Workers > 1). It SHARES the weight array with
+        // the original — during a batch the weights are only read; they are changed by the
+        // original's UpdateParams after the batch, when the replicas are idle. So weights need not
+        // be copied between batches. The replica owns everything that changes during a pass:
+        // gradients, the batch counter, inputs and outputs. The bias is a scalar and cannot be
+        // shared — SyncBiasFrom copies it before each batch.
         internal Neuron CreateReplica()
         {
             Neuron replica = (Neuron)MemberwiseClone();
@@ -174,9 +192,9 @@ namespace My_DNN
             bias = original.bias;
         }
 
-        // Přičte gradienty a čítač repliky k tomuto neuronu a repliku vynuluje. Čítač se
-        // přičítat MUSÍ — UpdateWeightsAndBias jím dělí, takže bez něj by se gradient
-        // celé dávky vydělil jen počtem vzorků, které prošly originálem (tedy nulou).
+        // Adds the replica's gradients and counter to this neuron and resets the replica. The
+        // counter MUST be added — UpdateWeightsAndBias divides by it, so without it the whole
+        // batch's gradient would be divided only by the samples that went through the original (zero).
         internal void TakeGradientsFrom(Neuron replica)
         {
             for (int i = 0; i < gradientsW.Length; i++)
@@ -191,15 +209,19 @@ namespace My_DNN
             replica.mini_batch_size = 0;
         }
 
-        // Neuron byl v tomhle vzorku vypnutý dropoutem: nepočítal se ve forwardu a jeho
-        // gradient je nulový, takže není co akumulovat. Čítač dávky se ale zvýšit MUSÍ —
-        // gradienty se dělí právě jím, a kdyby vypnuté vzorky nepočítal, dělilo by se
-        // menším číslem a gradient by vyšel nafouknutý.
+        // The neuron was dropped by dropout in this sample: it was not computed in forward and
+        // its gradient is zero, so there is nothing to accumulate. The batch counter MUST still be
+        // incremented — gradients are divided by it, and skipping dropped samples would divide by
+        // a smaller number and inflate the gradient.
         internal void SkipSample()
         {
             mini_batch_size++;
         }
 
+        /// <summary>
+        /// Accumulates the weight and bias gradients for one sample, given
+        /// <paramref name="e"/> = ∂L/∂z (the gradient with respect to the pre-activation output).
+        /// </summary>
         public void CalculateGradients(double e)
         {
 
@@ -212,8 +234,15 @@ namespace My_DNN
             mini_batch_size++;
         }
 
-        // RTRL: gradient parametru = okamžitý gradient shora (gImm) × citlivost tohoto parametru.
-        // sensW[i] = ∂h/∂Weights[i], sensB = ∂h/∂bias (obojí drží a posouvá RNN vrstva).
+        // RTRL: parameter gradient = immediate gradient from above (gImm) × that parameter's sensitivity.
+        // sensW[i] = ∂h/∂Weights[i], sensB = ∂h/∂bias (both kept and advanced by the RNN layer).
+        /// <summary>
+        /// RTRL gradient accumulation for one time step: adds <paramref name="gImm"/> × sensitivity
+        /// to each parameter's gradient.
+        /// </summary>
+        /// <param name="gImm">Immediate gradient ∂L/∂h from above.</param>
+        /// <param name="sensW">Sensitivities ∂h/∂Weights[i].</param>
+        /// <param name="sensB">Sensitivity ∂h/∂bias.</param>
         public void AccumulateGradient(double gImm, double[] sensW, double sensB)
         {
             for (int i = 0; i < Weights.Length; i++)
@@ -225,29 +254,34 @@ namespace My_DNN
             mini_batch_size++;
         }
 
-        // weightDecay = koeficient L2. Vrstva ho bere z NetworkContext.L2; 0 = vypnuto.
+        // weightDecay = L2 coefficient. The layer takes it from NetworkContext.L2; 0 = off.
+        /// <summary>
+        /// Applies the accumulated (batch-averaged) gradients through the optimizer and resets them.
+        /// Does nothing if no gradients were accumulated.
+        /// </summary>
+        /// <param name="weightDecay">L2 regularization coefficient (not applied to the bias); 0 = off.</param>
         public void UpdateWeightsAndBias(double weightDecay = 0)
         {
-            // Prázdná dávka je legitimní stav (UpdateParams bez předchozího backpropu).
-            // Bez tohohle se dělilo nulou → 0/0 = NaN → tiše celý model NaN.
+            // An empty batch is a legitimate state (UpdateParams without a preceding backprop).
+            // Without this it divided by zero → 0/0 = NaN → silently the whole model became NaN.
             if (mini_batch_size == 0)
             {
                 return;
             }
 
-            // váhy + bias (bias má index Weights.Length, viz níž)
+            // weights + bias (the bias has index Weights.Length, see below)
             Optimizer.EnsureCapacity(Weights.Length + 1);
 
             for (int i = 0; i < Weights.Length; i++)
             {
-                // L2 se přičítá k UŽ ZPRŮMĚROVANÉMU gradientu, ne k součtu přes dávku —
-                // jinak by síla regularizace závisela na velikosti minibatche.
+                // L2 is added to the ALREADY AVERAGED gradient, not to the batch sum —
+                // otherwise the regularization strength would depend on the mini-batch size.
                 double gradient = gradientsW[i] / mini_batch_size + weightDecay * Weights[i];
                 Weights[i] = Optimizer.Update(Weights[i], gradient, i);
             }
 
-            // Bias se NEregularizuje: netvaruje rozhodovací hranici, jen ji posouvá,
-            // takže jeho tažení k nule model nezjednoduší — jen zhorší.
+            // The bias is NOT regularized: it does not shape the decision boundary, only shifts it,
+            // so pulling it towards zero does not simplify the model — it only makes it worse.
             bias = Optimizer.Update(bias, gradientsB / mini_batch_size,Weights.Length);
 
             mini_batch_size = 0;
@@ -255,26 +289,34 @@ namespace My_DNN
             ResetGradients();
         }
 
-        // `randomSource`: stejná logika jako v konstruktoru — když ho volající nedodá,
-        // použije se globální generátor. (Neuron sám Context nevidí, takže si ho musí
-        // podat ten, kdo mutaci spouští.)
+        // `randomSource`: same logic as in the constructor — if the caller does not supply one,
+        // the global generator is used. (The neuron itself cannot see the Context, so whoever
+        // runs the mutation must pass it in.)
+        /// <summary>
+        /// Randomly perturbs the weights (e.g. for evolutionary training): each weight changes with
+        /// probability <paramref name="chanceOfMutation"/> % by a random relative amount
+        /// within ±<paramref name="percentMutation"/>/2 %.
+        /// </summary>
+        /// <param name="chanceOfMutation">Chance (0–100) that a given weight is mutated.</param>
+        /// <param name="percentMutation">Width of the relative change range, in percent.</param>
+        /// <param name="randomSource">Random source; <c>null</c> = the global generator.</param>
         public void MutateParams(int chanceOfMutation, int percentMutation, Random? randomSource = null)
         {
-            Random random = randomSource ?? GeneralNeuralNetworkSettings.rnd;
+            Random random = randomSource ?? GeneralNeuralNetworkSettings.Random;
 
             for (int i = 0; i < Weights.Length; i++)
             {
                 int randomValueBetween0And100 = random.Next(101);
                 if (randomValueBetween0And100 < chanceOfMutation)
                 {
-                    // Rozmezí je -percentage/2 až +percentage/2
+                    // The range is -percentage/2 to +percentage/2
                     double minPercentage = -percentMutation / 100.0 / 2.0;
                     double maxPercentage = percentMutation / 100.0 / 2.0;
 
-                    // Vygeneruj náhodnou hodnotu mezi minPercentage a maxPercentage
+                    // Random value between minPercentage and maxPercentage
                     double randomPercentage = minPercentage + (random.NextDouble() * (maxPercentage - minPercentage));
 
-                    // Změň hodnotu x o náhodné procento
+                    // Change the weight by that random percentage
                     Weights[i] += Weights[i] * randomPercentage;
                 }
             }

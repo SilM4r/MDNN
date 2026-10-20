@@ -1,14 +1,19 @@
 ﻿
-namespace My_DNN.Activation_functions
+namespace MDNN.Activations
 {
-    public class Leak_ReLu : ClassicActivationFunc
+    /// <summary>
+    /// Leaky ReLU: <c>x</c> for <c>x ≥ 0</c>, <c>0.01·x</c> otherwise.
+    /// </summary>
+    public class LeakyReLU : ElementwiseActivationFunction
     {
 
+        /// <inheritdoc/>
         public override string Name
         {
-            get { return "Leak_ReLu"; }
+            get { return "LeakyReLU"; }
         }
 
+        /// <inheritdoc/>
         public override double Apply(double value)
         {
             if (value < 0)
@@ -17,6 +22,7 @@ namespace My_DNN.Activation_functions
                 return value;
         }
 
+        /// <inheritdoc/>
         public override double Derivative(double value)
         {
             if (value < 0)

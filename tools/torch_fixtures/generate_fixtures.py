@@ -1,36 +1,36 @@
 #!/usr/bin/env python3
 """
-Generátor referenčních fixtures z PyTorche pro paritní testy MDNN.
+Generates reference fixtures from PyTorch for the MDNN parity tests.
 
-PROČ TOHLE EXISTUJE
--------------------
-Všechny ostatní testy v MDNN.Tests ověřují knihovnu PROTI SOBĚ SAMÉ: gradient check
-porovná analytický backward s numerickou derivací VLASTNÍHO forwardu. Když je ale
-forward konvenčně jinak (jiný padding, otočený kernel, jiné škálování loss), gradient
-check projde a chyba se neukáže.
+WHY THIS EXISTS
+---------------
+All other tests in MDNN.Tests check the library AGAINST ITSELF: a gradient check
+compares the analytic backward with the numerical derivative of the library's OWN forward.
+If the forward follows a different convention (different padding, flipped kernel,
+different loss scaling), the gradient check passes and the bug stays hidden.
 
-Tenhle skript vyrobí externí orákulum. Postaví v PyTorchi tytéž výpočty s PŘESNĚ
-stejnými vahami a vstupy, vyexportuje výsledky do JSON a C# test pak porovná čísla
-prvek po prvku.
+This script produces an external oracle. It builds the same computations in PyTorch with
+EXACTLY the same weights and inputs, exports the results to JSON, and the C# test then
+compares the numbers element by element.
 
-SPUŠTĚNÍ (fixtures se commitují, takže tohle je potřeba jen při jejich změně):
+RUNNING (fixtures are committed, so this is only needed when they change):
     python3 -m venv .venv && .venv/bin/pip install torch numpy
     .venv/bin/python generate_fixtures.py
 
-CI Python NEPOTŘEBUJE — čte jen hotové .json.
+CI does NOT need Python; it only reads the finished .json files.
 
-OVĚŘENÉ KONVENCE (proto sedí porovnání)
----------------------------------------
+VERIFIED CONVENTIONS (why the comparison matches)
+-------------------------------------------------
     MDNN MSE  = Σ(v−t)²       ≡ MSELoss(reduction='sum')
-    MDNN CE   = −Σ t·ln(s)    ≡ CrossEntropyLoss(reduction='sum'), jeden vzorek
-    MDNN Conv = křížová korelace bez otočení kernelu ≡ torch Conv2d
-    MDNN Adam = w − lr·m̂/(√v̂ + 1e-8)  ≡ torch.optim.Adam (eps VEN ze sqrt)
+    MDNN CE   = −Σ t·ln(s)    ≡ CrossEntropyLoss(reduction='sum'), single sample
+    MDNN Conv = cross-correlation without kernel flip ≡ torch Conv2d
+    MDNN Adam = w − lr·m̂/(√v̂ + 1e-8)  ≡ torch.optim.Adam (eps OUTSIDE the sqrt)
 
-ROZDÍLY V ULOŽENÍ (překlápí se tady, ne v C#)
----------------------------------------------
+STORAGE DIFFERENCES (transposed here, not in C#)
+------------------------------------------------
     Dense  MDNN neuron[i].Weights[j]      ≡ torch Linear.weight[i][j]
-    Conv   MDNN Kernel[f][kh][kw][c]      ≡ torch weight[f][c][kh][kw]
-    Conv   MDNN vstup [H][W][C]           ≡ torch [N][C][H][W]
+    Conv   MDNN Kernels[f][kh][kw][c]     ≡ torch weight[f][c][kh][kw]
+    Conv   MDNN input [H][W][C]           ≡ torch [N][C][H][W]
 """
 
 import json
@@ -39,8 +39,8 @@ import os
 import torch
 import torch.nn.functional as F
 
-# Reference musí být v double, jinak by rozdíl proti C# (taky double) mířil na
-# přesnost floatu, ne na neshodu konvence — což je přesně to, co chceme měřit.
+# The reference must be in double; otherwise a difference against C# (also double) would
+# measure float precision instead of a convention mismatch, which is what we want to measure.
 torch.set_default_dtype(torch.float64)
 
 OUT_DIR = os.path.join(
@@ -57,8 +57,8 @@ ACTS = {
 
 
 def deterministic(shape, scale=0.1, offset=0.03):
-    """Rozprostřené hodnoty bez RNG — fixtures musí být bitově stabilní napříč
-    verzemi torche, jinak by se diff hýbal sám od sebe."""
+    """Spread-out values without an RNG: fixtures must be bit-stable across torch
+    versions, otherwise the diff would change on its own."""
     n = 1
     for d in shape:
         n *= d
@@ -82,9 +82,9 @@ def write(name, payload):
 # ---------------------------------------------------------------- Dense model
 
 def dense_model(name, sizes, activations, loss_kind, weight_scale=0.07, worst_class=None):
-    """Plně propojená síť: sizes = [vstup, skrytá..., výstup].
-    V MDNN se staví jako new MDNN(výstupní) + Layers.Add(skryté) — pořadí
-    v `layers` níž je stejné jako v MDNN.Layers.Layers, tedy skryté → výstupní."""
+    """Fully connected network: sizes = [input, hidden..., output].
+    In MDNN it is built as new NeuralNetwork(output) + Layers.Add(hidden); the order
+    in `layers` below matches model.Layers.Layers, i.e. hidden → output."""
     x = deterministic((sizes[0],), scale=0.11, offset=-0.05).requires_grad_(True)
 
     layers = []
@@ -95,18 +95,18 @@ def dense_model(name, sizes, activations, loss_kind, weight_scale=0.07, worst_cl
         b = deterministic((fan_out,), scale=0.05, offset=-0.01).requires_grad_(True)
         z = h @ W.t() + b
         act = activations[li]
-        # softmax se neaplikuje tady — je fúzovaný do cross_entropy (stejně jako v MDNN)
+        # softmax is not applied here; it is fused into cross_entropy (same as in MDNN)
         h = z if act == "softmax" else ACTS[act](z)
         layers.append({"units": fan_out, "activation": act, "W": W, "b": b, "z": z})
 
-    out_pre = h  # u softmaxu jsou to logity
+    out_pre = h  # for softmax these are the logits
 
     if loss_kind == "mse":
         target = deterministic((sizes[-1],), scale=0.3, offset=0.15)
         loss = F.mse_loss(out_pre, target, reduction="sum")
         output = out_pre
     elif loss_kind == "ce":
-        # one-hot cíl; MDNN dostává one-hot vektor, torch index třídy
+        # one-hot target; MDNN gets a one-hot vector, torch a class index
         cls = worst_class if worst_class is not None else 1 % sizes[-1]
         target = torch.zeros(sizes[-1], dtype=torch.float64)
         target[cls] = 1.0
@@ -147,9 +147,9 @@ def dense_model(name, sizes, activations, loss_kind, weight_scale=0.07, worst_cl
 # ----------------------------------------------------------------- Conv layer
 
 def conv_layer(name, h, w, c, k, f, padding, activation):
-    """Izolovaná Conv vrstva. Místo loss se zadá umělý gradient shora (gradOutput),
-    přesně jak to dělají stávající gradient-check testy — tím se vrstva testuje
-    samostatně a případná neshoda ukazuje na Conv, ne na něco za ní."""
+    """Isolated Conv layer. Instead of a loss, an artificial output gradient (gradOutput)
+    is given, exactly as the gradient-check tests do; this tests the layer on its own,
+    so any mismatch points at Conv, not at something after it."""
     x_hwc = deterministic((h, w, c), scale=0.09, offset=0.04)
     x = x_hwc.permute(2, 0, 1).unsqueeze(0).clone().requires_grad_(True)  # [1,C,H,W]
 
@@ -214,8 +214,8 @@ def maxpool_layer(name, h, w, c, pool):
 # ------------------------------------------------------------------ Optimizer
 
 def adam_steps(name, n_params, steps, lr):
-    """Adam přes N kroků se stejným gradientem — chytí chybu v bias correction,
-    která se po jednom kroku ještě neprojeví."""
+    """Adam over N steps; catches a bias-correction bug that does not yet show
+    after a single step."""
     w0 = deterministic((n_params,), scale=0.2, offset=0.05)
     grads = [deterministic((n_params,), scale=0.05 + 0.01 * s, offset=0.02 * s - 0.01)
              for s in range(steps)]
@@ -240,7 +240,7 @@ def adam_steps(name, n_params, steps, lr):
 
 
 if __name__ == "__main__":
-    print("generuji fixtures do", os.path.normpath(OUT_DIR))
+    print("generating fixtures into", os.path.normpath(OUT_DIR))
 
     dense_model("dense_1layer_linear_mse", [4, 3], ["linear"], "mse")
     dense_model("dense_2layer_tanh_mse", [4, 5, 3], ["tanh", "tanh"], "mse")
@@ -248,25 +248,25 @@ if __name__ == "__main__":
     dense_model("dense_2layer_relu_softmax_ce", [4, 6, 3], ["relu", "softmax"], "ce")
     dense_model("dense_sigmoid_mse", [3, 4, 2], ["sigmoid", "sigmoid"], "mse")
 
-    # SATUROVANÝ softmax — případ, kvůli kterému fúze softmax+CE vůbec existuje.
-    # Velké váhy rozeženou logity tak daleko od sebe, že nejmenší pravděpodobnost spadne
-    # k ~1e-20. Obecná cesta (-t/(s+1e-15) → Jacobián) tam gradient ZTRATÍ: epsilon přebije
-    # samotné s. Fúzovaná cesta (s - t) drží. Cíl se schválně dává na NEJMÉNĚ pravděpodobnou
-    # třídu, tedy tam, kde je gradient nejpotřebnější a zároveň nejkřehčí.
-    # Bez tohohle fixture by refaktor backwardu mohl fúzi rozbít, aniž by to sada poznala.
+    # SATURATED softmax: the case the softmax+CE fusion exists for in the first place.
+    # Large weights push the logits so far apart that the smallest probability drops to
+    # ~1e-20. The generic path (-t/(s+1e-15) → Jacobian) LOSES the gradient there: epsilon
+    # outweighs s itself. The fused path (s - t) holds. The target is deliberately the LEAST
+    # likely class, where the gradient is most needed and also most fragile.
+    # Without this fixture a backward refactor could break the fusion without the suite noticing.
     dense_model("dense_softmax_ce_saturated", [4, 8, 3], ["tanh", "softmax"], "ce",
                 weight_scale=9.0, worst_class=0)
 
     conv_layer("conv_valid_1ch_1f", 3, 3, 1, 2, 1, "valid", "linear")
     conv_layer("conv_valid_2ch_3f", 5, 5, 2, 3, 3, "valid", "tanh")
     conv_layer("conv_same_odd_kernel", 5, 5, 1, 3, 2, "same", "tanh")
-    conv_layer("conv_same_even_kernel", 5, 5, 1, 2, 2, "same", "tanh")   # ← riziko: asymetrický pad
+    conv_layer("conv_same_even_kernel", 5, 5, 1, 2, 2, "same", "tanh")   # ← risk: asymmetric padding
     conv_layer("conv_valid_relu", 6, 6, 2, 3, 2, "valid", "relu")
 
     maxpool_layer("maxpool_2x2_even", 4, 4, 1, 2)
     maxpool_layer("maxpool_2x2_multichannel", 6, 6, 2, 2)
-    maxpool_layer("maxpool_2x2_odd_input", 5, 5, 1, 2)                   # ← riziko: zbytek při dělení
+    maxpool_layer("maxpool_2x2_odd_input", 5, 5, 1, 2)                   # ← risk: division remainder
 
     adam_steps("adam_5_steps", 4, 5, 0.01)
 
-    print("hotovo")
+    print("done")

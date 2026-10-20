@@ -1,9 +1,11 @@
-﻿using My_DNN.Layers;
+﻿using MDNN.Layers;
 using System.Text.Json.Serialization;
 
-namespace My_DNN.Save_neural_network
+namespace MDNN.Serialization
 {
-    public class BaseExportLayer
+    // Property names of the Export* classes are the JSON keys of the model file format —
+    // do NOT rename them, or previously saved models will stop loading.
+    internal class BaseExportLayer
     {
         public string? LayerType 
         {
@@ -11,9 +13,9 @@ namespace My_DNN.Save_neural_network
             set; 
         }
 
-        // Povinné pole vrstvy ze souboru. Pole jsou nullable, protože v JSON chybět MŮŽOU —
-        // dřív se s nimi ale pracovalo, jako by tam byla vždycky, takže poškozený soubor
-        // (třeba bez "Kernel") spadl na NullReferenceException hluboko v konstruktoru vrstvy.
+        // A required layer field from the file. Fields are nullable because they CAN be missing in
+        // the JSON — previously they were used as if always present, so a damaged file (e.g. without
+        // "Kernel") crashed with a NullReferenceException deep in the layer constructor.
         internal static T Required<T>(T? value, string layerType, string field) where T : class
             => value ?? throw new ModelFileCorruptedException(
                 $"Layer {layerType} in the model file is missing the field '{field}'.");
@@ -23,14 +25,14 @@ namespace My_DNN.Save_neural_network
                 $"Layer {layerType} in the model file is missing the field '{field}'.");
     }
 
-    public class ExportDenseLayer : BaseExportLayer
+    internal class ExportDenseLayer : BaseExportLayer
     {
         public string? Name_of_activation_function { get; set; }
 
-        // Dropout nastavený PŘÍMO na téhle vrstvě. null = vrstva dědí globální hodnotu,
-        // takže se null musí i uložit — kdyby se místo něj zapsala nula, načtený model by
-        // měl dropout natvrdo vypnutý a globální nastavení by na něj přestalo platit.
-        // (Globální hodnota sama patří k modelu, ne k vrstvě, a ukládá se zvlášť.)
+        // Dropout set DIRECTLY on this layer. null = the layer inherits the global value, so null
+        // must be saved as well — writing zero instead would hard-disable dropout in the loaded
+        // model and the global setting would no longer apply to it.
+        // (The global value belongs to the model, not the layer, and is saved separately.)
         public double? DropoutRate { get; set; }
 
         public List<ExportNeuron>? Neurons { get; set; }
@@ -45,7 +47,7 @@ namespace My_DNN.Save_neural_network
         {
             LayerType = "Dense";
 
-            Name_of_activation_function = layer.Activation_Func.Name;
+            Name_of_activation_function = layer.Activation.Name;
             DropoutRate = layer.DropoutRate;
 
             Neurons = new List<ExportNeuron>();
@@ -57,8 +59,8 @@ namespace My_DNN.Save_neural_network
         }
     }
 
-    // Conv vrstva
-    public class ExportCNNLayer : BaseExportLayer
+    // Conv layer
+    internal class ExportCNNLayer : BaseExportLayer
     {
         public string? Name_of_activation_function { get; set; }
         public string? Padding { get; set; }
@@ -66,7 +68,7 @@ namespace My_DNN.Save_neural_network
         public double[]? Biases { get; set; }
         public int[]? InputShape { get; set; }
 
-        // Stav optimizeru vrstvy (Conv má jeden optimizer pro kernely i biasy) — viz
+        // Optimizer state of the layer (Conv has one optimizer for both kernels and biases) — see
         // ExportNeuron.OptimizerState.
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public Dictionary<string, double[]>? OptimizerState { get; set; }
@@ -80,20 +82,20 @@ namespace My_DNN.Save_neural_network
         public ExportCNNLayer(Conv layer, bool includeOptimizerState = true)
         {
             LayerType = "Conv";
-            Kernel = layer.Kernel;
+            Kernel = layer.Kernels;
             Biases = layer.Biases;
-            // .Name, ne .ToString() — ToString() dá název typu ("My_DNN.Activation_functions.ReLu"),
-            // který inicialization_activation_func dřív neznal a spadl do default → Linear.
-            // Natrénovaná CNN se tak po načtení tiše chovala jako lineární síť. Soubory
-            // uložené ještě přes ToString() teď továrna rozpozná (zkrátí jméno typu).
-            Name_of_activation_function = layer.Activation_Func.Name;
+            // .Name, not .ToString() — ToString() gives the type name ("MDNN.Activations.ReLU"),
+            // which FromName previously did not recognize and fell back to Linear, so a trained CNN
+            // silently behaved as a linear network after loading. Files saved via ToString() are now
+            // recognized by the factory (it shortens the type name).
+            Name_of_activation_function = layer.Activation.Name;
             Padding = layer.Padding;
-            InputShape = layer.Input_size_and_shape;
+            InputShape = layer.InputShape;
             OptimizerState = includeOptimizerState ? layer.OptimizerForSave.ExportState() : null;
         }
     }
 
-    public class ExportMaxPoolLayer : BaseExportLayer
+    internal class ExportMaxPoolLayer : BaseExportLayer
     {
         public int[]? InputsShape { get; set; }
         public int? PoolSize { get; set; }
@@ -107,13 +109,13 @@ namespace My_DNN.Save_neural_network
         public ExportMaxPoolLayer(MaxPool layer)
         {
             LayerType = "MaxPool";
-            InputsShape = layer.Input_size_and_shape;
+            InputsShape = layer.InputShape;
             PoolSize = layer.PoolSize;
         }
     }
 
-    // RNN vrstva
-    public class ExportRnnLayer : BaseExportLayer
+    // RNN layer
+    internal class ExportRnnLayer : BaseExportLayer
     {
         public string? Name_of_activation_function { get; set; }
         public List<ExportNeuron>? Neurons { get; set; }
@@ -128,7 +130,7 @@ namespace My_DNN.Save_neural_network
         {
             LayerType = "RNN";
 
-            Name_of_activation_function = layer.Activation_Func.Name;
+            Name_of_activation_function = layer.Activation.Name;
 
             Neurons = new List<ExportNeuron>();
 

@@ -1,10 +1,11 @@
-﻿using My_DNN.Layers;
-using My_DNN.Layers.classes;
+﻿using MDNN.Layers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-namespace My_DNN.Save_neural_network
+namespace MDNN.Serialization
 {
-    public class NetworkSaveLoadManager
+    // Property names (including the snake_case ones) are the JSON keys of the model file
+    // format — do NOT rename them, or previously saved models will stop loading.
+    internal class NetworkSaveLoadManager
     {
         public string Note { get; set; } = "";
         public double Valid_Loss { get; set; }
@@ -13,40 +14,40 @@ namespace My_DNN.Save_neural_network
         public uint Target_epoch { get; set; }
         public uint Mini_batch { get; set; }
 
-        // Chybějící jméno odmítne až Loss.ResolveForLoad (prázdný řetězec = „chybí").
+        // A missing name is rejected later by Loss.ResolveForLoad (empty string = "missing").
         public string Loss_functions { get; set; } = "";
 
-        // Provenience: čím a kdy model vznikl.
-        // Seed se dosud NEUKLÁDAL, takže z uloženého modelu nešlo zjistit, jak ho zopakovat.
-        // Pozn.: seed sám o sobě NEumožní bezešvé navázání tréninku — k tomu je potřeba
-        // i stav optimizeru (ukládá se u neuronů a Conv vrstev, viz ExportNeuron) a pozice
-        // v generátoru (ta se neukládá). Je to údaj o původu.
+        // Provenance: how and when the model was created.
+        // Previously the seed was NOT saved, so a saved model gave no way to reproduce it.
+        // Note: the seed alone does NOT allow seamlessly resuming training — that also needs the
+        // optimizer state (saved with neurons and Conv layers, see ExportNeuron) and the generator
+        // position (not saved). It is provenance information.
         public int? Seed { get; set; }
 
-        // UTC + ISO-8601 ("O") přes JsonSerializer, ať to nezávisí na lokalizaci stroje.
+        // UTC + ISO-8601 ("O") via JsonSerializer, so it does not depend on the machine's locale.
         public DateTime SavedAtUtc { get; set; }
 
-        // Regularizace je součást PŘEDPISU tréninku, ne natrénovaných vah — bez uložení
-        // by načtený model pokračoval v učení bez ní a nikde by to nebylo vidět.
-        // Starší soubory tyhle klíče nemají → načtou se jako 0, tedy vypnuto.
+        // Regularization is part of the training RECIPE, not of the trained weights — without saving
+        // it, a loaded model would continue training without it, invisibly.
+        // Older files lack these keys → they load as 0, i.e. off.
         public double L2 { get; set; }
         public double Dropout { get; set; }
 
-        // `null!` jen do doby, než deserializace pole vyplní — LoadFromString hned potom
-        // ověří, že v souboru opravdu byla (RequireComplete), jinak by se poškozený soubor
-        // projevil až NullReferenceException při stavbě modelu.
+        // `null!` only until deserialization fills the field — LoadFromString then verifies that it
+        // really was in the file (RequireComplete); otherwise a damaged file would surface only as a
+        // NullReferenceException while building the model.
         public ExportOptimizer Optimizer { get; set; } = null!;
 
         [JsonConverter(typeof(LayerListConverter))]
         public List<BaseExportLayer> Layers { get; set; } = null!;
 
     
-        public NetworkSaveLoadManager(MDNN model, bool includeOptimizerState = true)
+        public NetworkSaveLoadManager(NeuralNetwork model, bool includeOptimizerState = true)
         {
             Schema = model.Schema;
             Current_epoch = model.Train.CurrentEpoch;
             Target_epoch = model.Train.TotalEpoch;
-            Mini_batch = model.Train.MiniBatch;
+            Mini_batch = model.Train.MiniBatchSize;
             Loss_functions = model.Loss.Name;
             Valid_Loss = model.Loss.GetAverageLossPerIteration();
             Note = model.Note;
@@ -88,22 +89,21 @@ namespace My_DNN.Save_neural_network
         {
         }
 
-        // Aktuální verze formátu. Soubor BEZ tohoto pole = starý (v0) plochý formát.
+        // Current format version. A file WITHOUT this field = the old (v0) flat format.
         public const int CurrentFormatVersion = 1;
 
         private static JsonSerializerOptions SerializerOptions() => new JsonSerializerOptions
         {
             WriteIndented = true,
-            Converters = { new LayerConverter() }  // Přidání konvertoru pro vrstvy
+            Converters = { new LayerConverter() }  // converter for layers
         };
 
-        // Obálka: { FormatVersion, Checksum, Model: { ...vlastní model... } }
+        // Envelope: { FormatVersion, Checksum, Model: { ...the model itself... } }
         //
-        // Proč obálka a ne jen další pole v modelu: hash se počítá nad SUROVÝM textem
-        // podsekce `Model`, takže se při ověřování nemusí nic reserializovat. Kdyby se
-        // porovnávalo „přeserializuj a zahashuj znovu", výsledek by závisel na tom, že
-        // formátování doubles a pořadí vlastností zůstane napříč verzemi .NET identické —
-        // což není nic, na co by se dalo spolehnout.
+        // Why an envelope and not just another field in the model: the hash is computed over the
+        // RAW text of the `Model` subsection, so verification needs no re-serialization. Comparing via
+        // "re-serialize and hash again" would rely on double formatting and property order staying
+        // identical across .NET versions — nothing to depend on.
         private sealed class ModelEnvelope
         {
             public int FormatVersion { get; set; }
@@ -111,14 +111,14 @@ namespace My_DNN.Save_neural_network
             public JsonElement Model { get; set; }
         }
 
-        // Kanonický tvar: JSON bez odsazení. Hashuje se VŽDYCKY tohle, nikdy text ze souboru
-        // tak, jak je — jinak by součet záležel na odsazení. Uvnitř obálky je model odsazený
-        // o úroveň hlouběji, než když se serializuje sám, takže by se dva zápisy téhož modelu
-        // lišily. (Vedlejší efekt, který se hodí: přeformátování souboru se nepočítá jako
-        // poškození, protože kanonický tvar zůstane stejný.)
+        // Canonical form: JSON without indentation. This is ALWAYS what gets hashed, never the file
+        // text as is — otherwise the checksum would depend on indentation. Inside the envelope the
+        // model is indented one level deeper than when serialized alone, so two writes of the same
+        // model would differ. (Useful side effect: reformatting the file does not count as damage,
+        // because the canonical form stays the same.)
         //
-        // Obě strany — ukládání i ověřování — jdou přes JsonElement do kompaktního zápisu,
-        // takže je to bit po bitu stejný kód a nemá se kde rozejít.
+        // Both sides — saving and verification — go through JsonElement to the compact form, so it
+        // is the very same code and cannot diverge.
         private static string Canonical(JsonElement element)
         {
             using var buffer = new MemoryStream();
@@ -129,15 +129,15 @@ namespace My_DNN.Save_neural_network
             return System.Text.Encoding.UTF8.GetString(buffer.ToArray());
         }
 
-        // SHA-256 nad UTF-8 textem. Prefix drží algoritmus u hodnoty, aby šel někdy vyměnit
-        // (např. za HMAC s tajným klíčem) bez změny tvaru formátu.
+        // SHA-256 over the UTF-8 text. The prefix keeps the algorithm next to the value so it can be
+        // swapped later (e.g. for an HMAC with a secret key) without changing the format shape.
         private static string ComputeChecksum(string payload)
         {
             byte[] hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(payload));
             return "sha256:" + Convert.ToHexString(hash).ToLowerInvariant();
         }
 
-        // jádro serializace (bez souboru) — reuse pro disk i pro in-memory snapshot
+        // core serialization (no file) — shared by saving to disk and the in-memory snapshot
         public string SaveToString()
         {
             JsonSerializerOptions options = SerializerOptions();
@@ -155,8 +155,8 @@ namespace My_DNN.Save_neural_network
             return System.Text.Json.JsonSerializer.Serialize(envelope, options);
         }
 
-        // Přípona .json se doplní, jen když tam ještě není. Dřív se přidávala vždycky,
-        // takže Save("model.json") vyrobil "model.json.json".
+        // The .json extension is added only when not already present. Previously it was always
+        // added, so Save("model.json") produced "model.json.json".
         private const string JsonExtension = ".json";
 
         public static string EnsureJsonExtension(string path)
@@ -175,7 +175,7 @@ namespace My_DNN.Save_neural_network
         {
             JsonSerializerOptions options = new JsonSerializerOptions
             {
-                Converters = { new LayerConverter() }  // Přidání konvertoru pro vrstvy
+                Converters = { new LayerConverter() }  // converter for layers
             };
 
             string modelJson = UnwrapAndVerify(json);
@@ -194,7 +194,7 @@ namespace My_DNN.Save_neural_network
             }
         }
 
-        // Pole, bez kterých model postavit nejde (viz deklarace Optimizer/Layers).
+        // Fields without which the model cannot be built (see the Optimizer/Layers declarations).
         private void RequireComplete()
         {
             if ((object?)Optimizer == null)
@@ -203,9 +203,9 @@ namespace My_DNN.Save_neural_network
                 throw new ModelFileCorruptedException("The model file has no 'Layers' section.");
         }
 
-        // Vrátí JSON vlastního modelu. Nový formát rozbalí a ověří kontrolní součet,
-        // starý (bez FormatVersion) propustí beze změny — jinak by přestaly jít načíst
-        // dřív uložené modely.
+        // Returns the JSON of the model itself. The new format is unwrapped and its checksum verified;
+        // the old one (without FormatVersion) passes through unchanged — otherwise previously saved
+        // models would no longer load.
         private static string UnwrapAndVerify(string json)
         {
             JsonElement root;
@@ -221,7 +221,7 @@ namespace My_DNN.Save_neural_network
 
             if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("FormatVersion", out JsonElement versionElement))
             {
-                return json;   // starý plochý formát (v0) — bez obálky i bez součtu
+                return json;   // old flat format (v0) — no envelope, no checksum
             }
 
             int version = versionElement.GetInt32();
@@ -237,8 +237,8 @@ namespace My_DNN.Save_neural_network
                 throw new ModelFileCorruptedException("The model envelope has no 'Model' section.");
             }
 
-            // GetRawText() vrátí přesně ty znaky, které v souboru jsou → hash se počítá nad
-            // původními daty, ne nad jejich novou serializací
+            // GetRawText() returns exactly the characters in the file → the hash is computed over
+            // the original data, not over a re-serialization
             string modelJson = modelElement.GetRawText();
 
             string? expected = root.TryGetProperty("Checksum", out JsonElement checksumElement)
@@ -257,9 +257,9 @@ namespace My_DNN.Save_neural_network
             return modelJson;
         }
 
-        // Tolerantní protějšek k Save: `SaveAsJson("model")` zapíše "model.json", takže
-        // `LoadModel("model")` musí fungovat taky. Cesta se bere přednostně tak, jak ji
-        // uživatel zadal; teprve když takový soubor není, zkusí se s doplněnou příponou.
+        // Lenient counterpart to Save: `SaveAsJson("model")` writes "model.json", so
+        // `LoadModel("model")` must work too. The path is first tried as given; only if no such
+        // file exists is the extension appended.
         public static NetworkSaveLoadManager Load(string fullPath)
         {
             string path = File.Exists(fullPath) ? fullPath : EnsureJsonExtension(fullPath);

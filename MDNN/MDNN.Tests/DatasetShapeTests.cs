@@ -1,32 +1,32 @@
 using System;
 using Xunit;
-using My_DNN;
-using My_DNN.Layers;
-using My_DNN.Activation_functions;
-using My_DNN.Optimizers;
-using My_DNN.Loss_functions;
+using MDNN;
+using MDNN.Layers;
+using MDNN.Activations;
+using MDNN.Optimizers;
+using MDNN.Losses;
 
 namespace MDNN.Tests;
 
 /// <summary>
-/// Kolik rozměrů smí mít dataset pro <c>TrainLoop</c>.
+/// How many dimensions a dataset for <c>TrainLoop</c> may have.
 ///
-/// Vzorek má nejvýš 3 rozměry ([h, w, c] pro Conv), takže mimo sekvenční režim je dataset
-/// nejvýš 4D a v sekvenčním nejvýš 5D. Dřív kontrola odmítala už 4D: obrázky s kanály
-/// [n, h, w, c] — přesně to, co Conv bere — přes TrainLoop natrénovat nešly a jediné
-/// obejití bylo zploštit je na [n, h·w·c].
+/// A sample has at most 3 dimensions ([h, w, c] for Conv), so outside sequence mode a dataset
+/// is at most 4D, and at most 5D in sequence mode. Previously the check already rejected 4D:
+/// images with channels [n, h, w, c] (exactly what Conv takes) could not be trained through
+/// TrainLoop, and the only workaround was to flatten them to [n, h·w·c].
 /// </summary>
 public class DatasetShapeTests
 {
-    private static My_DNN.MDNN Cnn()
+    private static NeuralNetwork Cnn()
     {
-        var model = new My_DNN.MDNN(new Dense(2, new Softmax()), new Adam(0.01), new CrossEntropy(), seed: 3);
-        model.Layers.Add(new Conv(2, 3, new ReLu(), "valid"));
+        var model = new NeuralNetwork(new Dense(2, new Softmax()), new Adam(0.01), new CrossEntropy(), seed: 3);
+        model.Layers.Add(new Conv(2, 3, new ReLU(), "valid"));
         model.Layers.Add(new MaxPool(2));
-        model.Train.ShowLossChartInTrainLoop = false;
-        model.Train.ShowModelInfoIntrainLoop = false;
-        model.Train.AutoSaveInTrainLoop = false;
-        return model;   // TestNeuralNetworkAfterTraining nechán zapnutý: projde i valid a test
+        model.Train.ShowLossChart = false;
+        model.Train.ShowModelInfo = false;
+        model.Train.AutoSave = false;
+        return model;   // TestAfterTraining left on: valid and test sets get exercised too
     }
 
     private static double Pixel(int s, int i, int j) => Math.Sin(s + i * 0.7 + j * 0.3);
@@ -51,13 +51,13 @@ public class DatasetShapeTests
         var model = Cnn();
         model.Train.TrainLoop(x, Labels(12), 2, 4);
 
-        Assert.Equal(new[] { 6, 6, 3 }, model.Layers.Layers[0].Input_size_and_shape);
+        Assert.Equal(new[] { 6, 6, 3 }, model.Layers.Layers[0].InputShape);
     }
 
     [Fact]
     public void Single_channel_4d_dataset_trains_exactly_like_the_3d_one()
     {
-        // [n, h, w, 1] a [n, h, w] jsou tatáž data — Conv si 2D vzorek doplní na [h, w, 1].
+        // [n, h, w, 1] and [n, h, w] are the same data; Conv expands a 2D sample to [h, w, 1].
         var flat = new double[12, 6, 6];
         var withChannel = new double[12, 6, 6, 1];
         for (int s = 0; s < 12; s++)
@@ -70,8 +70,8 @@ public class DatasetShapeTests
         a.Train.TrainLoop(flat, Labels(12), 2, 4);
         b.Train.TrainLoop(withChannel, Labels(12), 2, 4);
 
-        var ka = ((Conv)a.Layers.Layers[0]).Kernel;
-        var kb = ((Conv)b.Layers.Layers[0]).Kernel;
+        var ka = ((Conv)a.Layers.Layers[0]).Kernels;
+        var kb = ((Conv)b.Layers.Layers[0]).Kernels;
         Assert.Equal(ka.Length, kb.Length);
         for (int f = 0; f < ka.Length; f++)
         for (int i = 0; i < ka[f].Length; i++)

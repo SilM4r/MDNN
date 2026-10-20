@@ -1,35 +1,34 @@
 using System.Runtime.ExceptionServices;
-using My_DNN.Layers.classes;
+using MDNN.Layers;
 
-namespace My_DNN
+namespace MDNN
 {
-    // Data-paralelní trénink jedné dávky přes repliky modelu (Train.Workers > 1).
+    // Data-parallel training of one batch across model replicas (Train.Workers > 1).
     //
-    // Jedna dávka:
-    //   1. originál přenese do replik parametry, které nesdílí odkazem (biasy neuronů)
-    //   2. dávka se rozdělí na souvislé úseky a každá replika spočítá svůj na vlastním vlákně
-    //      (forward + backward, gradienty se sčítají v replice)
-    //   3. gradienty a loss se přičtou k originálu V PEVNÉM POŘADÍ replik
-    //   4. UpdateParams originálu (to už dělá volající, jedním vláknem jako dřív)
+    // One batch:
+    //   1. the original copies into the replicas the parameters not shared by reference (neuron biases)
+    //   2. the batch is split into contiguous chunks and each replica computes its own on its own thread
+    //      (forward + backward, gradients accumulate in the replica)
+    //   3. gradients and loss are added to the original IN A FIXED replica ORDER
+    //   4. UpdateParams on the original (done by the caller, single-threaded)
     //
-    // Proč repliky a ne zámky nebo stav po vláknech: vrstvy drží aktivace v polích
-    // (`output`, `raw_output`, `Neuron.inputs`, …), takže vrstvou smí v jednu chvíli
-    // procházet jen jeden vzorek. Replika dá každému vláknu vlastní sadu těch polí,
-    // aniž by se vnitřek vrstev musel měnit. Váhy se přitom nekopírují — replika je
-    // sdílí s originálem a jen je čte.
+    // Why replicas and not locks or per-thread state: layers keep activations in fields
+    // (`output`, `raw_output`, `Neuron.inputs`, …), so only one sample may pass through a layer
+    // at a time. A replica gives each thread its own set of those fields without changing the
+    // layer internals. Weights are not copied — the replica shares them with the original and only reads them.
     //
-    // Determinismus: sčítání double není asociativní, takže výsledek závisí na tom, jak
-    // se dávka rozdělí. Rozdělení i pořadí sčítání jsou ale dané jen počtem replik, ne
-    // tím, které vlákno doběhne dřív — stejný seed a stejné Workers dají bit po bitu
-    // stejný výsledek, na jakémkoli stroji.
+    // Determinism: double addition is not associative, so the result depends on how the batch is
+    // split. But both the split and the summation order depend only on the number of replicas, not
+    // on which thread finishes first — the same seed and the same Workers give a bit-identical
+    // result on any machine.
     internal sealed class ReplicaPool
     {
-        private readonly MDNN _original;
-        private readonly MDNN[] _replicas;
+        private readonly NeuralNetwork _original;
+        private readonly NeuralNetwork[] _replicas;
 
-        // `training` = repliky budou trénovat (RunBatch). false = jen vyhodnocovat (Map):
-        // forward bez dropoutu, takže generátor náhody nepotřebují vůbec.
-        public ReplicaPool(MDNN original, int workers, bool training = true)
+        // `training` = the replicas will train (RunBatch). false = evaluate only (Map):
+        // forward without dropout, so they need no random generator at all.
+        public ReplicaPool(NeuralNetwork original, int workers, bool training = true)
         {
             if (original.Context.CalculationViaGpu)
             {
@@ -38,10 +37,10 @@ namespace My_DNN
                     "Set Train.Workers = 1, or turn off CalculationViaGpu.");
             }
 
-            // RNN mimo sekvenční trénink nese skrytý stav z jednoho vzorku do DALŠÍHO
-            // (nic ho mezi vzorky nenuluje). Sekvenčně teče stav v pořadí dávky; paralelně
-            // by si ho každá replika nesla po svém kusu a výsledek by se tiše lišil.
-            // V sekvenčním režimu to nevadí — replika bere celou sekvenci a stav se nuluje.
+            // Outside sequence training an RNN carries its hidden state from one sample to the NEXT
+            // (nothing resets it between samples). Sequentially the state flows in batch order; in
+            // parallel each replica would carry it along its own chunk and the result would silently differ.
+            // In sequence mode this is fine — a replica takes a whole sequence and the state is reset.
             if (!original.Context.SequenceTrain && original.Layers.Layers.Any(l => l is Layers.RNN))
             {
                 throw new NotSupportedException(
@@ -51,14 +50,14 @@ namespace My_DNN
             }
 
             _original = original;
-            _replicas = new MDNN[workers];
+            _replicas = new NeuralNetwork[workers];
 
-            // Náhodu replika potřebuje jen na masky dropoutu (parametry už jsou vylosované).
-            // Bez dropoutu se z generátoru originálu NEČERPÁ — každé čerpání by posunulo
-            // jeho stav a další epocha by zamíchala data jinak než při Workers = 1. Zapnout
-            // paralelismus by pak změnilo trénink víc než o zaokrouhlení.
-            // Při vyhodnocování dropout neběží, takže se nečerpá nikdy — validace mezi
-            // epochami by jinak posunula generátor a změnila pořadí dat další epochy.
+            // A replica needs randomness only for dropout masks (parameters are already drawn).
+            // Without dropout the original's generator is NOT drawn from — every draw would advance
+            // its state and the next epoch would shuffle data differently than with Workers = 1, so
+            // enabling parallelism would change training by more than rounding.
+            // During evaluation dropout is off, so nothing is ever drawn — otherwise validation between
+            // epochs would advance the generator and change the data order of the next epoch.
             bool needsRandom = training
                                && original.Layers.Layers.Any(l => l is Layers.Dense d && d.UsesDropout);
 
@@ -72,21 +71,21 @@ namespace My_DNN
                         "(Train.Workers > 1). Set Train.Workers = 1."));
                 }
 
-                // Seed pro generátor repliky se bere z generátoru originálu: je to pořád
-                // jediný zdroj náhody modelu, takže se seedem reprodukovatelné. Bez dropoutu
-                // dostane replika pevný seed — vlastní instance tak jako tak, protože
-                // kontext bez generátoru by sáhl po SDÍLENÉM globálním, a ten thread-safe není.
+                // The replica's seed is drawn from the original's generator: it remains the model's
+                // single source of randomness, so a seeded run is reproducible. Without dropout the
+                // replica gets a fixed seed — still its own instance, because a context without a
+                // generator would fall back to the SHARED global one, which is not thread-safe.
                 int seed = needsRandom ? original.Context.Random.Next() : 0;
                 NetworkContext context = original.Context.CreateReplica(seed);
-                _replicas[w] = new MDNN(context, layers);
+                _replicas[w] = new NeuralNetwork(context, layers);
             }
         }
 
-        // Pro každý index 0..count-1 zavolá `run(replika, index)` a výsledky vrátí V POŘADÍ
-        // INDEXŮ, ne v pořadí doběhnutí. Jen čtení modelu (forward pro validaci a test):
-        // nic se nesčítá do originálu, takže výsledek nezávisí na tom, jak se práce rozdělí.
-        // Volající pak výsledky zpracuje sekvenčně, a tedy stejně jako při Workers = 1.
-        public T[] Map<T>(int count, Func<MDNN, int, T> run)
+        // Calls `run(replica, index)` for each index 0..count-1 and returns the results IN INDEX
+        // ORDER, not in completion order. Read-only use of the model (forward for validation and test):
+        // nothing is added to the original, so the result does not depend on how work is split.
+        // The caller then processes the results sequentially, exactly as with Workers = 1.
+        public T[] Map<T>(int count, Func<NeuralNetwork, int, T> run)
         {
             var results = new T[count];
             int used = Math.Min(_replicas.Length, count);
@@ -108,14 +107,14 @@ namespace My_DNN
             return results;
         }
 
-        // Před prací: přenést do replik parametry, které nesdílí odkazem (biasy neuronů).
+        // Before work: copy into the replicas the parameters not shared by reference (neuron biases).
         private void SyncReplicas(int used)
         {
-            List<Layer> originalLayers = _original.Layers.Layers;
+            IReadOnlyList<Layer> originalLayers = _original.Layers.Layers;
 
             for (int w = 0; w < used; w++)
             {
-                List<Layer> replicaLayers = _replicas[w].Layers.Layers;
+                IReadOnlyList<Layer> replicaLayers = _replicas[w].Layers.Layers;
                 for (int i = 0; i < originalLayers.Count; i++)
                 {
                     originalLayers[i].SyncReplica(replicaLayers[i]);
@@ -131,21 +130,21 @@ namespace My_DNN
             }
             catch (AggregateException e)
             {
-                // Volající má dostat tutéž výjimku jako v sekvenční cestě (třeba
-                // ArgumentException o nesedícím počtu cílů), ne obal z Parallel.For.
+                // The caller should get the same exception as on the sequential path (e.g. an
+                // ArgumentException about a mismatched target count), not the Parallel.For wrapper.
                 ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw();
                 throw;
             }
         }
 
-        // Spočítá vzorky order[start..end) a nasčítá jejich gradienty do originálu.
-        // `fitOne` dostane Train repliky a index vzorku — tentýž kód, jaký se volá
-        // v sekvenční cestě nad originálem.
+        // Computes samples order[start..end) and accumulates their gradients into the original.
+        // `fitOne` gets the replica's Train and the sample index — the same code that the
+        // sequential path calls on the original.
         public void RunBatch(int[] order, int start, int end, Action<Train, int> fitOne)
         {
             int count = end - start;
             int used = Math.Min(_replicas.Length, count);
-            List<Layer> originalLayers = _original.Layers.Layers;
+            IReadOnlyList<Layer> originalLayers = _original.Layers.Layers;
 
             SyncReplicas(used);
 
@@ -160,10 +159,10 @@ namespace My_DNN
                 }
             });
 
-            // Pevné pořadí 0, 1, 2, … — ne podle toho, kdo doběhne dřív.
+            // Fixed order 0, 1, 2, … — not by who finishes first.
             for (int w = 0; w < used; w++)
             {
-                List<Layer> replicaLayers = _replicas[w].Layers.Layers;
+                IReadOnlyList<Layer> replicaLayers = _replicas[w].Layers.Layers;
                 for (int i = 0; i < originalLayers.Count; i++)
                 {
                     originalLayers[i].TakeGradientsFrom(replicaLayers[i]);

@@ -3,28 +3,28 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Xunit;
-using My_DNN;
-using My_DNN.Layers;
-using My_DNN.Activation_functions;
-using My_DNN.Optimizers;
-using My_DNN.Loss_functions;
+using MDNN;
+using MDNN.Layers;
+using MDNN.Activations;
+using MDNN.Optimizers;
+using MDNN.Losses;
 
 namespace MDNN.Tests;
 
 /// <summary>
-/// Testy regularizace (L2 weight decay, dropout).
+/// Regularization tests (L2 weight decay, dropout).
 ///
-/// Zásada z Fáze 1 platí i tady: nová schopnost se nepřidává bez gradient checku.
-/// U L2 to znamená ověřit, že efektivní gradient odpovídá derivaci účelové funkce
-/// VČETNĚ trestného členu — tedy loss + λ/2·Σw².
+/// The usual rule applies here too: no new capability without a gradient check.
+/// For L2 that means verifying that the effective gradient matches the derivative of the
+/// objective INCLUDING the penalty term — i.e. loss + λ/2·Σw².
 /// </summary>
 public class RegularizationTests
 {
     // ============================================================ L2
 
-    /// <summary>Součet čtverců všech regularizovaných parametrů — tedy vah, NE biasů.
-    /// Musí sedět s tím, co dělá Neuron.UpdateWeightsAndBias, jinak testujeme něco jiného.</summary>
-    private static double SumOfSquaredWeights(My_DNN.MDNN model)
+    /// <summary>Sum of squares of all regularized parameters — i.e. weights, NOT biases.
+    /// Must match what Neuron.UpdateWeightsAndBias does, otherwise we test something else.</summary>
+    private static double SumOfSquaredWeights(NeuralNetwork model)
     {
         double sum = 0;
         foreach (var layer in model.Layers.Layers)
@@ -38,31 +38,31 @@ public class RegularizationTests
     }
 
     [Theory]
-    [InlineData(0.0)]      // vypnuto — musí vyjít stejně jako bez regularizace
+    [InlineData(0.0)]      // off — must match the unregularized result
     [InlineData(0.01)]
-    [InlineData(0.5)]      // schválně velké, ať trestný člen převáží nad loss
+    [InlineData(0.5)]      // deliberately large so the penalty term dominates the loss
     public void L2_effective_gradient_matches_numeric(double lambda)
     {
         var x = new Tensor(new double[] { 0.5, -0.3, 0.8, 0.1 });
         var target = new Tensor(new double[] { 0.0, 1.0 });
 
-        var model = new My_DNN.MDNN(new Dense(2, new Tanh()), new SGD(0.01), new MSE(), seed: 7);
+        var model = new NeuralNetwork(new Dense(2, new Tanh()), new SGD(0.01), new MSE(), seed: 7);
         model.Layers.Add(new Dense(4, new Tanh()));
         model.Context.L2 = lambda;
 
-        // dávka o jednom vzorku → gradientsW se nedělí ničím jiným než 1
+        // single-sample batch → gradientsW is divided by nothing but 1
         model.Train.Fit(x, target);
 
         var neurons = new List<Neuron>();
         foreach (var layer in model.Layers.Layers)
             neurons.AddRange(((Dense)layer).Neurons);
 
-        // efektivní gradient = to, co se doopravdy předá optimizeru
+        // effective gradient = what actually gets passed to the optimizer
         var analytic = neurons
             .Select(n => n.Weights.Select((w, i) => n.gradientsW[i] + lambda * w).ToArray())
             .ToList();
 
-        // účelová funkce VČETNĚ trestu — bez toho by se čísla nikdy nepotkala
+        // objective INCLUDING the penalty — without it the numbers would never match
         Func<double> objectiveAt = () =>
             model.Loss.CalculateAndGetLoss(model.GetResults(x).Data, target.Data)
             + lambda / 2.0 * SumOfSquaredWeights(model);
@@ -77,27 +77,27 @@ public class RegularizationTests
         }
 
         Assert.True(maxRel < 1e-5,
-            $"λ={lambda}: maxRel={maxRel} u neuronu {worstI} váhy {worstJ} " +
+            $"λ={lambda}: maxRel={maxRel} at neuron {worstI} weight {worstJ} " +
             $"(analytic={analytic[worstI][worstJ]})");
     }
 
     [Fact]
     public void L2_does_not_touch_biases()
     {
-        // Bias se NESMÍ regularizovat. Test to chytne tak, že model dostane nulový
-        // gradient (predikce == cíl), takže jedinou silou, která by mohla parametry
-        // hnout, je právě weight decay.
+        // The bias must NOT be regularized. The test catches this by giving the model a zero
+        // gradient (prediction == target), so the only force that could move the parameters
+        // is weight decay itself.
         var x = new Tensor(new double[] { 1.0, 1.0 });
 
-        var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.1), new MSE(), seed: 3);
+        var model = new NeuralNetwork(new Dense(2, new Linear()), new SGD(0.1), new MSE(), seed: 3);
         model.Context.L2 = 0.5;
 
-        model.GetResults(x);                       // materializace
+        model.GetResults(x);                       // materialize the layers
         var neurons = ((Dense)model.Layers.Layers[0]).Neurons;
         foreach (var n in neurons)
             n.SetParamsForTests(new double[] { 0.25, -0.75 }, 2.0);
 
-        // cíl = přesně to, co síť vydá → gradient z loss je nulový
+        // target = exactly what the network outputs → the loss gradient is zero
         var target = new Tensor((double[])model.GetResults(x).Data.Clone());
 
         model.Train.Fit(x, target);
@@ -105,11 +105,11 @@ public class RegularizationTests
 
         foreach (var n in neurons)
         {
-            Assert.Equal(2.0, n.Bias);                          // bias BEZE ZMĚNY
-            Assert.True(Math.Abs(n.Weights[0]) < 0.25,          // váhy staženy k nule
-                $"váha 0 se nezmenšila: {n.Weights[0]}");
+            Assert.Equal(2.0, n.Bias);                          // bias UNCHANGED
+            Assert.True(Math.Abs(n.Weights[0]) < 0.25,          // weights pulled towards zero
+                $"weight 0 did not shrink: {n.Weights[0]}");
             Assert.True(Math.Abs(n.Weights[1]) < 0.75,
-                $"váha 1 se nezmenšila: {n.Weights[1]}");
+                $"weight 1 did not shrink: {n.Weights[1]}");
         }
     }
 
@@ -118,24 +118,24 @@ public class RegularizationTests
     [InlineData(0.03)]
     public void L2_is_actually_applied_by_the_library(double lambda)
     {
-        // Gradient check výš ověřuje VZOREC (grad + λ·w), ale počítá si ho sám v testu —
-        // takže sám o sobě nedokáže, že ho knihovna doopravdy předá optimizeru.
-        // Tady se to uzavírá: se SGD je krok přesně w -= lr·gradient, takže z posunu
-        // váhy jde efektivní gradient zpětně dopočítat a porovnat.
+        // The gradient check above verifies the FORMULA (grad + λ·w), but computes it in the
+        // test itself — so on its own it does not prove the library actually passes it to the
+        // optimizer. This closes the gap: with SGD the step is exactly w -= lr·gradient, so the
+        // effective gradient can be recovered from the weight change and compared.
         const double lr = 0.1;
 
         var x = new Tensor(new double[] { 0.4, -0.6, 0.2 });
         var target = new Tensor(new double[] { 0.3, -0.1 });
 
-        var model = new My_DNN.MDNN(new Dense(2, new Tanh()), new SGD(lr), new MSE(), seed: 5);
+        var model = new NeuralNetwork(new Dense(2, new Tanh()), new SGD(lr), new MSE(), seed: 5);
         model.Layers.Add(new Dense(3, new Tanh()));
         model.Context.L2 = lambda;
 
-        model.GetResults(x);      // materializace
+        model.GetResults(x);      // materialize the layers
 
-        // Biasy MUSÍ být nenulové. Startují na nule, takže by chybný člen λ·bias
-        // vyšel taky nulový a test by rozbitou implementaci propustil — ověřeno
-        // negativní kontrolou, tahle díra tu opravdu byla.
+        // Biases MUST be non-zero. They start at zero, so a wrong λ·bias term would also
+        // come out as zero and the test would pass a broken implementation — confirmed by
+        // a negative control, this hole really existed.
         var allNeurons = model.Layers.Layers.SelectMany(l => ((Dense)l).Neurons).ToList();
         for (int i = 0; i < allNeurons.Count; i++)
         {
@@ -147,7 +147,7 @@ public class RegularizationTests
 
         var neurons = allNeurons;
 
-        // co OČEKÁVÁME, že optimizer dostane, a jaké váhy z toho vyjdou
+        // what we EXPECT the optimizer to receive, and the resulting weights
         var before = neurons.Select(n => (double[])n.Weights.Clone()).ToList();
         var expected = neurons
             .Select(n => n.Weights
@@ -162,14 +162,14 @@ public class RegularizationTests
         {
             for (int j = 0; j < neurons[i].Weights.Length; j++)
                 Assert.True(Math.Abs(expected[i][j] - neurons[i].Weights[j]) < 1e-12,
-                    $"λ={lambda}, neuron {i} váha {j}: čekáno {expected[i][j]:G17}, " +
-                    $"dostal {neurons[i].Weights[j]:G17} (před krokem {before[i][j]:G17})");
+                    $"λ={lambda}, neuron {i} weight {j}: expected {expected[i][j]:G17}, " +
+                    $"got {neurons[i].Weights[j]:G17} (before the step {before[i][j]:G17})");
 
-            // bias musí jít čistě po gradientu, BEZ členu λ·b
+            // the bias must follow the plain gradient, WITHOUT the λ·b term
             double expectedBias = biasBefore[i] - lr * biasGrad[i];
             Assert.True(Math.Abs(expectedBias - neurons[i].Bias) < 1e-12,
-                $"λ={lambda}, neuron {i}: bias má jít po čistém gradientu — " +
-                $"čekáno {expectedBias:G17}, dostal {neurons[i].Bias:G17}");
+                $"λ={lambda}, neuron {i}: the bias should follow the plain gradient — " +
+                $"expected {expectedBias:G17}, got {neurons[i].Bias:G17}");
         }
     }
 
@@ -180,21 +180,21 @@ public class RegularizationTests
     [InlineData(0.5)]
     public void Dropout_gradient_matches_numeric_with_frozen_mask(double rate)
     {
-        // Gradient check dropoutu. Maska se ZMRAZÍ, jinak by každý forward losoval jinou
-        // a numerická derivace by měřila pokaždé jinou funkci.
+        // Dropout gradient check. The mask is FROZEN, otherwise every forward would draw a new
+        // one and the numeric derivative would measure a different function each time.
         var x = new Tensor(new double[] { 0.5, -0.3, 0.8 });
         var target = new Tensor(new double[] { 0.2, -0.4 });
 
-        var model = new My_DNN.MDNN(new Dense(2, new Tanh()), new SGD(0.01), new MSE(), seed: 21);
+        var model = new NeuralNetwork(new Dense(2, new Tanh()), new SGD(0.01), new MSE(), seed: 21);
         model.Layers.Add(new Dense(12, new Tanh(), dropout: rate));
 
-        model.Context.IsTraining = true;         // ruční režim: chceme dropout i v GetResults
-        model.Train.Fit(x, target);              // vylosuje masku
+        model.Context.IsTraining = true;         // manual mode: we want dropout in GetResults too
+        model.Train.Fit(x, target);              // draws the mask
 
         var denseLayers = model.Layers.Layers.Cast<Dense>().ToList();
         foreach (var d in denseLayers) d.FreezeDropoutMaskForTests = true;
 
-        // pojistka, že se opravdu něco zahodilo — jinak by test nic netestoval
+        // safeguard that something really was dropped — otherwise the test would test nothing
         double[] mask = denseLayers[0].DropoutMaskForTests!;
         Assert.Contains(mask, m => m == 0.0);
 
@@ -214,15 +214,15 @@ public class RegularizationTests
         }
 
         Assert.True(maxRel < 1e-5,
-            $"rate={rate}: maxRel={maxRel} u neuronu {worstI} váhy {worstJ}");
+            $"rate={rate}: maxRel={maxRel} at neuron {worstI} weight {worstJ}");
     }
 
     [Fact]
     public void Dropout_is_off_during_prediction()
     {
-        // Nejdůležitější vlastnost: predikce musí být DETERMINISTICKÁ. Kdyby dropout
-        // zůstal zapnutý, dal by stejný vstup pokaždé jinou odpověď.
-        var model = new My_DNN.MDNN(new Dense(3, new Linear()), new SGD(0.01), new MSE(), seed: 4);
+        // The most important property: prediction must be DETERMINISTIC. If dropout stayed
+        // on, the same input would give a different answer every time.
+        var model = new NeuralNetwork(new Dense(3, new Linear()), new SGD(0.01), new MSE(), seed: 4);
         model.Layers.Add(new Dense(32, new Tanh(), dropout: 0.5));
 
         var x = new Tensor(new double[] { 0.5, -0.3, 0.8 });
@@ -231,14 +231,14 @@ public class RegularizationTests
         for (int i = 0; i < 20; i++)
             Assert.Equal(first, model.GetResults(x).Data);
 
-        Assert.False(model.Context.IsTraining, "GetResults nesmí nechat model v trénovacím režimu");
+        Assert.False(model.Context.IsTraining, "GetResults must not leave the model in training mode");
     }
 
     [Fact]
     public void Dropout_zeroes_roughly_the_requested_fraction_and_scales_survivors()
     {
         const double rate = 0.4;
-        var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE(), seed: 99);
+        var model = new NeuralNetwork(new Dense(2, new Linear()), new SGD(0.01), new MSE(), seed: 99);
         model.Layers.Add(new Dense(2000, new Linear(), dropout: rate));
 
         var x = new Tensor(new double[] { 1.0, 1.0, 1.0 });
@@ -250,7 +250,7 @@ public class RegularizationTests
         double zeroed = mask.Count(m => m == 0.0) / (double)mask.Length;
         Assert.InRange(zeroed, rate - 0.05, rate + 0.05);
 
-        // přeživší musí být zesílení PŘESNĚ na 1/(1-p), ne přibližně
+        // survivors must be scaled EXACTLY by 1/(1-p), not approximately
         double expectedScale = 1.0 / (1.0 - rate);
         foreach (double m in mask.Where(m => m != 0.0))
             Assert.Equal(expectedScale, m, 12);
@@ -259,8 +259,8 @@ public class RegularizationTests
     [Fact]
     public void Dropout_global_applies_to_hidden_but_not_output_layer()
     {
-        var model = new My_DNN.MDNN(new Dense(4, new Linear()), new SGD(0.01), new MSE(), seed: 8);
-        model.Layers.Add(new Dense(50, new Linear()));       // bez vlastní hodnoty → zdědí globální
+        var model = new NeuralNetwork(new Dense(4, new Linear()), new SGD(0.01), new MSE(), seed: 8);
+        model.Layers.Add(new Dense(50, new Linear()));       // no own value → inherits the global one
         model.Context.Dropout = 0.5;
 
         var x = new Tensor(new double[] { 1.0, 1.0 });
@@ -271,29 +271,59 @@ public class RegularizationTests
         var outputLayer = (Dense)model.Layers.Layers[1];
 
         Assert.NotNull(hidden.DropoutMaskForTests);
-        Assert.Null(outputLayer.DropoutMaskForTests);        // výstupní vrstva NEsmí zahazovat
+        Assert.Null(outputLayer.DropoutMaskForTests);        // the output layer must NOT drop
+    }
+
+    // Softmax normalizes across the whole layer, so a dropped neuron affects the other outputs
+    // and its weight gradient is NOT zero. Backward skipped it anyway (SkipSample) → a silently
+    // wrong gradient. Explicit dropout on a softmax layer is therefore an error; the global one skips it.
+    [Fact]
+    public void Dropout_on_softmax_layer_is_rejected_when_explicit()
+    {
+        var model = new NeuralNetwork(new Dense(3, new Softmax(), dropout: 0.5), new SGD(0.01), new CrossEntropy(), seed: 8);
+        model.Layers.Add(new Dense(4, new Linear()));
+
+        var x = new Tensor(new double[] { 1.0, 1.0 });
+        var t = new Tensor(new double[] { 0.0, 1.0, 0.0 });
+
+        var ex = Assert.Throws<NotSupportedException>(() => model.Train.Fit(x, t));
+        Assert.Contains("Softmax", ex.Message);
+
+        model.GetResults(x);   // prediction does not use dropout, so this passes
+    }
+
+    [Fact]
+    public void Dropout_global_skips_hidden_softmax_layer()
+    {
+        var model = new NeuralNetwork(new Dense(2, new Linear()), new SGD(0.01), new MSE(), seed: 8);
+        model.Layers.Add(new Dense(5, new Softmax()));   // hidden softmax layer, no own value
+        model.Context.Dropout = 0.5;
+
+        model.Train.Fit(new Tensor(new double[] { 1.0, 1.0 }), new Tensor(new double[] { 0.0, 1.0 }));
+
+        Assert.Null(((Dense)model.Layers.Layers[0]).DropoutMaskForTests);
     }
 
     [Fact]
     public void Dropout_per_layer_value_overrides_global()
     {
-        var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE(), seed: 8);
-        model.Layers.Add(new Dense(40, new Linear(), dropout: 0.0));   // explicitní VYPNUTÍ
-        model.Layers.Add(new Dense(40, new Linear()));                 // zdědí globální
+        var model = new NeuralNetwork(new Dense(2, new Linear()), new SGD(0.01), new MSE(), seed: 8);
+        model.Layers.Add(new Dense(40, new Linear(), dropout: 0.0));   // explicitly DISABLED
+        model.Layers.Add(new Dense(40, new Linear()));                 // inherits the global one
         model.Context.Dropout = 0.5;
 
         var x = new Tensor(new double[] { 1.0, 1.0 });
         model.Context.IsTraining = true;
         model.GetResults(x);
 
-        Assert.Null(((Dense)model.Layers.Layers[0]).DropoutMaskForTests);      // vypnuto explicitně
-        Assert.NotNull(((Dense)model.Layers.Layers[1]).DropoutMaskForTests);   // zdědilo 0.5
+        Assert.Null(((Dense)model.Layers.Layers[0]).DropoutMaskForTests);      // explicitly disabled
+        Assert.NotNull(((Dense)model.Layers.Layers[1]).DropoutMaskForTests);   // inherited 0.5
     }
 
     [Fact]
     public void Dropout_dropped_neuron_gets_no_weight_gradient()
     {
-        var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE(), seed: 13);
+        var model = new NeuralNetwork(new Dense(2, new Linear()), new SGD(0.01), new MSE(), seed: 13);
         model.Layers.Add(new Dense(30, new Tanh(), dropout: 0.5));
 
         var x = new Tensor(new double[] { 0.7, -0.2 });
@@ -313,20 +343,20 @@ public class RegularizationTests
             Assert.Equal(0.0, hidden.Neurons[i].gradientsB);
         }
 
-        Assert.Contains(mask, m => m == 0.0);      // pojistka, že se něco zahodilo
+        Assert.Contains(mask, m => m == 0.0);      // safeguard that something was dropped
     }
 
     [Fact]
     public void Dropout_averages_over_the_whole_batch_not_just_active_samples()
     {
-        // Past, kterou by nic jiného nechytilo: neuron vypnutý ve 3 z 8 vzorků má
-        // gradient nasčítaný jen z 5 vzorků, ale dělit se MUSÍ osmi. Kdyby se dělilo
-        // pěti, dostal by ten neuron o 60 % nafouknutý krok — a nešlo by to poznat
-        // jinak než tím, že se model učí divně.
+        // A trap nothing else would catch: a neuron dropped in 3 of 8 samples has its
+        // gradient summed from only 5 samples, but it MUST be divided by eight. Dividing by
+        // five would give that neuron a 60 % inflated step — and the only symptom would be
+        // that the model learns strangely.
         const double lr = 0.1;
         const int batch = 8;
 
-        var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(lr), new MSE(), seed: 17);
+        var model = new NeuralNetwork(new Dense(2, new Linear()), new SGD(lr), new MSE(), seed: 17);
         model.Layers.Add(new Dense(16, new Tanh(), dropout: 0.5));
 
         model.Context.IsTraining = true;
@@ -349,37 +379,37 @@ public class RegularizationTests
         {
             double expected = before[i][j] - lr * (grads[i][j] / batch);
             Assert.True(Math.Abs(expected - hidden.Neurons[i].Weights[j]) < 1e-12,
-                $"neuron {i} váha {j}: čekáno dělení {batch} vzorky → {expected:G17}, " +
-                $"dostal {hidden.Neurons[i].Weights[j]:G17}");
+                $"neuron {i} weight {j}: expected division by {batch} samples → {expected:G17}, " +
+                $"got {hidden.Neurons[i].Weights[j]:G17}");
         }
     }
 
     [Fact]
     public void Regularization_survives_save_and_load()
     {
-        // Tichý zabiják stejného druhu jako kdysi ztracená aktivace u Conv: model by se
-        // uložil, načetl a dotrénovával UŽ BEZ regularizace — a nic by to nehlásilo.
+        // A silent killer of the same kind as the once-lost Conv activation: the model would be
+        // saved, loaded and further trained WITHOUT regularization — and nothing would report it.
         string path = Path.Combine(Path.GetTempPath(), $"mdnn_reg_{Guid.NewGuid():N}.json");
 
         try
         {
-            var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE(), seed: 31);
-            model.Layers.Add(new Dense(5, new Tanh(), dropout: 0.25));   // vlastní hodnota
-            model.Layers.Add(new Dense(5, new Tanh()));                  // dědí globální
+            var model = new NeuralNetwork(new Dense(2, new Linear()), new SGD(0.01), new MSE(), seed: 31);
+            model.Layers.Add(new Dense(5, new Tanh(), dropout: 0.25));   // own value
+            model.Layers.Add(new Dense(5, new Tanh()));                  // inherits the global one
             model.Context.L2 = 0.017;
             model.Context.Dropout = 0.4;
 
-            model.GetResults(new Tensor(new double[] { 0.5, -0.2 }));    // materializace
+            model.GetResults(new Tensor(new double[] { 0.5, -0.2 }));    // materialize the layers
             model.SaveAsJson(path);
 
-            var loaded = My_DNN.MDNN.LoadModel(path);
+            var loaded = NeuralNetwork.LoadModel(path);
 
             Assert.Equal(0.017, loaded.Context.L2);
             Assert.Equal(0.4, loaded.Context.Dropout);
             Assert.Equal(0.25, ((Dense)loaded.Layers.Layers[0]).DropoutRate);
 
-            // null se MUSÍ zachovat jako null, ne spadnout na nulu — jinak by vrstva
-            // přestala dědit globální hodnotu a dropout by na ní tiše zmizel
+            // null MUST stay null, not collapse to zero — otherwise the layer would stop
+            // inheriting the global value and dropout would silently vanish from it
             Assert.Null(((Dense)loaded.Layers.Layers[1]).DropoutRate);
         }
         finally
@@ -391,16 +421,16 @@ public class RegularizationTests
     [Fact]
     public void Manual_training_loop_behaves_like_Fit()
     {
-        // README nabízí ruční trénink jako „Fit rozdělený na dva kroky".
-        // Musí to tedy dát TOTÉŽ — a s dropoutem to chvíli neplatilo: Train.FeedForward
-        // volalo GetResults, které trénovací režim nezapíná, takže ruční cesta tiše
-        // běžela BEZ dropoutu.
+        // The README presents manual training as "Fit split into two steps".
+        // So it must produce the SAME result — and with dropout it briefly did not:
+        // Train.FeedForward called GetResults, which does not enable training mode, so the
+        // manual path silently ran WITHOUT dropout.
         var x = new Tensor(new double[] { 0.5, -0.3, 0.8 });
         var target = new Tensor(new double[] { 0.2, -0.4 });
 
         double[] Run(bool manual)
         {
-            var model = new My_DNN.MDNN(new Dense(2, new Tanh()), new SGD(0.1), new MSE(), seed: 91);
+            var model = new NeuralNetwork(new Dense(2, new Tanh()), new SGD(0.1), new MSE(), seed: 91);
             model.Layers.Add(new Dense(12, new Tanh(), dropout: 0.5));
 
             if (manual)
@@ -426,17 +456,17 @@ public class RegularizationTests
 
         for (int i = 0; i < viaFit.Length; i++)
             Assert.True(viaFit[i].Equals(viaManual[i]),
-                $"váha {i}: Fit {viaFit[i]:G17}, ruční cesta {viaManual[i]:G17}");
+                $"weight {i}: Fit {viaFit[i]:G17}, manual path {viaManual[i]:G17}");
     }
 
     [Fact]
     public void Dropout_rejects_invalid_rate()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => new Dense(4, new ReLu(), dropout: 1.0));
-        Assert.Throws<ArgumentOutOfRangeException>(() => new Dense(4, new ReLu(), dropout: -0.1));
-        Assert.Throws<ArgumentOutOfRangeException>(() => new Dense(4, new ReLu(), dropout: double.NaN));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new Dense(4, new ReLU(), dropout: 1.0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new Dense(4, new ReLU(), dropout: -0.1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new Dense(4, new ReLU(), dropout: double.NaN));
 
-        var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE());
+        var model = new NeuralNetwork(new Dense(2, new Linear()), new SGD(0.01), new MSE());
         Assert.Throws<ArgumentOutOfRangeException>(() => model.Context.Dropout = 1.0);
         Assert.Throws<ArgumentOutOfRangeException>(() => model.Context.Dropout = -0.5);
     }
@@ -444,21 +474,21 @@ public class RegularizationTests
     [Fact]
     public void L2_rejects_negative_coefficient()
     {
-        var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE());
+        var model = new NeuralNetwork(new Dense(2, new Linear()), new SGD(0.01), new MSE());
 
         Assert.Throws<ArgumentOutOfRangeException>(() => model.Context.L2 = -0.1);
         Assert.Throws<ArgumentOutOfRangeException>(() => model.Context.L2 = double.NaN);
-        Assert.Equal(0.0, model.Context.L2);          // neplatné přiřazení nic nezměnilo
+        Assert.Equal(0.0, model.Context.L2);          // the invalid assignment changed nothing
     }
 
     [Fact]
     public void L2_shrinks_weights_over_training()
     {
-        // Chování v celku: se stejným seedem a stejnými daty musí model s L2 skončit
-        // s menší normou vah než bez něj. Tohle je ten důvod, proč regularizace existuje.
+        // End-to-end behaviour: with the same seed and data, the model with L2 must end up
+        // with a smaller weight norm than without it. That is why regularization exists.
         double NormAfterTraining(double lambda)
         {
-            var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.05), new MSE(), seed: 11);
+            var model = new NeuralNetwork(new Dense(1, new Linear()), new SGD(0.05), new MSE(), seed: 11);
             model.Layers.Add(new Dense(8, new Tanh()));
             model.Context.L2 = lambda;
 
@@ -479,6 +509,6 @@ public class RegularizationTests
         double regularized = NormAfterTraining(0.05);
 
         Assert.True(regularized < plain,
-            $"L2 nezmenšilo váhy: bez regularizace Σw²={plain}, s L2 Σw²={regularized}");
+            $"L2 did not shrink the weights: without regularization Σw²={plain}, with L2 Σw²={regularized}");
     }
 }

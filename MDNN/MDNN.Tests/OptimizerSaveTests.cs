@@ -4,22 +4,21 @@ using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
 using Xunit;
-using My_DNN;
-using My_DNN.Layers;
-using My_DNN.Layers.classes;
-using My_DNN.Activation_functions;
-using My_DNN.Optimizers;
-using My_DNN.Loss_functions;
+using MDNN;
+using MDNN.Layers;
+using MDNN.Activations;
+using MDNN.Optimizers;
+using MDNN.Losses;
 
 namespace MDNN.Tests;
 
 /// <summary>
-/// Stav optimizeru se ukládá s modelem, takže trénink jde přerušit a plynule navázat.
+/// The optimizer state is saved with the model, so training can be interrupted and resumed seamlessly.
 ///
-/// Dřív soubor nesl jen jméno a hyperparametry optimizeru. Načtený model začínal s Adamem
-/// od nuly — vynulované momenty a krok 0, takže první kroky po načtení byly velké jako na
-/// začátku tréninku. Hlavní kontrakt teď: N kroků → uložit → načíst → M kroků dá BIT PO BITU
-/// totéž co N + M kroků bez přerušení.
+/// Previously the file only held the optimizer's name and hyperparameters. A loaded model started
+/// Adam from scratch (zeroed moments, step 0), so the first steps after loading were as large as at
+/// the start of training. The main contract now: N steps → save → load → M steps gives BIT FOR BIT
+/// the same result as N + M uninterrupted steps.
 /// </summary>
 public class OptimizerSaveTests
 {
@@ -28,17 +27,17 @@ public class OptimizerSaveTests
     private static readonly Tensor[] T = Enumerable.Range(0, 16)
         .Select(i => new Tensor(new[] { Math.Sin(i) * 0.5, Math.Cos(i) })).ToArray();
 
-    private static My_DNN.MDNN Mlp(Optimizer optimizer, Loss? loss = null)
+    private static NeuralNetwork Mlp(Optimizer optimizer, Loss? loss = null)
     {
-        var model = new My_DNN.MDNN(new Dense(2, new Linear()), optimizer, loss ?? new MSE(), seed: 4);
+        var model = new NeuralNetwork(new Dense(2, new Linear()), optimizer, loss ?? new MSE(), seed: 4);
         model.Layers.Add(new Dense(5, new Tanh()));
         model.GetResults(X[0]);
         return model;
     }
 
-    // Pevné pořadí vzorků — bez míchání, ať pozice v generátoru náhody (ta se neukládá)
-    // nehraje roli a porovnává se jen stav optimizeru.
-    private static void Steps(My_DNN.MDNN model, Tensor[] x, Tensor[] t, int batches)
+    // Fixed sample order, no shuffling, so the random generator position (which is not saved)
+    // plays no role and only the optimizer state is compared.
+    private static void Steps(NeuralNetwork model, Tensor[] x, Tensor[] t, int batches)
     {
         for (int b = 0; b < batches; b++)
         {
@@ -51,16 +50,16 @@ public class OptimizerSaveTests
         }
     }
 
-    private static double[] Parameters(My_DNN.MDNN model)
+    private static double[] Parameters(NeuralNetwork model)
     {
         var all = new List<double>();
         foreach (Layer layer in model.Layers.Layers)
         {
-            if (layer is LayerBasedOnNeurons byNeurons)
+            if (layer is NeuronLayer byNeurons)
                 foreach (Neuron n in byNeurons.Neurons) { all.AddRange(n.Weights); all.Add(n.Bias); }
             else if (layer is Conv conv)
             {
-                foreach (var f in conv.Kernel) foreach (var r in f) foreach (var c in r) all.AddRange(c);
+                foreach (var f in conv.Kernels) foreach (var r in f) foreach (var c in r) all.AddRange(c);
                 all.AddRange(conv.Biases);
             }
         }
@@ -69,14 +68,14 @@ public class OptimizerSaveTests
 
     private static string TempPath() => Path.Combine(Path.GetTempPath(), "mdnn_opt_" + Guid.NewGuid().ToString("N") + ".json");
 
-    private static My_DNN.MDNN SaveAndLoad(My_DNN.MDNN model, bool includeState = true,
+    private static NeuralNetwork SaveAndLoad(NeuralNetwork model, bool includeState = true,
                                            Optimizer? optimizer = null, Loss? loss = null)
     {
         string path = TempPath();
         try
         {
             model.SaveAsJson(path, includeState);
-            return My_DNN.MDNN.LoadModel(path, optimizer: optimizer, loss: loss);
+            return NeuralNetwork.LoadModel(path, optimizer: optimizer, loss: loss);
         }
         finally
         {
@@ -84,7 +83,7 @@ public class OptimizerSaveTests
         }
     }
 
-    // ------------------------------------------------------------ navázání tréninku
+    // ------------------------------------------------------------ resuming training
 
     public static TheoryData<Func<Optimizer>> BuiltIn()
         => new() { () => new Adam(0.05), () => new Momentum(0.05, 0.9), () => new SGD(0.05) };
@@ -99,7 +98,7 @@ public class OptimizerSaveTests
         var first = Mlp(optimizer());
         Steps(first, X, T, 6);
         var resumed = SaveAndLoad(first);
-        // druhá půlka dat — Steps počítá index od nuly, takže se posune ručně
+        // second half of the data; Steps counts the index from zero, so shift it manually
         Steps(resumed, X.Skip(8).Concat(X.Take(8)).ToArray(), T.Skip(8).Concat(T.Take(8)).ToArray(), 6);
 
         Assert.Equal(Parameters(uninterrupted), Parameters(resumed));
@@ -116,10 +115,10 @@ public class OptimizerSaveTests
         }).ToArray();
         var lab = Enumerable.Range(0, 8).Select(s => new Tensor(new[] { s % 2 == 0 ? 1.0 : 0.0, s % 2 == 0 ? 0.0 : 1.0 })).ToArray();
 
-        My_DNN.MDNN Cnn()
+        NeuralNetwork Cnn()
         {
-            var m = new My_DNN.MDNN(new Dense(2, new Softmax()), new Adam(0.05), new CrossEntropy(), seed: 2);
-            m.Layers.Add(new Conv(2, 2, new ReLu(), "valid"));
+            var m = new NeuralNetwork(new Dense(2, new Softmax()), new Adam(0.05), new CrossEntropy(), seed: 2);
+            m.Layers.Add(new Conv(2, 2, new ReLU(), "valid"));
             m.GetResults(img[0]);
             return m;
         }
@@ -149,9 +148,9 @@ public class OptimizerSaveTests
         Assert.Contains("OptimizerState", withState);
         Assert.DoesNotContain("OptimizerState", withoutState);
         Assert.True(withoutState.Length * 2 < withState.Length,
-            $"bez stavu {withoutState.Length} znaků, se stavem {withState.Length}");
+            $"without state {withoutState.Length} chars, with state {withState.Length}");
 
-        // Bez stavu je to přesně dřívější chování: navázání NENÍ plynulé.
+        // Without state this is exactly the old behaviour: resuming is NOT seamless.
         var resumed = SaveAndLoad(first, includeState: false);
         Steps(resumed, X.Skip(8).Concat(X.Take(8)).ToArray(), T.Skip(8).Concat(T.Take(8)).ToArray(), 6);
         Assert.NotEqual(Parameters(reference), Parameters(resumed));
@@ -167,15 +166,15 @@ public class OptimizerSaveTests
         Assert.Throws<ArgumentException>(() => adam.ImportState(new Dictionary<string, double[]> { ["m"] = new double[1] }));
     }
 
-    // ------------------------------------------------------------ změna optimizeru
+    // ------------------------------------------------------------ changing the optimizer
 
     [Fact]
     public void Changing_the_context_optimizer_reaches_every_layer()
     {
-        // Dřív se změna nepropsala: neurony trénovaly dál SGD, ale do souboru se uložil
-        // Adam — po načtení tak model trénoval jiným optimizerem než před uložením.
+        // Previously the change did not propagate: neurons kept training with SGD, but Adam was
+        // saved to the file, so after loading the model trained with a different optimizer.
         var model = Mlp(new SGD(0.05));
-        model.Layers.Add(new Conv(1, 1, new Linear(), "valid"));   // jen aby měl i Conv
+        model.Layers.Add(new Conv(1, 1, new Linear(), "valid"));   // just so it has a Conv too
         model.GetResults(X[0]);
         Steps(model, X, T, 2);
 
@@ -183,12 +182,12 @@ public class OptimizerSaveTests
 
         foreach (Layer layer in model.Layers.Layers)
         {
-            if (layer is LayerBasedOnNeurons byNeurons)
+            if (layer is NeuronLayer byNeurons)
                 Assert.All(byNeurons.Neurons, n => Assert.IsType<Adam>(n.Optimizer));
         }
         Assert.IsType<Adam>(model.Layers.Layers.OfType<Conv>().Single().OptimizerForSave);
 
-        // a uložený model s ním opravdu pokračuje
+        // and the saved model really continues with it
         var loaded = SaveAndLoad(model);
         Assert.All(((Dense)loaded.Layers.Layers[^1]).Neurons, n => Assert.IsType<Adam>(n.Optimizer));
     }
@@ -206,9 +205,9 @@ public class OptimizerSaveTests
         Assert.Equal(before, neuron.Optimizer.ExportState()!["m"]);
     }
 
-    // ------------------------------------------------------------ vlastní optimizer a loss
+    // ------------------------------------------------------------ custom optimizer and loss
 
-    /// <summary>Vlastní optimizer se stavem (zjednodušený momentum).</summary>
+    /// <summary>Custom optimizer with state (simplified momentum).</summary>
     private sealed class Heavy : Optimizer
     {
         private readonly double lr;
@@ -268,7 +267,7 @@ public class OptimizerSaveTests
     [Fact]
     public void Passed_built_in_optimizer_overrides_hyperparameters_but_keeps_state()
     {
-        // Dotrénování s nižším learning rate: hyperparametry z předané instance, stav ze souboru.
+        // Fine-tuning with a lower learning rate: hyperparameters from the passed instance, state from the file.
         var model = Mlp(new Adam(0.05));
         Steps(model, X, T, 3);
         double[] m = ((Dense)model.Layers.Layers[0]).Neurons[0].Optimizer.ExportState()!["m"];
@@ -283,18 +282,54 @@ public class OptimizerSaveTests
     [Fact]
     public void TrainLoop_with_custom_optimizer_and_loss_restores_the_best_model()
     {
-        // Na konci TrainLoop se obnovuje nejlepší model ze snapshotu. Ten hledal optimizer
-        // a loss podle jména, takže s vlastními spadl na ArgumentException.
+        // At the end of TrainLoop the best model is restored from a snapshot. That used to look up
+        // the optimizer and loss by name, so with custom ones it failed with ArgumentException.
         var x = Enumerable.Range(0, 20).Select(i => new[] { Math.Sin(i), Math.Cos(i) }).ToArray();
         var y = x.Select(r => new[] { r[0] * r[1] }).ToArray();
-        var model = new My_DNN.MDNN(new Dense(1, new Linear()), new Heavy(0.02), new HalfMse(), seed: 3);
-        model.Train.ShowLossChartInTrainLoop = false;
-        model.Train.ShowModelInfoIntrainLoop = false;
-        model.Train.AutoSaveInTrainLoop = false;
+        var model = new NeuralNetwork(new Dense(1, new Linear()), new Heavy(0.02), new HalfMse(), seed: 3);
+        model.Train.ShowLossChart = false;
+        model.Train.ShowModelInfo = false;
+        model.Train.AutoSave = false;
 
-        model.Train.TrainLoop(x, y, 5, 4);   // TestNeuralNetworkAfterTraining zůstává zapnutý
+        model.Train.TrainLoop(x, y, 5, 4);   // TestAfterTraining stays on
 
         Assert.IsType<HalfMse>(model.Loss);
         Assert.IsType<Heavy>(((Dense)model.Layers.Layers[0]).Neurons[0].Optimizer);
+    }
+
+    // Loading used to overwrite the global GeneralNeuralNetworkSettings.DefaultOptimizer, which layer
+    // constructors cloned from. A model loaded with Adam thus changed the default optimizer for the
+    // whole process, and two loads on two threads could swap it under each other.
+    [Fact]
+    public void Loading_does_not_touch_the_global_default_optimizer()
+    {
+        Optimizer before = GeneralNeuralNetworkSettings.DefaultOptimizer;
+
+        var loaded = SaveAndLoad(Mlp(new Adam(0.05)));
+
+        Assert.Same(before, GeneralNeuralNetworkSettings.DefaultOptimizer);
+        Assert.IsType<Adam>(((Dense)loaded.Layers.Layers[0]).Neurons[0].Optimizer);
+    }
+
+    // The instance passed to LoadModel is a PROTOTYPE: layers get clones of it and the state from
+    // the file is loaded into those. The prototype itself must not be written to; anyone holding
+    // the instance would share it, and one layer's state would look like the whole model's state.
+    [Fact]
+    public void Optimizer_passed_to_LoadModel_stays_an_empty_prototype()
+    {
+        var model = new NeuralNetwork(new Dense(2, new Linear()), new Adam(0.05), new MSE(), seed: 4);
+        model.Layers.Add(new Conv(2, 2, new Tanh()));
+        var image = new Tensor(new double[3, 3, 1] { { { 0.1 }, { 0.2 }, { 0.3 } }, { { 0.4 }, { 0.5 }, { 0.6 } }, { { 0.7 }, { 0.8 }, { 0.9 } } });
+        for (int i = 0; i < 3; i++)
+        {
+            model.Train.Fit(image, new Tensor(new[] { 0.5, -0.5 }));
+            model.Train.UpdateParams();
+        }
+
+        var prototype = new Adam(0.05);
+        var loaded = SaveAndLoad(model, optimizer: prototype);
+
+        Assert.Empty(prototype.ExportState()!["m"]);
+        Assert.NotEmpty(((Conv)loaded.Layers.Layers[0]).OptimizerForSave.ExportState()!["m"]);
     }
 }

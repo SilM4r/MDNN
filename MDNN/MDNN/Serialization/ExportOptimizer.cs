@@ -1,9 +1,10 @@
-﻿using My_DNN.Optimizers;
+﻿using MDNN.Optimizers;
 using System.Text.Json.Serialization;
 
-namespace My_DNN.Save_neural_network
+namespace MDNN.Serialization
 {
-    public class ExportOptimizer
+    // Property names are JSON keys of the model file format — do not rename them.
+    internal class ExportOptimizer
     {
         public string Name { get; set; }
         public double[] Hyperparameters { get; set; }

@@ -1,38 +1,36 @@
 ﻿using System;
   using Xunit;
-  using My_DNN;
-  using My_DNN.Layers;
-  using My_DNN.Activation_functions;
-  using My_DNN.Layers.classes;
-  using My_DNN.Optimizers;
-  using My_DNN.Loss_functions;
+  using MDNN;
+  using MDNN.Layers;
+  using MDNN.Activations;
+  using MDNN.Optimizers;
+  using MDNN.Losses;
   using System.Linq;
 
-  // statický stav v knihovně → testy nesmí běžet paralelně
+  // static state in the library → tests must not run in parallel
   [assembly: CollectionBehavior(DisableTestParallelization = true)]
 
   namespace MDNN.Tests;
 
-  // ---------- infrastruktura ----------
+  // ---------- infrastructure ----------
 
   public static class TestGlobals
   {
       public static void Reset()
       {
-          GeneralNeuralNetworkSettings.rnd = new Random(42);   // determinismus (init vah)
-          GeneralNeuralNetworkSettings.optimizer = new SGD(0.0001);
-          GeneralNeuralNetworkSettings.default_output_activation_func = new Linear();
-          GeneralNeuralNetworkSettings.default_hidden_layers_activation_func = new ReLu();
+          GeneralNeuralNetworkSettings.Random = new Random(42);   // determinism (weight init)
+          GeneralNeuralNetworkSettings.DefaultOptimizer = new SGD(0.0001);
+          GeneralNeuralNetworkSettings.DefaultHiddenActivation = new ReLU();
       }
   }
 
   public static class Numeric
   {
-      // derivace funkce podle jejího argumentu (pro aktivace/loss)
+      // derivative of a function with respect to its argument (for activations/loss)
       public static double CentralDiff(Func<double, double> f, double x, double eps = 1e-5)
           => (f(x + eps) - f(x - eps)) / (2 * eps);
 
-      // numerický gradient parametru: perturbuj slot, spusť skalární loss, vrať zpět
+      // numerical gradient of a parameter: perturb the slot, run the scalar loss, restore it
       public static double ParamGrad(Func<double> lossAt, ref double param, double eps = 1e-5)
       {
           double orig = param;
@@ -55,5 +53,5 @@
 
   public abstract class GradientCheckTestBase
   {
-      protected GradientCheckTestBase() => TestGlobals.Reset();   // xUnit: běží před každým testem
+      protected GradientCheckTestBase() => TestGlobals.Reset();   // xUnit: runs before every test
   }

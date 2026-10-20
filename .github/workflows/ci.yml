@@ -1,7 +1,7 @@
 name: CI
 
-# Fáze 6 roadmapy: gradient checky jsou hlavní pojistka správnosti knihovny,
-# takže musí běžet automaticky, ne jen když si na ně někdo vzpomene.
+# Gradient checks are the library's main correctness safeguard,
+# so they must run automatically, not only when someone remembers to run them.
 on:
   push:
     branches: ['**']
@@ -20,8 +20,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      # Linux je case-sensitive → chytá překlepy v cestách, které na macOS/Windows projdou.
-      # Windows je cílová platforma GPU cesty (gpu.dll).
+      # Linux is case-sensitive → catches path typos that pass on macOS/Windows.
+      # Windows is the target platform of the GPU path (gpu.dll).
       matrix:
         os: [ubuntu-latest, windows-latest]
 
@@ -57,19 +57,19 @@ jobs:
           path: TestResults/
           if-no-files-found: warn
 
-      # Balíčky se jen sestaví, ať se chyba v metadatech (README, závislosti) ukáže hned.
-      # Publikuje se ručně — CI nikam nic neposílá.
-      - name: Pack (bez publikování)
+      # Packages are only built, so a metadata error (README, dependencies) shows up immediately.
+      # Publishing is manual; CI does not push anything anywhere.
+      - name: Pack (no publishing)
         run: dotnet pack MDNN/MDNN.sln --configuration Release --no-build --output packages
 
-  # Příklady z repozitáře MDNN_examples proti TÉHLE verzi knihovny. Tři chyby v knihovně
-  # se dřív našly až ručním spuštěním příkladů — tohle je chytí při každém pushi.
+  # Examples from the MDNN_examples repository built against THIS version of the library. Three
+  # library bugs were previously found only by running the examples by hand; this catches them on every push.
   examples:
     name: examples (MDNN_examples)
     runs-on: ubuntu-latest
 
     steps:
-      # Rozložení, které projekt příkladů čeká: obě repa vedle sebe, knihovna jako MDNN/MDNN.
+      # Layout the examples project expects: both repos side by side, the library as MDNN/MDNN.
       - name: Checkout MDNN
         uses: actions/checkout@v7
         with:

@@ -1,21 +1,32 @@
-﻿using My_DNN.Activation_functions;
-using My_DNN.Layers.classes;
-using My_DNN.Save_neural_network;
-using My_DNN.Optimizers;
+﻿using MDNN.Activations;
+using MDNN.Layers;
+using MDNN.Serialization;
+using MDNN.Optimizers;
 
-namespace My_DNN.Layers
+namespace MDNN.Layers
 {
-    public class RNN : LayerBasedOnNeurons
+    /// <summary>
+    /// Simple recurrent layer: each neuron gets the input plus its own previous output h(t-1).
+    /// Trained with real-time recurrent learning (RTRL).
+    /// </summary>
+    public class RNN : NeuronLayer
     {
+        /// <inheritdoc/>
         public override List<Neuron> Neurons => neurons;
-        public override string Name => "Rnn";
+        /// <inheritdoc/>
+        public override string Name => "RNN";
 
-        // Snímek, ne okno do pracovního pole — viz Tensor.FromVector.
-        public override Tensor Layer_output => Tensor.FromVector(output);
-        public override int[] Input_size_and_shape => input_size;
-        public override int[] Output_size_and_shape => new int[] { output.Length };
-        public override Tensor Layer_raw_output => Tensor.FromVector(raw_output);
-        public override Activation_func Activation_Func
+        // A snapshot, not a window into the working array — see Tensor.FromVector.
+        /// <inheritdoc/>
+        public override Tensor Output => Tensor.FromVector(output);
+        /// <inheritdoc/>
+        public override int[] InputShape => input_size;
+        /// <inheritdoc/>
+        public override int[] OutputShape => new int[] { output.Length };
+        /// <inheritdoc/>
+        public override Tensor RawOutput => Tensor.FromVector(raw_output);
+        /// <inheritdoc/>
+        public override ActivationFunction Activation
         {
             get { return activation_func; }
             set
@@ -30,18 +41,18 @@ namespace My_DNN.Layers
         private double[] output;
         private double[] raw_output;
         private List<Neuron> neurons;
-        private Activation_func activation_func;
+        private ActivationFunction activation_func;
 
-        // RTRL: citlivosti ∂h_i/∂param, akumulované DOPŘEDU v čase
-        // Alokují se líně (EnsureSensitivities), až je známý počet vah; prázdné pole = ještě ne.
-        private double[][] sW = Array.Empty<double[]>();   // sW[neuron][váha]  (poslední váha = rekurentní)
-        private double[] sB = Array.Empty<double>();       // sB[neuron]        (bias)
-        private double[] gImm = Array.Empty<double>();     // okamžitý gradient shora vůči h_i
+        // RTRL: sensitivities ∂h_i/∂param, accumulated FORWARD in time.
+        // Allocated lazily (EnsureSensitivities) once the weight count is known; empty array = not yet.
+        private double[][] sW = Array.Empty<double[]>();   // sW[neuron][weight]  (last weight = recurrent)
+        private double[] sB = Array.Empty<double>();       // sB[neuron]          (bias)
 
 
-        public RNN(ExportRnnLayer layer)
+        // `optimizerPrototype` — see Dense(ExportDenseLayer, …)
+        internal RNN(ExportRnnLayer layer, Optimizer? optimizerPrototype = null)
         {
-            activation_func = Activation_func.inicialization_activation_func(layer.Name_of_activation_function);
+            activation_func = ActivationFunction.FromName(layer.Name_of_activation_function);
             CheckIsActivationFuncIsNotApplyToLayer();
             List<ExportNeuron> saved = BaseExportLayer.Required(layer.Neurons, Name, nameof(layer.Neurons));
 
@@ -52,71 +63,80 @@ namespace My_DNN.Layers
 
             foreach (ExportNeuron neuron in saved)
             {
-                neurons.Add(new Neuron(neuron, activation_func));
+                neurons.Add(new Neuron(neuron, activation_func, optimizerPrototype));
             }
 
             input_size = new int[] { neurons[0].Weights.Length - 1 };
 
         }
 
-        public RNN(int number_of_neuron, Activation_func? activation_func = null)
+        /// <summary>
+        /// Creates a recurrent layer. The input size and the weights are set up later by
+        /// <c>Build</c>, when the layer is attached to a model.
+        /// </summary>
+        /// <param name="neuronCount">Number of neurons (= size of the hidden state and of the output).</param>
+        /// <param name="activation">Activation function; <c>null</c> = the default hidden activation.
+        /// Layer-wide activations such as softmax are not supported.</param>
+        public RNN(int neuronCount, ActivationFunction? activation = null)
         {
-            if (number_of_neuron <= 0)
+            if (neuronCount <= 0)
             {
                 throw new ArgumentException("The number of neurons in a layer must be greater than 0");
             }
 
-            // aktivace: default když nezadaná; input size + neurony dopočítá LayerAdjustment (při připojení k modelu)
-            this.activation_func = activation_func ?? GeneralNeuralNetworkSettings.default_hidden_layers_activation_func;
+            // activation: default when not given; input size + neurons are set by Build (when attached to a model)
+            this.activation_func = activation ?? GeneralNeuralNetworkSettings.DefaultHiddenActivation;
             CheckIsActivationFuncIsNotApplyToLayer();
             input_size = new int[] { 0 };
 
-            output = new double[number_of_neuron];
-            raw_output = new double[number_of_neuron];
+            output = new double[neuronCount];
+            raw_output = new double[neuronCount];
 
             neurons = new List<Neuron>();
 
-            for (int i = 0; i < number_of_neuron; i++)
+            for (int i = 0; i < neuronCount; i++)
             {
-                neurons.Add(new Neuron(input_size[0] + 1, this.activation_func));   // placeholder, přepíše LayerAdjustment
+                neurons.Add(new Neuron(input_size[0] + 1, this.activation_func));   // placeholder, replaced by Build
             }
 
         }
 
-        // Vrstvová aktivace (softmax) na RNN byla rozbitá: ApplyToLayer se aplikovalo na
-        // `output`, tedy na hodnoty, které UŽ prošly per-neuronovou aktivací (dvojitá
-        // aktivace), zatímco raw_output i RTRL citlivosti zůstaly z předsoftmaxové cesty.
-        // Než to dostane vlastní návrh, radši explicitní chyba než tichý nesmysl.
-        // Stejná politika jako u Conv (CheckIsActivationFuncIsNotApplyToLayer).
+        // A layer-wide activation (softmax) on RNN used to be broken: ApplyToLayer was applied to
+        // `output`, i.e. to values that had ALREADY gone through the per-neuron activation (double
+        // activation), while raw_output and the RTRL sensitivities stayed on the pre-softmax path.
+        // Until it gets a proper design, an explicit error beats silent nonsense.
+        // Same policy as Conv (CheckIsActivationFuncIsNotApplyToLayer).
         private void CheckIsActivationFuncIsNotApplyToLayer()
         {
-            if (activation_func.Apply_to_layer)
+            if (activation_func.AppliesToLayer)
             {
                 throw new ArgumentException(
                     "An RNN layer cannot use a layer-wide activation (e.g. Softmax) yet. " +
-                    "Use e.g. Tanh() or ReLu(), and put the softmax on a following Dense layer.");
+                    "Use e.g. Tanh() or ReLU(), and put the softmax on a following Dense layer.");
             }
         }
 
+        /// <summary>
+        /// Starts a new sequence: clears the hidden state and the RTRL sensitivities.
+        /// </summary>
         public void ResetSequence()
         {
-            // nová sekvence → vynuluj skrytý stav i RTRL citlivosti (realokace = vynulování)
-            output = new double[Output_size_and_shape[0]];
+            // new sequence → zero the hidden state and the RTRL sensitivities (reallocation = zeroing)
+            output = new double[OutputShape[0]];
             AllocateSensitivities();
         }
 
-        // alokuje (a tím vynuluje) citlivosti podle aktuálních neuronů
+        // allocates (and thereby zeroes) the sensitivities for the current neurons
         private void AllocateSensitivities()
         {
             sW = new double[neurons.Count][];
             for (int i = 0; i < neurons.Count; i++)
                 sW[i] = new double[neurons[i].Weights.Length];
             sB = new double[neurons.Count];
-            gImm = new double[neurons.Count];
         }
 
-        // pojistka: citlivosti musí sedět na počet neuronů I na počet vah
-        // (neurony se přebudují až ve Fit → SetInputSizeForFirstLayer, po ResetSequence)
+        // safeguard: the sensitivities must match both the neuron count AND the weight count
+        // (neurons are rebuilt only in Fit → SetInputShape, after ResetSequence)
         private void EnsureSensitivities()
         {
             if (sW.Length != neurons.Count
@@ -124,37 +144,40 @@ namespace My_DNN.Layers
                 AllocateSensitivities();
         }
 
-        public override void WireShapes(int? number_of_elements = null, int[]? number_of_input = null)
+        /// <inheritdoc/>
+        public override void WireShapes(int? outputSize = null, int[]? inputShape = null)
         {
-            if (number_of_input != null)
+            if (inputShape != null)
             {
-                if (number_of_input.Length == 1)
+                if (inputShape.Length == 1)
                 {
-                    input_size = number_of_input;
+                    input_size = inputShape;
                 }
 
                 else
                 {
                     input_size = new int[] { 1 };
-                    foreach (int input in number_of_input)
+                    foreach (int input in inputShape)
                     {
                         input_size[0] *= input;
                     }
                 }
             }
 
-            if (number_of_elements != null)
+            if (outputSize != null)
             {
-                output = new double[(int)number_of_elements];
-                raw_output = new double[(int)number_of_elements];
+                output = new double[(int)outputSize];
+                raw_output = new double[(int)outputSize];
             }
 
         }
 
-        // Pozor: RNN neuron má o jednu váhu navíc (rekurentní vstup h(t-1)).
+        // Note: an RNN neuron has one extra weight (the recurrent input h(t-1)).
+        /// <inheritdoc/>
         public override bool IsMaterialized =>
             input_size[0] > 0 && NeuronsMatchShape(output.Length, input_size[0] + 1);
 
+        /// <inheritdoc/>
         public override void MaterializeParameters()
         {
             if (input_size[0] <= 0)
@@ -164,7 +187,7 @@ namespace My_DNN.Layers
 
             if (!NeuronsMatchShape(output.Length, input_size[0] + 1))
             {
-                // do `neurons` až hotové — viz Dense.MaterializeParameters
+                // assigned to `neurons` only when complete — see Dense.MaterializeParameters
                 var rebuilt = new List<Neuron>();
 
                 for (int i = 0; i < output.Length; i++)
@@ -172,12 +195,12 @@ namespace My_DNN.Layers
                     rebuilt.Add(new Neuron(input_size[0] + 1, activation_func, Context?.Random));
                 }
 
-                // per-model optimizer jen pro čerstvé neurony — viz Dense.MaterializeParameters
+                // per-model optimizer, only for fresh neurons — see Dense.MaterializeParameters
                 if (Context != null)
                 {
                     foreach (Neuron n in rebuilt)
                     {
-                        n.Optimizer = Optimizer.Clone_optimizer(Context.Optimizer);
+                        n.Optimizer = Context.Optimizer.CreateFresh();
                     }
                 }
 
@@ -185,9 +208,9 @@ namespace My_DNN.Layers
             }
         }
 
-        // Replika pro paralelní trénink — viz Layer.CreateReplica. Kromě výstupů má vlastní
-        // i skrytý stav a RTRL citlivosti: replika zpracovává CELÉ sekvence, takže stav
-        // mezi kroky sekvence zůstává v jedné replice a nemíchá se s jinou sekvencí.
+        // Replica for parallel training — see Layer.CreateReplica. Besides outputs it also owns
+        // the hidden state and RTRL sensitivities: a replica processes WHOLE sequences, so the
+        // state between steps stays in one replica and never mixes with another sequence.
         internal override Layer CreateReplica()
         {
             RNN replica = (RNN)MemberwiseClone();
@@ -205,10 +228,11 @@ namespace My_DNN.Layers
                    && neurons[0].Weights.Length == weightsPerNeuron;
         }
 
-        public override Tensor FeedForward(Tensor TensorValues)
+        /// <inheritdoc/>
+        public override Tensor FeedForward(Tensor input)
         {
 
-            double[] values = TensorValues.Data;
+            double[] values = input.Data;
 
             double[] newValues = new double[values.Length + 1];
 
@@ -222,14 +246,14 @@ namespace My_DNN.Layers
 
             for (int i = 0; i < neurons.Count; i++)
             {
-                newValues[values.Length] = output[i];   // rekurentní vstup = h_i(t-1) = předchozí výstup
+                newValues[values.Length] = output[i];   // recurrent input = h_i(t-1) = previous output
 
                 output[i] = neurons[i].FeedForward(newValues);
                 raw_output[i] = neurons[i].RawOutput;   // z_i(t)
 
-                // RTRL: posuň citlivosti o krok dopředu
-                double actD = neurons[i].Activation_Func.Derivative(raw_output[i]);   // act'(z_i)
-                double r = neurons[i].Weights[newValues.Length - 1];                  // rekurentní váha
+                // RTRL: advance the sensitivities by one step
+                double actD = neurons[i].Activation.Derivative(raw_output[i]);   // act'(z_i)
+                double r = neurons[i].Weights[newValues.Length - 1];                  // recurrent weight
                 for (int k = 0; k < newValues.Length; k++)                            // ∂z/∂w_k = newValues[k]
                     sW[i][k] = actD * (newValues[k] + r * sW[i][k]);
                 sB[i] = actD * (1.0 + r * sB[i]);                                     // ∂z/∂bias = 1
@@ -238,8 +262,9 @@ namespace My_DNN.Layers
             return Tensor.FromVector(output);
         }
 
-        // ---------------------------------------------------------------- konvence B
+        // ---------------------------------------------------------------- backward
 
+        /// <inheritdoc/>
         public override Tensor Backward(Tensor gradOutput, bool preActivation = false,
                                         bool computeInputGradient = true)
         {
@@ -256,34 +281,33 @@ namespace My_DNN.Layers
                 throw new ArgumentException(
                     $"The gradient from above has {gradOut.Length} elements, the layer {neurons.Count} neurons.");
 
-            // TADY je vidět, proč konvence B RNN sedí LÍP než dnešek: `gImm` je definičně
-            // ∂L/∂h_j BEZ derivace aktivace — a to je přesně to, co Backward dostává.
-            // Ve staré cestě existovalo jako SKRYTÉ POLE jen proto, že si ho musely předat
-            // dvě metody (CalculateLayerGradients → BackPropagation). Tady je to lokálka.
+            // `gradOutput` is exactly the RTRL immediate gradient g_imm = ∂L/∂h_j, WITHOUT the
+            // activation derivative, so it is used directly. (Previously it had to be stored in
+            // the field `gImm` because two separate methods computed the backward pass.)
             //
-            // Pozn.: rekurentní váha se do gradientu vstupu nepromítá — příspěvek zpět
-            // v čase RTRL nezachycuje. Je to známé omezení, ne opomenutí (viz README).
-            int inputCount = neurons[0].Weights.Length - 1;   // poslední váha je rekurentní
+            // Note: the recurrent weight does not feed into the input gradient — RTRL does not
+            // capture the contribution back in time. A known limitation, not an oversight (see README).
+            int inputCount = neurons[0].Weights.Length - 1;   // the last weight is recurrent
 
-            // Když volající vstupní gradient nechce, ani ho nealokujeme — a hlavně
-            // vrátíme PRÁZDNÝ tenzor, ne pole nul. Kontrakt v Layer.cs to říká výslovně:
-            // omyl má spadnout na délce, ne až na tichém špatném výsledku. RNN se jako
-            // jediná ze čtyř vrstev odchylovala.
+            // When the caller does not want the input gradient, it is not even allocated — and,
+            // more importantly, an EMPTY tensor is returned, not an array of zeros. The contract in
+            // Layer.cs says so explicitly: a mistake should fail on the length, not as a silently
+            // wrong result. Previously RNN was the only one of the four layers that deviated.
             double[] gradInput = computeInputGradient ? new double[inputCount] : Array.Empty<double>();
 
             for (int j = 0; j < neurons.Count; j++)
             {
                 double gImmJ = gradOut[j];
 
-                // RTRL: gradient parametru = g_imm(t) · citlivost(t), sečteno přes čas.
-                // Citlivosti sW/sB derivaci aktivace UŽ obsahují (advancují se ve forwardu),
-                // proto se tady act' NEpřidává — na rozdíl od Dense.
+                // RTRL: parameter gradient = g_imm(t) · sensitivity(t), summed over time.
+                // The sW/sB sensitivities ALREADY include the activation derivative (they are
+                // advanced in forward), so act' is NOT applied here — unlike Dense.
                 neurons[j].AccumulateGradient(gImmJ, sW[j], sB[j]);
 
-                // Do vrstvy pod sebou ale act' patří: ∂L/∂z_j = g_imm_j · act'(z_j).
+                // For the layer below, act' does belong: ∂L/∂z_j = g_imm_j · act'(z_j).
                 if (!computeInputGradient) continue;
 
-                double delta = gImmJ * neurons[j].Activation_Func.Derivative(neurons[j].RawOutput);
+                double delta = gImmJ * neurons[j].Activation.Derivative(neurons[j].RawOutput);
                 if (delta == 0.0) continue;
 
                 double[] w = neurons[j].Weights;
@@ -293,6 +317,7 @@ namespace My_DNN.Layers
             return computeInputGradient ? new Tensor(gradInput) : Tensor.Empty;
         }
 
+        /// <inheritdoc/>
         public override void UpdateParams()
         {
             foreach (Neuron neuron in neurons)

@@ -1,11 +1,10 @@
 ﻿using System;
   using Xunit;
-  using My_DNN;
-  using My_DNN.Layers;
-  using My_DNN.Activation_functions;
-  using My_DNN.Layers.classes;
-  using My_DNN.Optimizers;
-  using My_DNN.Loss_functions;
+  using MDNN;
+  using MDNN.Layers;
+  using MDNN.Activations;
+  using MDNN.Optimizers;
+  using MDNN.Losses;
   using System.Linq;
 
   namespace MDNN.Tests;
@@ -15,46 +14,46 @@
       [Fact]
       public void LoadWeightsFromString_restores_weights_in_place()
       {
-          // Krok 1 in-memory snapshotu: serializace do stringu + obnova zpět DO STEJNÉ instance.
-          // Ověřuje, že snapshot věrně zachytí váhy, obnova je vrátí a zachová identitu objektu
-          // i jeho Train (základ pro „vždy si nech nejlepší model" bez nutného disku).
-          var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.1), new MSE());
+          // In-memory snapshot: serialize to a string + restore back INTO THE SAME instance.
+          // Checks that the snapshot captures the weights faithfully, restoring brings them back and
+          // keeps the identity of the object and its Train (basis for "always keep the best model" without disk).
+          var model = new NeuralNetwork(new Dense(2, new Linear()), new SGD(0.1), new MSE());
           model.Layers.Add(new Dense(3, new Tanh()));
 
-          var x = new Tensor(new double[] { 0.5, -0.3, 0.8, 0.1 });   // 4 vstupy
-          double[] outBefore = model.GetResults(x).Data;              // spustí wiring + zapamatuje výstup
+          var x = new Tensor(new double[] { 0.5, -0.3, 0.8, 0.1 });   // 4 inputs
+          double[] outBefore = model.GetResults(x).Data;              // triggers wiring + remembers the output
 
-          string snapshot = model.SaveAsJsonString();                // snapshot nejlepšího stavu
-          var trainBefore = model.Train;                             // identita Train (drží datasety)
+          string snapshot = model.SaveAsJsonString();                // snapshot of the best state
+          var trainBefore = model.Train;                             // Train identity (holds the datasets)
 
-          // změň váhy tréninkem → výstup se musí pohnout
+          // change the weights by training → the output must move
           for (int i = 0; i < 20; i++)
           {
               model.Train.Fit(x, new Tensor(new double[] { 1.0, -1.0 }));
               model.Train.UpdateParams();
           }
           double[] outMutated = model.GetResults(x).Data;
-          Assert.NotEqual(outBefore, outMutated);                   // trénink váhy opravdu změnil
+          Assert.NotEqual(outBefore, outMutated);                   // training really changed the weights
 
-          // obnova ze snapshotu → in-place
+          // restore from the snapshot → in place
           model.LoadWeightsFromString(snapshot);
 
           double[] outRestored = model.GetResults(x).Data;
-          Assert.Equal(outBefore, outRestored);                     // váhy věrně obnoveny (bit-identický forward)
-          Assert.Same(trainBefore, model.Train);                    // identita zachována (in-place, ne nový objekt)
+          Assert.Equal(outBefore, outRestored);                     // weights faithfully restored (bit-identical forward)
+          Assert.Same(trainBefore, model.Train);                    // identity kept (in place, not a new object)
       }
   }
 
   public class SaveLoadRoundTripTests : GradientCheckTestBase
   {
-      // 2c-2: save/load nemá round-trip test, proto neodhalen ExportCNNLayer používající
-      // Activation_Func.ToString() místo .Name → po načtení z ReLu tiše Linear.
+      // Save/load had no round-trip test, so nobody noticed ExportCNNLayer using
+      // Activation.ToString() instead of .Name → after loading, ReLU silently became Linear.
       private static string TempModelBase()
           => System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mdnn_rt_" + Guid.NewGuid().ToString("N"));
 
       private static void Cleanup(string basePath)
       {
-          try { System.IO.File.Delete(basePath + ".json"); } catch { /* úklid nesmí shodit test */ }
+          try { System.IO.File.Delete(basePath + ".json"); } catch { /* cleanup must not fail the test */ }
       }
 
       [Fact]
@@ -63,15 +62,15 @@
           string path = TempModelBase();
           try
           {
-              var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE());
-              model.Layers.Add(new Dense(4, new ReLu()));
+              var model = new NeuralNetwork(new Dense(2, new Linear()), new SGD(0.01), new MSE());
+              model.Layers.Add(new Dense(4, new ReLU()));
               var x = new Tensor(new double[] { 0.5, -0.3, 0.8 });
               double[] before = model.GetResults(x).Data;
 
               model.SaveAsJson(path);
-              var loaded = My_DNN.MDNN.LoadModel(path + ".json");
+              var loaded = NeuralNetwork.LoadModel(path + ".json");
 
-              Assert.Equal("ReLu", loaded.Layers.Layers[0].Activation_Func.Name);
+              Assert.Equal("ReLU", loaded.Layers.Layers[0].Activation.Name);
               Assert.Equal(before, loaded.GetResults(x).Data);
           }
           finally { Cleanup(path); }
@@ -83,21 +82,21 @@
           string path = TempModelBase();
           try
           {
-              var conv = new Conv(2, 2, new ReLu(), "valid");
-              var model = new My_DNN.MDNN(conv, new SGD(0.01), new MSE());
-              model.Layers.SetInputSizeForFirstLayer(new int[] { 4, 4, 1 });
+              var conv = new Conv(2, 2, new ReLU(), "valid");
+              var model = new NeuralNetwork(conv, new SGD(0.01), new MSE());
+              model.Layers.SetInputShape(new int[] { 4, 4, 1 });
 
               var input = new double[4, 4, 1];
               for (int i = 0; i < 4; i++)
               for (int j = 0; j < 4; j++)
-                  input[i, j, 0] = ((i * 4 + j) - 7) * 0.2;      // záporné i kladné → ReLu ≠ Linear
+                  input[i, j, 0] = ((i * 4 + j) - 7) * 0.2;      // negative and positive → ReLU ≠ Linear
               var x = new Tensor(input);
               double[] before = model.GetResults(x).Data;
 
               model.SaveAsJson(path);
-              var loaded = My_DNN.MDNN.LoadModel(path + ".json");
+              var loaded = NeuralNetwork.LoadModel(path + ".json");
 
-              Assert.Equal("ReLu", loaded.Layers.Layers[0].Activation_Func.Name);
+              Assert.Equal("ReLU", loaded.Layers.Layers[0].Activation.Name);
               Assert.Equal(before, loaded.GetResults(x).Data);
           }
           finally { Cleanup(path); }
@@ -109,18 +108,18 @@
           string path = TempModelBase();
           try
           {
-              var model = new My_DNN.MDNN(new RNN(3, new Tanh()), new SGD(0.01), new MSE());
-              model.Layers.SetInputSizeForFirstLayer(new int[] { 2 });
+              var model = new NeuralNetwork(new RNN(3, new Tanh()), new SGD(0.01), new MSE());
+              model.Layers.SetInputShape(new int[] { 2 });
 
               var x = new Tensor(new double[] { 0.5, -0.3 });
               model.ResetSequence();
               double[] before = model.GetResults(x).Data;
 
               model.SaveAsJson(path);
-              var loaded = My_DNN.MDNN.LoadModel(path + ".json");
+              var loaded = NeuralNetwork.LoadModel(path + ".json");
 
-              Assert.Equal("Tanh", loaded.Layers.Layers[0].Activation_Func.Name);
-              loaded.ResetSequence();                            // stejný počáteční skrytý stav
+              Assert.Equal("Tanh", loaded.Layers.Layers[0].Activation.Name);
+              loaded.ResetSequence();                            // same initial hidden state
               model.ResetSequence();
               Assert.Equal(model.GetResults(x).Data, loaded.GetResults(x).Data);
           }
@@ -130,15 +129,15 @@
 
   public class SaveLoadPathTests : GradientCheckTestBase
   {
-      // 2c-13: Save vždycky přilepil ".json", Load ne → SaveAsJson("model") zapsalo
-      // "model.json", ale LoadModel("model") selhalo. A SaveAsJson("model.json")
-      // vyrobilo "model.json.json".
+      // Previously Save always appended ".json" and Load did not → SaveAsJson("model") wrote
+      // "model.json", but LoadModel("model") failed. And SaveAsJson("model.json")
+      // produced "model.json.json".
       private static string TempBase()
           => System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mdnn_path_" + Guid.NewGuid().ToString("N"));
 
-      private static My_DNN.MDNN SmallModel()
+      private static NeuralNetwork SmallModel()
       {
-          var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE());
+          var model = new NeuralNetwork(new Dense(2, new Linear()), new SGD(0.01), new MSE());
           model.GetResults(new Tensor(new double[] { 0.5, -0.3 }));
           return model;
       }
@@ -149,10 +148,10 @@
           string basePath = TempBase();
           try
           {
-              SmallModel().SaveAsJson(basePath);                       // zapíše basePath.json
+              SmallModel().SaveAsJson(basePath);                       // writes basePath.json
               Assert.True(System.IO.File.Exists(basePath + ".json"));
 
-              var loaded = My_DNN.MDNN.LoadModel(basePath);            // BEZ přípony
+              var loaded = NeuralNetwork.LoadModel(basePath);            // WITHOUT the extension
               Assert.NotNull(loaded);
           }
           finally { try { System.IO.File.Delete(basePath + ".json"); } catch { } }
@@ -166,10 +165,10 @@
           {
               SmallModel().SaveAsJson(path);
 
-              Assert.True(System.IO.File.Exists(path), "očekáván soubor s jednou příponou");
-              Assert.False(System.IO.File.Exists(path + ".json"), "vznikla dvojitá přípona .json.json");
+              Assert.True(System.IO.File.Exists(path), "expected a file with a single extension");
+              Assert.False(System.IO.File.Exists(path + ".json"), "a double .json.json extension was created");
 
-              Assert.NotNull(My_DNN.MDNN.LoadModel(path));
+              Assert.NotNull(NeuralNetwork.LoadModel(path));
           }
           finally { try { System.IO.File.Delete(path); System.IO.File.Delete(path + ".json"); } catch { } }
       }
@@ -178,15 +177,15 @@
       public void LoadModel_missing_file_throws_clear_error()
       {
           string missing = TempBase();
-          var ex = Record.Exception(() => My_DNN.MDNN.LoadModel(missing));
+          var ex = Record.Exception(() => NeuralNetwork.LoadModel(missing));
 
           Assert.IsType<System.IO.FileNotFoundException>(ex);
-          Assert.Contains(".json", ex.Message);      // hláška ukáže obě zkoušené cesty
+          Assert.Contains(".json", ex.Message);      // the message shows both paths that were tried
       }
   }
 
   // ==========================================================================================
-  //  Fáze 4 — formát uloženého modelu v1 (FormatVersion, seed, datum, checksum)
+  //  Saved model format v1 (FormatVersion, seed, timestamp, checksum)
   // ==========================================================================================
 
   public class SaveFormatTests : GradientCheckTestBase
@@ -194,10 +193,10 @@
       private static string TempBase()
           => System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mdnn_fmt_" + Guid.NewGuid().ToString("N"));
 
-      private static My_DNN.MDNN Model(int? seed = null)
+      private static NeuralNetwork Model(int? seed = null)
       {
-          var m = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE(), seed);
-          m.Layers.Add(new Dense(3, new ReLu()));
+          var m = new NeuralNetwork(new Dense(2, new Linear()), new SGD(0.01), new MSE(), seed);
+          m.Layers.Add(new Dense(3, new ReLU()));
           m.GetResults(new Tensor(new double[] { 0.5, -0.3 }));
           return m;
       }
@@ -234,8 +233,8 @@
           {
               Model(seed: 777).SaveAsJson(path);
 
-              var loaded = My_DNN.MDNN.LoadModel(path);
-              Assert.Equal(777, loaded.Context.Seed);          // provenience přežije uložení
+              var loaded = NeuralNetwork.LoadModel(path);
+              Assert.Equal(777, loaded.Context.Seed);          // provenance survives saving
           }
           finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
       }
@@ -248,7 +247,7 @@
           {
               Model(seed: 777).SaveAsJson(path);
 
-              var loaded = My_DNN.MDNN.LoadModel(path, seed: 111);
+              var loaded = NeuralNetwork.LoadModel(path, seed: 111);
               Assert.Equal(111, loaded.Context.Seed);
           }
           finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
@@ -257,7 +256,7 @@
       [Fact]
       public void Round_trip_still_reproduces_the_forward_pass()
       {
-          // obálka nesmí rozbít to podstatné — že načtený model počítá stejně
+          // the envelope must not break the essential part: the loaded model computes the same
           string path = TempBase();
           try
           {
@@ -266,14 +265,14 @@
               double[] before = src.GetResults(x).Data;
 
               src.SaveAsJson(path);
-              Assert.Equal(before, My_DNN.MDNN.LoadModel(path).GetResults(x).Data);
+              Assert.Equal(before, NeuralNetwork.LoadModel(path).GetResults(x).Data);
           }
           finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
       }
 
-      // Záměrně NE "Tampered" — checksum cílenou manipulaci nechytá (kdo soubor upraví,
-      // přepočítá si i hash) a nemá se to tak tvářit. Chytá NEZAMÝŠLENOU změnu: překlep
-      // při ruční editaci, omylem přepsanou hodnotu, poškozený přenos.
+      // Deliberately NOT "Tampered": the checksum does not catch deliberate tampering (whoever
+      // edits the file recomputes the hash too) and must not pretend to. It catches UNINTENDED
+      // changes: a typo during manual editing, an accidentally overwritten value, a corrupted transfer.
       [Fact]
       public void Accidentally_modified_file_is_rejected()
       {
@@ -282,13 +281,13 @@
           {
               Model(seed: 1).SaveAsJson(path);
 
-              // změň jednu váhu v datech, checksum nech být → nesmí projít
+              // change one weight in the data, leave the checksum → must not pass
               string json = System.IO.File.ReadAllText(path + ".json");
               string broken = json.Replace("\"Bias\": 0", "\"Bias\": 0.123456");
-              Assert.NotEqual(json, broken);                   // pojistka, že se náhrada povedla
+              Assert.NotEqual(json, broken);                   // sanity check that the replacement worked
               System.IO.File.WriteAllText(path + ".json", broken);
 
-              var ex = Assert.Throws<ModelFileCorruptedException>(() => My_DNN.MDNN.LoadModel(path));
+              var ex = Assert.Throws<ModelFileCorruptedException>(() => NeuralNetwork.LoadModel(path));
               Assert.StartsWith("sha256:", ex.ExpectedChecksum);
               Assert.NotEqual(ex.ExpectedChecksum, ex.ActualChecksum);
           }
@@ -305,7 +304,7 @@
               string json = System.IO.File.ReadAllText(path + ".json");
               System.IO.File.WriteAllText(path + ".json", json.Substring(0, json.Length / 2));
 
-              Assert.Throws<ModelFileCorruptedException>(() => My_DNN.MDNN.LoadModel(path));
+              Assert.Throws<ModelFileCorruptedException>(() => NeuralNetwork.LoadModel(path));
           }
           finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
       }
@@ -320,7 +319,7 @@
               string json = System.IO.File.ReadAllText(path + ".json");
               System.IO.File.WriteAllText(path + ".json", json.Replace("\"FormatVersion\": 1", "\"FormatVersion\": 99"));
 
-              var ex = Assert.Throws<ModelFileCorruptedException>(() => My_DNN.MDNN.LoadModel(path));
+              var ex = Assert.Throws<ModelFileCorruptedException>(() => NeuralNetwork.LoadModel(path));
               Assert.Contains("Update the library", ex.Message);
           }
           finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
@@ -329,19 +328,19 @@
       [Fact]
       public void Legacy_file_without_envelope_still_loads()
       {
-          // zpětná kompatibilita: modely uložené starou verzí knihovny (plochý JSON,
-          // žádná FormatVersion ani checksum) musí jít načíst dál
+          // backward compatibility: models saved by an old library version (flat JSON,
+          // no FormatVersion or checksum) must still load
           string path = TempBase();
           try
           {
               Model(seed: 3).SaveAsJson(path);
 
-              // rozbal obálku → vznikne přesně starý formát
+              // unwrap the envelope → exactly the old format
               string json = System.IO.File.ReadAllText(path + ".json");
               using var doc = System.Text.Json.JsonDocument.Parse(json);
               System.IO.File.WriteAllText(path + ".json", doc.RootElement.GetProperty("Model").GetRawText());
 
-              var loaded = My_DNN.MDNN.LoadModel(path);
+              var loaded = NeuralNetwork.LoadModel(path);
               Assert.NotNull(loaded);
               Assert.Equal(2, loaded.GetResults(new Tensor(new double[] { 0.5, -0.3 })).Data.Length);
           }
@@ -351,7 +350,7 @@
       [Fact]
       public void In_memory_snapshot_round_trips_through_the_same_path()
       {
-          // SaveAsJsonString/LoadWeightsFromString jede stejnou obálkou jako disk
+          // SaveAsJsonString/LoadWeightsFromString use the same envelope as the disk path
           var model = Model(seed: 9);
           var x = new Tensor(new double[] { 0.5, -0.3 });
           double[] before = model.GetResults(x).Data;
@@ -366,20 +365,20 @@
 
   public class ExtendingLoadedModelTests : GradientCheckTestBase
   {
-      // Pád nalezený 2026-08-11: LoadModel → Add → GetResults skončilo IndexOutOfRange.
-      // LayerManager.Add() přestavěl jen POSLEDNÍ vrstvu, vložená zůstala s placeholder
-      // neurony (0 vah) a spoléhala na SetInputSizeForFirstLayer — jenže to se pouštělo jen
-      // pod podmínkou "Layers[0].Input_size_and_shape[0] <= 0". U načteného modelu má první
-      // vrstva vstup ze souboru, podmínka neplatila a nová vrstva zůstala prázdná.
+      // Crash found 2026-08-11: LoadModel → Add → GetResults ended in IndexOutOfRange.
+      // LayerManager.Add() rebuilt only the LAST layer; the inserted one kept placeholder
+      // neurons (0 weights) and relied on SetInputShape, which only ran under the
+      // condition "Layers[0].InputShape[0] <= 0". In a loaded model the first layer has
+      // its input shape from the file, so the condition was false and the new layer stayed empty.
       //
-      // Pro AutoML blokující: načíst checkpoint a rozšířit architekturu je základní operace.
+      // Loading a checkpoint and extending the architecture is a basic operation (e.g. for an AutoML runner).
       private static string TempBase()
           => System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mdnn_ext_" + Guid.NewGuid().ToString("N"));
 
       private static void Save(string path, int? seed = null)
       {
-          var m = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE(), seed);
-          m.Layers.Add(new Dense(3, new ReLu()));
+          var m = new NeuralNetwork(new Dense(2, new Linear()), new SGD(0.01), new MSE(), seed);
+          m.Layers.Add(new Dense(3, new ReLU()));
           m.GetResults(new Tensor(new double[] { 1, 1 }));
           m.SaveAsJson(path);
       }
@@ -392,8 +391,8 @@
           {
               Save(path);
 
-              var loaded = My_DNN.MDNN.LoadModel(path);
-              loaded.Layers.Add(new Dense(4, new ReLu()));
+              var loaded = NeuralNetwork.LoadModel(path);
+              loaded.Layers.Add(new Dense(4, new ReLU()));
 
               double[] output = loaded.GetResults(new Tensor(new double[] { 1, 1 })).Data;
               Assert.Equal(2, output.Length);
@@ -405,14 +404,14 @@
       [Fact]
       public void Loaded_model_can_be_trained_after_extension()
       {
-          // nejen že to nespadne — rozšířený model se musí i doučit
+          // not only must it not crash, the extended model must also keep learning
           string path = TempBase();
           try
           {
               Save(path);
 
-              var loaded = My_DNN.MDNN.LoadModel(path);
-              loaded.Layers.Add(new Dense(4, new ReLu()));
+              var loaded = NeuralNetwork.LoadModel(path);
+              loaded.Layers.Add(new Dense(4, new ReLU()));
 
               var x = new Tensor(new double[] { 1, 1 });
               var t = new Tensor(new double[] { 0.5, -0.5 });
@@ -425,7 +424,7 @@
               }
               double lossAfter = loaded.Loss.CalculateAndGetLoss(loaded.GetResults(x).Data, t.Data);
 
-              Assert.True(lossAfter < lossBefore, $"loss {lossBefore} → {lossAfter}, model se neučí");
+              Assert.True(lossAfter < lossBefore, $"loss {lossBefore} → {lossAfter}, the model is not learning");
           }
           finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
       }
@@ -433,19 +432,19 @@
       [Fact]
       public void Extending_loaded_model_keeps_weights_of_untouched_layers()
       {
-          // vrstvy, jejichž tvar se nemění, si musí natrénované váhy podržet (2c-10)
+          // layers whose shape does not change must keep their trained weights
           string path = TempBase();
           try
           {
               Save(path);
 
-              var loaded = My_DNN.MDNN.LoadModel(path);
+              var loaded = NeuralNetwork.LoadModel(path);
               double[] hiddenBefore = (double[])((Dense)loaded.Layers.Layers[0]).Neurons[0].Weights.Clone();
 
-              loaded.Layers.Add(new Dense(4, new ReLu()));
+              loaded.Layers.Add(new Dense(4, new ReLU()));
               loaded.GetResults(new Tensor(new double[] { 1, 1 }));
 
-              // první skrytá vrstva dostává pořád vstup modelu → beze změny
+              // the first hidden layer still receives the model input → unchanged
               Assert.Equal(hiddenBefore, ((Dense)loaded.Layers.Layers[0]).Neurons[0].Weights);
           }
           finally { try { System.IO.File.Delete(path + ".json"); } catch { } }
@@ -459,10 +458,10 @@
           {
               Save(path);
 
-              var loaded = My_DNN.MDNN.LoadModel(path);
+              var loaded = NeuralNetwork.LoadModel(path);
               Assert.Equal(2, loaded.Layers.Layers.Count);
 
-              loaded.Layers.RemoveAt(0);                       // pryč se skrytou vrstvou
+              loaded.Layers.RemoveAt(0);                       // remove the hidden layer
 
               double[] output = loaded.GetResults(new Tensor(new double[] { 1, 1 })).Data;
               Assert.Equal(2, output.Length);
@@ -477,21 +476,40 @@
       [Fact]
       public void CountTrainableParams_includes_all_conv_filters()
       {
-          // Stejný CNN jako v mdnn_test: Conv16 → MaxPool → Conv32 → MaxPool → Dense64 → Dense10.
-          // Regrese: conv se dřív podpočítával (chybělo × počet filtrů) → 52115 místo 56714.
-          var model = new My_DNN.MDNN(new Dense(10, new Softmax()), new Adam(0.001), new CrossEntropy());
-          model.Layers.Add(new Conv(16, 3, new ReLu(), "valid"));   // 28×28×1 → 26×26×16
+          // Same CNN as in mdnn_test: Conv16 → MaxPool → Conv32 → MaxPool → Dense64 → Dense10.
+          // Regression: conv used to be undercounted (missing × filter count) → 52115 instead of 56714.
+          var model = new NeuralNetwork(new Dense(10, new Softmax()), new Adam(0.001), new CrossEntropy());
+          model.Layers.Add(new Conv(16, 3, new ReLU(), "valid"));   // 28×28×1 → 26×26×16
           model.Layers.Add(new MaxPool(2));                         // → 13×13×16
-          model.Layers.Add(new Conv(32, 3, new ReLu(), "valid"));   // → 11×11×32
+          model.Layers.Add(new Conv(32, 3, new ReLU(), "valid"));   // → 11×11×32
           model.Layers.Add(new MaxPool(2));                         // → 5×5×32
-          model.Layers.Add(new Dense(64, new ReLu()));             // flatten 800 → 64
+          model.Layers.Add(new Dense(64, new ReLU()));             // flatten 800 → 64
 
-          model.GetResults(new Tensor(new double[784]));           // spustí wiring (nastaví tvary/kanály)
+          model.GetResults(new Tensor(new double[784]));           // triggers wiring (sets shapes/channels)
 
           // Conv1:  16·(3·3·1)+16  = 160
           // Conv2:  32·(3·3·16)+32 = 4640
           // Dense64: 64·800+64     = 51264
           // Dense10: 10·64+10      = 650
-          Assert.Equal(160 + 4640 + 51264 + 650, ConsoleControler.CountTrainableParams(model));  // 56714
+          Assert.Equal(160 + 4640 + 51264 + 650, ConsoleController.CountTrainableParams(model));  // 56714
+      }
+  }
+
+  public class SchemaTests : GradientCheckTestBase
+  {
+      // The schema used to be cached on the first Info()/save, and Add/Insert/RemoveAt did not
+      // invalidate the cache, so the file then described an architecture the model no longer had.
+      [Fact]
+      public void Schema_follows_layer_changes_after_info()
+      {
+          var model = new NeuralNetwork(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          var so = Console.Out;
+          Console.SetOut(System.IO.TextWriter.Null);
+          try { model.Info(); } finally { Console.SetOut(so); }
+
+          model.Layers.Add(new Dense(4, new ReLU()));
+
+          Assert.Equal("[Dense,Dense]", model.Schema);
+          Assert.Contains("[Dense,Dense]", model.SaveAsJsonString());
       }
   }

@@ -1,17 +1,17 @@
 using System;
 using System.Linq;
 using Xunit;
-using My_DNN;
-using My_DNN.Layers;
-using My_DNN.Activation_functions;
-using My_DNN.Optimizers;
-using My_DNN.Loss_functions;
+using MDNN;
+using MDNN.Layers;
+using MDNN.Activations;
+using MDNN.Optimizers;
+using MDNN.Losses;
 
 namespace MDNN.Tests;
 
 /// <summary>
-/// Graf průběhu tréninku je v samostatném balíčku MDNN.Plotting. Jádro nabízí jen háček
-/// <see cref="Train.LossChart"/> a samo ScottPlot nepotřebuje.
+/// The training loss chart lives in the separate MDNN.Plotting package. The core only offers the
+/// <see cref="Train.LossChart"/> hook and does not need ScottPlot itself.
 /// </summary>
 public class LossChartTests
 {
@@ -21,19 +21,19 @@ public class LossChartTests
         return (x, x.Select(r => new[] { r[0] * 2 }).ToArray());
     }
 
-    private static My_DNN.MDNN Model()
+    private static NeuralNetwork Model()
     {
-        var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.05), new MSE(), seed: 1);
-        model.Train.ShowModelInfoIntrainLoop = false;
-        model.Train.AutoSaveInTrainLoop = false;
-        model.Train.TestNeuralNetworkAfterTraining = false;
+        var model = new NeuralNetwork(new Dense(1, new Linear()), new SGD(0.05), new MSE(), seed: 1);
+        model.Train.ShowModelInfo = false;
+        model.Train.AutoSave = false;
+        model.Train.TestAfterTraining = false;
         return model;
     }
 
     [Fact]
     public void Core_library_does_not_depend_on_ScottPlot()
     {
-        var references = typeof(My_DNN.MDNN).Assembly.GetReferencedAssemblies().Select(a => a.Name);
+        var references = typeof(NeuralNetwork).Assembly.GetReferencedAssemblies().Select(a => a.Name);
         Assert.DoesNotContain(references, name => name!.StartsWith("ScottPlot"));
     }
 
@@ -58,7 +58,7 @@ public class LossChartTests
     {
         var (x, y) = Data();
         var model = Model();
-        model.Train.ShowLossChartInTrainLoop = false;
+        model.Train.ShowLossChart = false;
         bool called = false;
         model.Train.LossChart = (_, _, _) => called = true;
 
@@ -75,6 +75,6 @@ public class LossChartTests
         model.Train.UseLossChart();
 
         Assert.NotNull(model.Train.LossChart);
-        Assert.Equal(nameof(GraphPlotter.ShowLossGraph), model.Train.LossChart!.Method.Name);
+        Assert.Equal(nameof(GraphPlotter.SaveLossChart), model.Train.LossChart!.Method.Name);
     }
 }

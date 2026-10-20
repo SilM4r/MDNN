@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <!-- NuGet balíček. Publikuje se ručně (dotnet pack + dotnet nuget push), CI nic neposílá. -->
+  <!-- NuGet package. Published manually (dotnet pack + dotnet nuget push); CI does not publish anything. -->
   <PropertyGroup>
     <PackageId>MDNN</PackageId>
     <Version>1.0.0</Version>
@@ -18,6 +18,11 @@
     <RepositoryType>git</RepositoryType>
     <PackageTags>neural-network;deep-learning;machine-learning;cnn;rnn</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- XML docs ship with the package so IntelliSense shows them; a public member without
+         docs is a build warning. Symbols go to a separate .snupkg. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
 
   <ItemGroup>

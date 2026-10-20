@@ -2,43 +2,42 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Xunit;
-using My_DNN;
-using My_DNN.Layers;
-using My_DNN.Layers.classes;
-using My_DNN.Activation_functions;
-using My_DNN.Optimizers;
-using My_DNN.Loss_functions;
+using MDNN;
+using MDNN.Layers;
+using MDNN.Activations;
+using MDNN.Optimizers;
+using MDNN.Losses;
 
 namespace MDNN.Tests;
 
 /// <summary>
-/// Data-paralelní trénink (`Train.Workers` &gt; 1): každé vlákno má repliku modelu, spočítá
-/// svůj kus dávky a gradienty se sečtou do originálu.
+/// Data-parallel training (`Train.Workers` &gt; 1): each thread has a replica of the model,
+/// computes its share of the batch, and the gradients are summed into the original.
 ///
-/// Hlavní kontrakt: paralelní běh musí dát TOTÉŽ co sekvenční — až na zaokrouhlení, protože
-/// sčítání double není asociativní a gradient dávky se sčítá v jiném pořadí. Kdyby si
-/// repliky sdílely nějaký pracovní buffer, rozdíl by nebyl v posledních cifrách, ale
-/// v celých číslech (dvě vlákna by si přepisovala aktivace), takže tolerance 1e-9 tu
-/// slouží jako ostrá hranice mezi „jiné pořadí sčítání" a „chyba".
+/// Main contract: a parallel run must give the SAME result as a sequential one — up to
+/// rounding, because double addition is not associative and the batch gradient is summed in
+/// a different order. If the replicas shared some working buffer, the difference would not be
+/// in the last digits but in whole numbers (two threads overwriting each other's activations),
+/// so the 1e-9 tolerance serves as a sharp line between "different summation order" and "bug".
 /// </summary>
 public class DataParallelTests
 {
-    private static T Quiet<T>(T model) where T : My_DNN.MDNN
+    private static T Quiet<T>(T model) where T : NeuralNetwork
     {
-        model.Train.ShowLossChartInTrainLoop = false;
-        model.Train.ShowModelInfoIntrainLoop = false;
-        model.Train.AutoSaveInTrainLoop = false;
-        model.Train.TestNeuralNetworkAfterTraining = false;
+        model.Train.ShowLossChart = false;
+        model.Train.ShowModelInfo = false;
+        model.Train.AutoSave = false;
+        model.Train.TestAfterTraining = false;
         return model;
     }
 
-    /// <summary>Všechny parametry modelu za sebou: váhy a biasy neuronů, kernely a biasy Conv.</summary>
-    private static double[] Parameters(My_DNN.MDNN model)
+    /// <summary>All model parameters in sequence: neuron weights and biases, Conv kernels and biases.</summary>
+    private static double[] Parameters(NeuralNetwork model)
     {
         var all = new List<double>();
         foreach (Layer layer in model.Layers.Layers)
         {
-            if (layer is LayerBasedOnNeurons byNeurons)
+            if (layer is NeuronLayer byNeurons)
             {
                 foreach (Neuron n in byNeurons.Neurons)
                 {
@@ -48,7 +47,7 @@ public class DataParallelTests
             }
             else if (layer is Conv conv)
             {
-                foreach (var f in conv.Kernel)
+                foreach (var f in conv.Kernels)
                 foreach (var row in f)
                 foreach (var col in row)
                     all.AddRange(col);
@@ -67,7 +66,7 @@ public class DataParallelTests
             double scale = Math.Max(1.0, Math.Abs(expected[i]));
             worst = Math.Max(worst, Math.Abs(expected[i] - actual[i]) / scale);
         }
-        Assert.True(worst < tolerance, $"největší relativní rozdíl {worst:G3} (tolerance {tolerance:G3})");
+        Assert.True(worst < tolerance, $"largest relative difference {worst:G3} (tolerance {tolerance:G3})");
     }
 
     private static (double[][] x, double[][] y) Regression(int n = 10)
@@ -83,14 +82,14 @@ public class DataParallelTests
         return (x, y);
     }
 
-    private static My_DNN.MDNN Mlp(Optimizer optimizer, int seed = 5)
+    private static NeuralNetwork Mlp(Optimizer optimizer, int seed = 5)
     {
-        var model = new My_DNN.MDNN(new Dense(2, new Linear()), optimizer, new MSE(), seed);
+        var model = new NeuralNetwork(new Dense(2, new Linear()), optimizer, new MSE(), seed);
         model.Layers.Add(new Dense(6, new Tanh()));
         return Quiet(model);
     }
 
-    // ------------------------------------------------------------ nastavení
+    // ------------------------------------------------------------ settings
 
     [Fact]
     public void Workers_default_to_one_and_reject_zero()
@@ -101,12 +100,12 @@ public class DataParallelTests
         Assert.Throws<ArgumentOutOfRangeException>(() => model.Train.Workers = 0);
     }
 
-    // ------------------------------------------------------------ paralelně = sekvenčně
+    // ------------------------------------------------------------ parallel = sequential
 
     [Theory]
-    [InlineData(2, 5)]    // dávka se dělí rovnoměrně jen náhodou: 5 vzorků na 2 vlákna = 2 + 3
+    [InlineData(2, 5)]    // the batch does not split evenly: 5 samples over 2 threads = 2 + 3
     [InlineData(3, 5)]    // 1 + 2 + 2
-    [InlineData(4, 2)]    // víc vláken než vzorků v dávce → použijí se jen 2
+    [InlineData(4, 2)]    // more threads than samples in the batch → only 2 are used
     public void Dense_training_matches_sequential(int workers, int batch)
     {
         var (x, y) = Regression();
@@ -129,23 +128,23 @@ public class DataParallelTests
         var parallel = Mlp(new SGD(0.1));
         parallel.Train.Workers = 3;
 
-        // Report po epoše akumulátor vynuluje. S jedním reportem na dva epochy proběhne
-        // jen po první, takže po druhé epoše zůstane její loss k porovnání.
-        sequential.Train.NumberOfShowEpochInConsole = 1;
-        parallel.Train.NumberOfShowEpochInConsole = 1;
+        // A report after an epoch resets the accumulator. With one report for two epochs it runs
+        // only after the first, so the second epoch's loss remains to be compared.
+        sequential.Train.ConsoleReportCount = 1;
+        parallel.Train.ConsoleReportCount = 1;
 
         sequential.Train.SimpleTrainLoop(x, y, 2, 5);
         parallel.Train.SimpleTrainLoop(x, y, 2, 5);
 
-        // Průměr loss se počítá z akumulátorů replik — kdyby se nesečetl počet vzorků,
-        // vyšel by průměr jen z jedné repliky.
+        // The average loss is computed from the replicas' accumulators — if the sample counts
+        // were not summed, the average would come from a single replica only.
         double expected = sequential.Context.Loss.GetAverageLossPerIteration();
         double actual = parallel.Context.Loss.GetAverageLossPerIteration();
         Assert.True(expected > 0);
         Assert.Equal(expected, actual, 12);
     }
 
-    // [vzorek, výška, šířka, kanály] — dva kanály, ať se replikují i vícekanálové kernely.
+    // [sample, height, width, channels] — two channels so multi-channel kernels get replicated too.
     private static double[,,,] Images(int n)
     {
         var img = new double[n, 6, 6, 2];
@@ -164,10 +163,10 @@ public class DataParallelTests
         return y;
     }
 
-    private static My_DNN.MDNN Cnn()
+    private static NeuralNetwork Cnn()
     {
-        var model = new My_DNN.MDNN(new Dense(2, new Softmax()), new Adam(0.01), new CrossEntropy(), seed: 3);
-        model.Layers.Add(new Conv(3, 3, new ReLu(), "valid"));
+        var model = new NeuralNetwork(new Dense(2, new Softmax()), new Adam(0.01), new CrossEntropy(), seed: 3);
+        model.Layers.Add(new Conv(3, 3, new ReLU(), "valid"));
         model.Layers.Add(new MaxPool(2));
         model.Layers.Add(new Dense(4, new Tanh()));
         return Quiet(model);
@@ -186,9 +185,9 @@ public class DataParallelTests
         AssertClose(Parameters(sequential), Parameters(parallel));
     }
 
-    private static My_DNN.MDNN Rnn()
+    private static NeuralNetwork Rnn()
     {
-        var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.05), new MSE(), seed: 9);
+        var model = new NeuralNetwork(new Dense(1, new Linear()), new SGD(0.05), new MSE(), seed: 9);
         model.Layers.Add(new RNN(4, new Tanh()));
         return Quiet(model);
     }
@@ -196,8 +195,8 @@ public class DataParallelTests
     [Fact]
     public void Rnn_sequence_training_matches_sequential()
     {
-        // 10 sekvencí × 5 kroků × 2 rysy → 1 výstup na krok. Replika bere CELOU sekvenci,
-        // takže skrytý stav a RTRL citlivosti se mezi sekvencemi nemíchají.
+        // 10 sequences × 5 steps × 2 features → 1 output per step. A replica takes the WHOLE
+        // sequence, so the hidden state and RTRL sensitivities do not mix between sequences.
         var x = new double[10, 5, 2];
         var y = new double[10, 5, 1];
         for (int s = 0; s < 10; s++)
@@ -221,8 +220,8 @@ public class DataParallelTests
     [Fact]
     public void Layers_added_between_runs_are_picked_up()
     {
-        // Repliky se staví každou epochu znovu. Kdyby se držely déle, po Add by ukazovaly
-        // na váhy, které model už nepoužívá.
+        // Replicas are rebuilt every epoch. If they were kept longer, after Add they would
+        // point to weights the model no longer uses.
         var (x, y) = Regression();
         var sequential = Mlp(new SGD(0.1));
         var parallel = Mlp(new SGD(0.1));
@@ -238,17 +237,17 @@ public class DataParallelTests
         AssertClose(Parameters(sequential), Parameters(parallel));
     }
 
-    // ------------------------------------------------------------ vyhodnocení (valid, test)
+    // ------------------------------------------------------------ evaluation (valid, test)
     //
-    // Validace a test jsou jen forward, a výstupy se při Workers > 1 jen spočítají
-    // paralelně — loss a skóre se z nich sčítají sekvenčně v pořadí vzorků. Výsledek
-    // proto musí být bit po bitu stejný jako při Workers = 1, ne jen „blízko".
+    // Validation and test are forward-only; with Workers > 1 only the outputs are computed
+    // in parallel — loss and score are summed from them sequentially in sample order. The
+    // result must therefore be bit-identical to Workers = 1, not just "close".
 
-    private static My_DNN.MDNN Classifier()
+    private static NeuralNetwork Classifier()
     {
-        var model = new My_DNN.MDNN(new Dense(3, new Softmax()), new Adam(0.02), new CrossEntropy(), seed: 13);
+        var model = new NeuralNetwork(new Dense(3, new Softmax()), new Adam(0.02), new CrossEntropy(), seed: 13);
         model.Layers.Add(new Dense(6, new Tanh()));
-        Quiet(model).Train.NumberOfShowEpochInConsole = 100;   // report každou epochu → validace pokaždé
+        Quiet(model).Train.ConsoleReportCount = 100;   // report every epoch → validation every time
         return model;
     }
 
@@ -269,9 +268,9 @@ public class DataParallelTests
     [Fact]
     public void Validation_is_bit_identical_to_sequential()
     {
-        // Při dávce 1 je i trénink bit po bitu stejný (vzorek spočítá jedna replika a
-        // 0 + x je přesné), takže se tu dá porovnávat PŘESNĚ: kdyby paralelní validace
-        // dala jinou valid loss, jinak by se vybral nejlepší model a lišily by se i váhy.
+        // With batch size 1 even training is bit-identical (one replica computes the sample and
+        // 0 + x is exact), so we can compare EXACTLY: if parallel validation gave a different
+        // valid loss, a different best model would be picked and the weights would differ too.
         var (x, y) = Classes();
         var sequential = Classifier();
         var parallel = Classifier();
@@ -292,12 +291,12 @@ public class DataParallelTests
         var model = Classifier();
         model.Train.SimpleTrainLoop(x, y, 5, 4);
 
-        Tensor inputs = Tensor.ConvertArrayToTensor(x);
-        Tensor targets = Tensor.ConvertArrayToTensor(y);
+        Tensor inputs = new Tensor(x);
+        Tensor targets = new Tensor(y);
 
-        var expected = model.Train.TestNeuralNetwork(inputs, targets, showInConsole: false);
+        var expected = model.Train.Evaluate(inputs, targets, showInConsole: false);
         model.Train.Workers = 4;
-        var actual = model.Train.TestNeuralNetwork(inputs, targets, showInConsole: false);
+        var actual = model.Train.Evaluate(inputs, targets, showInConsole: false);
 
         Assert.Equal(expected, actual);
         Assert.Equal(30, actual.Item2);
@@ -306,7 +305,7 @@ public class DataParallelTests
     [Fact]
     public void Sequence_test_scores_are_identical_to_sequential()
     {
-        // Celá sekvence jde jednou replikou a skrytý stav se nuluje na jejím začátku.
+        // A whole sequence goes through one replica and the hidden state is reset at its start.
         var x = new double[9, 4, 2];
         var y = new double[9, 4, 1];
         for (int s = 0; s < 9; s++)
@@ -320,12 +319,12 @@ public class DataParallelTests
         var model = Rnn();
         model.Train.TrainLoop(x, y, 2, 1, isSequence: true);
 
-        Tensor inputs = Tensor.ConvertArrayToTensor(x);
-        Tensor targets = Tensor.ConvertArrayToTensor(y);
+        Tensor inputs = new Tensor(x);
+        Tensor targets = new Tensor(y);
 
-        var expected = model.Train.TestNeuralNetwork(inputs, targets, showInConsole: false);
+        var expected = model.Train.Evaluate(inputs, targets, showInConsole: false);
         model.Train.Workers = 3;
-        var actual = model.Train.TestNeuralNetwork(inputs, targets, showInConsole: false);
+        var actual = model.Train.Evaluate(inputs, targets, showInConsole: false);
 
         Assert.Equal(expected, actual);
         Assert.Equal(9 * 4, actual.Item2);
@@ -334,13 +333,13 @@ public class DataParallelTests
     [Fact]
     public void Evaluation_does_not_draw_from_the_models_random_generator()
     {
-        // Trénovací repliky si při dropoutu berou seedy z generátoru modelu. Vyhodnocovací
-        // nesmí: validace běží mezi epochami a posunutý generátor by zamíchal další epochu
-        // jinak než při Workers = 1.
+        // Training replicas draw their seeds from the model's generator when dropout is on.
+        // Evaluation replicas must not: validation runs between epochs and an advanced generator
+        // would shuffle the next epoch differently than with Workers = 1.
         var (x, y) = Classes();
-        My_DNN.MDNN WithDropout()
+        NeuralNetwork WithDropout()
         {
-            var m = new My_DNN.MDNN(new Dense(3, new Softmax()), new Adam(0.02), new CrossEntropy(), seed: 13);
+            var m = new NeuralNetwork(new Dense(3, new Softmax()), new Adam(0.02), new CrossEntropy(), seed: 13);
             m.Layers.Add(new Dense(6, new Tanh(), dropout: 0.3));
             m.GetResults(new Tensor(x[0]));
             return m;
@@ -349,18 +348,18 @@ public class DataParallelTests
         var untouched = WithDropout();
         var evaluated = WithDropout();
         evaluated.Train.Workers = 3;
-        evaluated.Train.TestNeuralNetwork(Tensor.ConvertArrayToTensor(x), Tensor.ConvertArrayToTensor(y), showInConsole: false);
+        evaluated.Train.Evaluate(new Tensor(x), new Tensor(y), showInConsole: false);
 
         Assert.Equal(untouched.Context.Random.Next(), evaluated.Context.Random.Next());
     }
 
-    // ------------------------------------------------------------ determinismus
+    // ------------------------------------------------------------ determinism
 
     private static double[] TrainWithDropout(int workers)
     {
         var (x, y) = Regression(12);
-        var model = new My_DNN.MDNN(new Dense(2, new Linear()), new Adam(0.05), new MSE(), seed: 21);
-        model.Layers.Add(new Dense(8, new ReLu(), dropout: 0.3));
+        var model = new NeuralNetwork(new Dense(2, new Linear()), new Adam(0.05), new MSE(), seed: 21);
+        model.Layers.Add(new Dense(8, new ReLU(), dropout: 0.3));
         Quiet(model).Train.Workers = workers;
 
         model.Train.SimpleTrainLoop(x, y, 5, 6);
@@ -370,21 +369,21 @@ public class DataParallelTests
     [Fact]
     public void Same_seed_and_workers_give_bit_identical_result_even_with_dropout()
     {
-        // Každá replika má vlastní generátor odvozený ze seedu modelu, takže masky
-        // nezávisí na tom, které vlákno doběhne dřív.
+        // Each replica has its own generator derived from the model's seed, so the masks
+        // do not depend on which thread finishes first.
         Assert.Equal(TrainWithDropout(3), TrainWithDropout(3));
     }
 
     [Fact]
     public void Dropout_in_replicas_actually_drops()
     {
-        // Kdyby replika dropout ignorovala, paralelní běh s dropoutem by se rovnal
-        // paralelnímu běhu bez něj.
+        // If a replica ignored dropout, a parallel run with dropout would equal
+        // a parallel run without it.
         var (x, y) = Regression(12);
         double[] Run(double dropout)
         {
-            var model = new My_DNN.MDNN(new Dense(2, new Linear()), new Adam(0.05), new MSE(), seed: 21);
-            model.Layers.Add(new Dense(8, new ReLu(), dropout: dropout));
+            var model = new NeuralNetwork(new Dense(2, new Linear()), new Adam(0.05), new MSE(), seed: 21);
+            model.Layers.Add(new Dense(8, new ReLU(), dropout: dropout));
             Quiet(model).Train.Workers = 3;
             model.Train.SimpleTrainLoop(x, y, 3, 6);
             return Parameters(model);
@@ -396,9 +395,9 @@ public class DataParallelTests
     [Fact]
     public void Replica_context_carries_the_training_settings()
     {
-        // Přímá kontrola: test níž (Global_dropout_reaches_the_replicas) by prošel i tehdy,
-        // kdyby replika globální dropout ignorovala — originál s dropoutem čerpá seedy
-        // replik ze svého generátoru, takže se změní pořadí dat a výsledek se liší i tak.
+        // Direct check: the test below (Global_dropout_reaches_the_replicas) would pass even
+        // if a replica ignored global dropout — the original with dropout draws replica seeds
+        // from its generator, so the data order changes and the result differs anyway.
         var original = new NetworkContext { Loss = new CrossEntropy(), L2 = 0.01, Dropout = 0.4, SequenceTrain = true };
         original.Loss.CalculateLoss(new[] { 0.5 }, new[] { 1.0 });
 
@@ -409,20 +408,20 @@ public class DataParallelTests
         Assert.True(replica.SequenceTrain);
         Assert.IsType<CrossEntropy>(replica.Loss);
         Assert.NotSame(original.Loss, replica.Loss);
-        Assert.Equal(0, replica.Loss.GetAverageLossPerIteration());   // vlastní, prázdný akumulátor
+        Assert.Equal(0, replica.Loss.GetAverageLossPerIteration());   // its own, empty accumulator
         Assert.Equal(new Random(7).Next(), replica.Random.Next());
     }
 
     [Fact]
     public void Global_dropout_reaches_the_replicas()
     {
-        // Globální Context.Dropout je jiná cesta než dropout zadaný na vrstvě: replika ho
-        // musí převzít v kontextu, ne s vrstvou.
+        // Global Context.Dropout is a different path than dropout set on a layer: the replica
+        // must take it over via the context, not with the layer.
         var (x, y) = Regression(12);
         double[] Run(double dropout)
         {
-            var model = new My_DNN.MDNN(new Dense(2, new Linear()), new Adam(0.05), new MSE(), seed: 21);
-            model.Layers.Add(new Dense(8, new ReLu()));
+            var model = new NeuralNetwork(new Dense(2, new Linear()), new Adam(0.05), new MSE(), seed: 21);
+            model.Layers.Add(new Dense(8, new ReLU()));
             model.Context.Dropout = dropout;
             Quiet(model).Train.Workers = 3;
             model.Train.SimpleTrainLoop(x, y, 3, 6);
@@ -432,18 +431,18 @@ public class DataParallelTests
         Assert.NotEqual(Run(0.0), Run(0.3));
     }
 
-    // ------------------------------------------------------------ chyby
+    // ------------------------------------------------------------ errors
 
-    /// <summary>Vlastní vrstva (identita) — README je povoluje, repliky ale neumí.</summary>
-    private sealed class Identity : LayerWithUntrainedParameters
+    /// <summary>A custom layer (identity) — the README allows them, but replicas don't support them.</summary>
+    private sealed class Identity : ParameterlessLayer
     {
         private int[] shape = { 0 };
         private Tensor? last;
         public override string Name => "Identity";
-        public override int[] Input_size_and_shape => shape;
-        public override int[] Output_size_and_shape => shape;
-        public override Tensor? Layer_output => last;
-        public override Tensor? Layer_raw_output => last;
+        public override int[] InputShape => shape;
+        public override int[] OutputShape => shape;
+        public override Tensor? Output => last;
+        public override Tensor? RawOutput => last;
         public override Tensor FeedForward(Tensor input_values) => last = input_values;
         public override void WireShapes(int? number_of_elements = null, int[]? number_of_input = null)
         {
@@ -462,7 +461,7 @@ public class DataParallelTests
         var model = Mlp(new SGD(0.1));
         model.Layers.Insert(0, new Identity());
 
-        model.Train.SimpleTrainLoop(x, y, 1, 4);   // sekvenčně to jde
+        model.Train.SimpleTrainLoop(x, y, 1, 4);   // works sequentially
         model.Train.Workers = 2;
 
         var ex = Assert.Throws<NotSupportedException>(() => model.Train.SimpleTrainLoop(x, y, 1, 4));
@@ -472,10 +471,10 @@ public class DataParallelTests
     [Fact]
     public void Error_in_a_worker_surfaces_as_the_original_exception()
     {
-        // Sekvenčně dá nesedící počet cílů ArgumentException. Paralelně musí přijít
-        // TATÁŽ výjimka, ne AggregateException z Parallel.For.
+        // Sequentially, a mismatched target count gives ArgumentException. In parallel the
+        // SAME exception must surface, not an AggregateException from Parallel.For.
         var (x, _) = Regression();
-        var wrongTargets = x.Select(_ => new[] { 1.0, 2.0, 3.0 }).ToArray();   // model má 2 výstupy
+        var wrongTargets = x.Select(_ => new[] { 1.0, 2.0, 3.0 }).ToArray();   // the model has 2 outputs
         var model = Mlp(new SGD(0.1));
         model.Train.Workers = 3;
 
@@ -485,10 +484,10 @@ public class DataParallelTests
     [Fact]
     public void Rnn_outside_sequence_training_is_rejected()
     {
-        // Mimo sekvenční režim teče skrytý stav RNN z jednoho vzorku do dalšího v pořadí
-        // dávky. Paralelně by si ho každá replika nesla jinak — tiše jiný výsledek.
+        // Outside sequence mode the RNN hidden state flows from one sample to the next in batch
+        // order. In parallel each replica would carry it differently — a silently different result.
         var (x, y) = Regression();
-        var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.1), new MSE(), seed: 2);
+        var model = new NeuralNetwork(new Dense(2, new Linear()), new SGD(0.1), new MSE(), seed: 2);
         model.Layers.Add(new RNN(3, new Tanh()));
         Quiet(model).Train.Workers = 2;
 

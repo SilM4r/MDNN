@@ -1,22 +1,33 @@
 ﻿
-namespace My_DNN.Activation_functions
+namespace MDNN.Activations
 {
-    public class Softmax : LayerActivationFunc
+    /// <summary>
+    /// Softmax over the whole layer output (numerically stabilized by subtracting the maximum).
+    /// </summary>
+    public class Softmax : LayerActivationFunction
     {
+        /// <inheritdoc/>
         public override string Name
         {
             get { return "Softmax"; }
         }
 
+        /// <summary>
+        /// Returns <paramref name="value"/> unchanged; softmax is applied layer-wide via <see cref="ApplyToLayer"/>.
+        /// </summary>
         public override double Apply(double value)
         {
             return value;
         }
 
-        // Softmax nemá per-prvkovou derivaci — výstup s_i závisí na VŠECH vstupech.
-        // Dřív se tady vracela diagonála Jacobiánu přes stavový čítač, který se posouval
-        // s každým voláním: špatná matematika, závislost na pořadí volání a race při
-        // paralelním backwardu. Backward pro softmax jde výhradně přes BackwardForLayer.
+        // Softmax has no per-element derivative — output s_i depends on ALL inputs.
+        // Previously this returned the Jacobian diagonal via a stateful counter advanced on every
+        // call: wrong math, dependence on call order and a race in a parallel backward pass.
+        // Backward for softmax goes exclusively through BackwardForLayer.
+        /// <summary>
+        /// Not supported: softmax has no per-element derivative. Use <see cref="BackwardForLayer"/>.
+        /// </summary>
+        /// <exception cref="NotSupportedException">Always.</exception>
         public override double Derivative(double value)
         {
             throw new NotSupportedException(
@@ -24,10 +35,11 @@ namespace My_DNN.Activation_functions
                 "Use BackwardForLayer(rawOutput, gradFromAbove).");
         }
 
-        // ∂L/∂z_i = Σ_j g_j · J[j,i],  kde J[j,i] = s_j·(δ_ji − s_i)
+        // ∂L/∂z_i = Σ_j g_j · J[j,i],  where J[j,i] = s_j·(δ_ji − s_i)
         //         = s_i · (g_i − Σ_j g_j·s_j)
-        // Jacobián se nikdy nematerializuje — stačí jeden skalární součin, takže je to
-        // O(n) místo O(n²) a bez alokace matice.
+        // The Jacobian is never materialized — a single dot product suffices, so it is
+        // O(n) instead of O(n²) with no matrix allocation.
+        /// <inheritdoc/>
         public override double[] BackwardForLayer(double[] rawOutput, double[] gradFromAbove)
         {
             if (rawOutput.Length != gradFromAbove.Length)
@@ -53,6 +65,7 @@ namespace My_DNN.Activation_functions
             return result;
         }
 
+        /// <inheritdoc/>
         public override double[] ApplyToLayer(double[] values)
         {
             int length = values.Length;

@@ -1,9 +1,9 @@
 ﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace My_DNN.Save_neural_network
+namespace MDNN.Serialization
 {
-    public class LayerConverter : JsonConverter<BaseExportLayer>
+    internal class LayerConverter : JsonConverter<BaseExportLayer>
     {
         public override BaseExportLayer Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
@@ -21,7 +21,7 @@ namespace My_DNN.Save_neural_network
                     _ => throw new NotSupportedException($"Unknown layer type: {layerType}")
                 };
 
-                // `null` v poli vrstev — soubor je poškozený
+                // `null` in the layer array — the file is damaged
                 return layer ?? throw new ModelFileCorruptedException($"Layer {layerType} in the model file is empty.");
             }
         }
@@ -32,7 +32,7 @@ namespace My_DNN.Save_neural_network
         }
     }
 
-    public class LayerListConverter : JsonConverter<List<BaseExportLayer>>
+    internal class LayerListConverter : JsonConverter<List<BaseExportLayer>>
     {
         public override List<BaseExportLayer> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {

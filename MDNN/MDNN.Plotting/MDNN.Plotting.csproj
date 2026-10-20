@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Grafy průběhu tréninku. Samostatně, ať jádro knihovny nemusí táhnout ScottPlot
-       (a s ním vykreslovací závislosti) jen kvůli jednomu obrázku. -->
+  <!-- Training loss charts. A separate package so the core library does not have to pull in
+       ScottPlot (and its rendering dependencies) just for one image. -->
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -16,7 +16,17 @@
     <RepositoryUrl>https://github.com/SilM4r/MDNN</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>neural-network;mdnn;plotting</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- XML docs ship with the package so IntelliSense shows them; a public member without
+         docs is a build warning. Symbols go to a separate .snupkg. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="ScottPlot" Version="5.0.54" />

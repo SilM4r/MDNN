@@ -4,40 +4,40 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using Xunit;
-using My_DNN;
-using My_DNN.Layers;
-using My_DNN.Activation_functions;
-using My_DNN.Optimizers;
-using My_DNN.Loss_functions;
+using MDNN;
+using MDNN.Layers;
+using MDNN.Activations;
+using MDNN.Optimizers;
+using MDNN.Losses;
 
 namespace MDNN.Tests;
 
 /// <summary>
-/// Paritní testy proti PyTorchi — EXTERNÍ ORÁKULUM.
+/// Parity tests against PyTorch: an EXTERNAL ORACLE.
 ///
-/// Proč zvlášť od gradient checků: gradient check porovná analytický backward
-/// s numerickou derivací VLASTNÍHO forwardu. Když je forward konvenčně jinak
-/// (jiný padding, otočený kernel, jiné škálování loss), gradient check projde
-/// a chyba se neukáže. Tyhle testy porovnávají čísla s nezávislou implementací.
+/// Why separate from the gradient checks: a gradient check compares the analytic backward
+/// with the numerical derivative of the library's OWN forward. If the forward follows a different
+/// convention (different padding, flipped kernel, different loss scaling), the gradient check
+/// passes and the bug stays hidden. These tests compare numbers with an independent implementation.
 ///
-/// Fixtures vyrábí tools/torch_fixtures/generate_fixtures.py a jsou commitnuté,
-/// takže CI Python nepotřebuje.
+/// The fixtures are produced by tools/torch_fixtures/generate_fixtures.py and are committed,
+/// so CI does not need Python.
 /// </summary>
 public class TorchParityTests
 {
-    // Obě strany počítají v double a dělají tytéž operace, takže rozdíl smí být
-    // jen z jiného pořadí sčítání. 1e-9 je na to řádově s rezervou; kdyby se
-    // lišila konvence, rozdíl je typicky 1e-2 a výš — ne někde mezi.
+    // Both sides compute in double and perform the same operations, so any difference can only
+    // come from a different summation order. 1e-9 leaves orders of magnitude of margin; a
+    // convention mismatch typically gives 1e-2 and above, not something in between.
     private const double Tol = 1e-9;
 
-    // ------------------------------------------------------------ načítání
+    // ------------------------------------------------------------ loading
 
     private static JsonElement Load(string name)
     {
         string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", name + ".json");
         if (!File.Exists(path))
             throw new FileNotFoundException(
-                $"Chybí fixture '{name}'. Vyrob ho: tools/torch_fixtures/generate_fixtures.py", path);
+                $"Missing fixture '{name}'. Generate it with: tools/torch_fixtures/generate_fixtures.py", path);
 
         return JsonDocument.Parse(File.ReadAllText(path)).RootElement.Clone();
     }
@@ -54,44 +54,44 @@ public class TorchParityTests
     private static double[][][][] D4(JsonElement e) =>
         e.EnumerateArray().Select(D3).ToArray();
 
-    private static Activation_func Act(string name) => name switch
+    private static ActivationFunction Act(string name) => name switch
     {
         "linear"  => new Linear(),
-        "relu"    => new ReLu(),
+        "relu"    => new ReLU(),
         "tanh"    => new Tanh(),
         "sigmoid" => new Sigmoid(),
         "softmax" => new Softmax(),
-        _ => throw new ArgumentException($"Neznámá aktivace '{name}'"),
+        _ => throw new ArgumentException($"Unknown activation '{name}'"),
     };
 
-    // ------------------------------------------------------------ porovnání
+    // ------------------------------------------------------------ comparison
 
-    /// <summary>Porovná dvě posloupnosti čísel a při neshodě řekne KDE a O KOLIK.
-    /// Bez toho by hláška „očekáváno X, dostal Y" u 200 čísel k ničemu nebyla.</summary>
+    /// <summary>Compares two number sequences and on a mismatch says WHERE and BY HOW MUCH.
+    /// Without that, an "expected X, got Y" message over 200 numbers would be useless.</summary>
     private static void Same(string what, IEnumerable<double> expected, IEnumerable<double> actual)
     {
         double[] e = expected.ToArray();
         double[] a = actual.ToArray();
 
         Assert.True(e.Length == a.Length,
-            $"{what}: jiný počet prvků — PyTorch {e.Length}, MDNN {a.Length}. " +
-            "Nejspíš nesedí tvar výstupu (padding? pořadí os?).");
+            $"{what}: different element count: PyTorch {e.Length}, NeuralNetwork {a.Length}. " +
+            "The output shape probably does not match (padding? axis order?).");
 
         double worst = 0; int worstIdx = 0;
         for (int i = 0; i < e.Length; i++)
         {
-            // absolutní i relativní zároveň: u hodnot kolem nuly je relativní chyba
-            // nafouknutá, u velkých čísel je zase absolutní bezcenná
+            // absolute and relative at once: near zero the relative error is inflated,
+            // for large numbers the absolute one is worthless
             double diff = Math.Abs(e[i] - a[i]) / (1.0 + Math.Abs(e[i]));
             if (diff > worst) { worst = diff; worstIdx = i; }
         }
 
-        // hláška se staví AŽ při neúspěchu — argument Assert.True se vyhodnocuje
-        // dychtivě, takže by se jinak formátovala i u zelených testů
+        // the message is built ONLY on failure: the Assert.True argument is evaluated
+        // eagerly, so otherwise it would be formatted for passing tests too
         if (worst >= Tol)
             Assert.Fail(
-                $"{what}: neshoda na indexu {worstIdx} — PyTorch {e[worstIdx]:G17}, " +
-                $"MDNN {a[worstIdx]:G17} (odchylka {worst:E2}, práh {Tol:E0})");
+                $"{what}: mismatch at index {worstIdx}: PyTorch {e[worstIdx]:G17}, " +
+                $"NeuralNetwork {a[worstIdx]:G17} (deviation {worst:E2}, threshold {Tol:E0})");
     }
 
     private static IEnumerable<double> Flat(double[][] a) => a.SelectMany(x => x);
@@ -119,9 +119,9 @@ public class TorchParityTests
             ? new CrossEntropy()
             : new MSE();
 
-        // V MDNN se model staví od VÝSTUPNÍ vrstvy; Add() přidává před ni.
+        // In MDNN a model is built from the OUTPUT layer; Add() inserts before it.
         var last = specs[^1];
-        var model = new My_DNN.MDNN(
+        var model = new NeuralNetwork(
             new Dense(last.GetProperty("units").GetInt32(),
                       Act(last.GetProperty("activation").GetString()!)),
             new SGD(0.01), loss);
@@ -132,8 +132,8 @@ public class TorchParityTests
 
         var x = new Tensor(input);
 
-        // Materializace vah je odložená na první průchod — bez tohohle by ještě
-        // neexistovaly neurony, do kterých se dají nastavit parametry.
+        // Weight materialization is deferred to the first pass; without this there would
+        // be no neurons yet to set the parameters on.
         model.GetResults(x);
 
         for (int li = 0; li < specs.Length; li++)
@@ -143,7 +143,7 @@ public class TorchParityTests
             var neurons = ((Dense)model.Layers.Layers[li]).Neurons;
 
             Assert.True(neurons.Count == W.Length,
-                $"{fixture}, vrstva {li}: PyTorch má {W.Length} neuronů, MDNN {neurons.Count}.");
+                $"{fixture}, layer {li}: PyTorch has {W.Length} neurons, NeuralNetwork {neurons.Count}.");
 
             for (int n = 0; n < neurons.Count; n++)
                 neurons[n].SetParamsForTests(W[n], b[n]);
@@ -152,13 +152,13 @@ public class TorchParityTests
         var expected = fx.GetProperty("expected");
 
         // --- forward ---
-        Same($"{fixture}: výstup", D1(expected.GetProperty("output")), model.GetResults(x).Data);
+        Same($"{fixture}: output", D1(expected.GetProperty("output")), model.GetResults(x).Data);
 
         Same($"{fixture}: loss",
              new[] { expected.GetProperty("loss").GetDouble() },
              new[] { model.Loss.CalculateAndGetLoss(model.GetResults(x).Data, target) });
 
-        // --- backward (Fit = forward + backprop, BEZ update vah) ---
+        // --- backward (Fit = forward + backprop, WITHOUT a weight update) ---
         model.Train.Fit(x, new Tensor(target));
 
         double[][][] dW = D3(expected.GetProperty("dW"));
@@ -168,11 +168,11 @@ public class TorchParityTests
         {
             var neurons = ((Dense)model.Layers.Layers[li]).Neurons;
 
-            Same($"{fixture}: dW vrstva {li}",
+            Same($"{fixture}: dW layer {li}",
                  Flat(dW[li]),
                  neurons.SelectMany(n => n.gradientsW));
 
-            Same($"{fixture}: dBias vrstva {li}",
+            Same($"{fixture}: dBias layer {li}",
                  db[li],
                  neurons.Select(n => n.gradientsB));
         }
@@ -198,9 +198,9 @@ public class TorchParityTests
         string padding = fx.GetProperty("padding").GetString()!;
 
         var conv = new Conv(f, k, Act(fx.GetProperty("activation").GetString()!), padding);
-        conv.LayerAdjustment(null, new[] { h, w, c });
+        conv.Build(null, new[] { h, w, c });
 
-        // vstup [H][W][C] → double[,,]
+        // input [H][W][C] → double[,,]
         double[][][] inNested = D3(fx.GetProperty("input"));
         var input = new double[h, w, c];
         for (int i = 0; i < h; i++)
@@ -208,7 +208,7 @@ public class TorchParityTests
         for (int ch = 0; ch < c; ch++)
             input[i, j, ch] = inNested[i][j][ch];
 
-        // kernel [f][kh][kw][c] — stejný layout jako MDNN, jen se překopíruje dovnitř
+        // kernel [f][kh][kw][c]: same layout as MDNN, just copied in
         double[][][][] kern = D4(fx.GetProperty("kernel"));
         double[] bias = D1(fx.GetProperty("bias"));
         for (int fi = 0; fi < f; fi++)
@@ -216,7 +216,7 @@ public class TorchParityTests
             for (int ki = 0; ki < k; ki++)
             for (int kj = 0; kj < k; kj++)
             for (int ch = 0; ch < c; ch++)
-                conv.Kernel[fi][ki][kj][ch] = kern[fi][ki][kj][ch];
+                conv.Kernels[fi][ki][kj][ch] = kern[fi][ki][kj][ch];
 
             conv.Biases[fi] = bias[fi];
         }
@@ -224,10 +224,10 @@ public class TorchParityTests
         var outTensor = conv.FeedForward(new Tensor(input));
         var expected = fx.GetProperty("expected");
 
-        Same($"{fixture}: výstup", Flat(D3(expected.GetProperty("output"))), outTensor.Data);
+        Same($"{fixture}: output", Flat(D3(expected.GetProperty("output"))), outTensor.Data);
 
-        // gradient shora se zadává rovnou (3D tvar = „další vrstva není Dense"),
-        // stejně jako to dělají stávající gradient-check testy
+        // the output gradient is passed straight to Backward as a 3D tensor,
+        // the same way the gradient-check tests do it
         double[][][] gNested = D3(fx.GetProperty("gradOutput"));
         int oh = gNested.Length, ow = gNested[0].Length;
         var g = new double[oh, ow, f];
@@ -259,7 +259,7 @@ public class TorchParityTests
         int c = fx.GetProperty("c").GetInt32();
 
         var pool = new MaxPool(fx.GetProperty("pool").GetInt32());
-        pool.LayerAdjustment(null, new[] { h, w, c });
+        pool.Build(null, new[] { h, w, c });
 
         double[][][] inNested = D3(fx.GetProperty("input"));
         var input = new double[h, w, c];
@@ -271,7 +271,7 @@ public class TorchParityTests
         var outTensor = pool.FeedForward(new Tensor(input));
         var expected = fx.GetProperty("expected");
 
-        Same($"{fixture}: výstup", Flat(D3(expected.GetProperty("output"))), outTensor.Data);
+        Same($"{fixture}: output", Flat(D3(expected.GetProperty("output"))), outTensor.Data);
 
         double[][][] gNested = D3(fx.GetProperty("gradOutput"));
         int oh = gNested.Length, ow = gNested[0].Length;
@@ -291,8 +291,8 @@ public class TorchParityTests
     [Fact]
     public void Adam_matches_pytorch_over_multiple_steps()
     {
-        // Přes víc kroků schválně: chyba v bias correction se po jednom kroku
-        // ještě neprojeví, protože korekční členy jsou v prvním kroku triviální.
+        // Several steps on purpose: a bias-correction bug does not show after one step,
+        // because the correction terms are trivial on the first step.
         JsonElement fx = Load("adam_5_steps");
 
         double lr = fx.GetProperty("lr").GetDouble();
@@ -300,14 +300,14 @@ public class TorchParityTests
         double[][] grads = D2(fx.GetProperty("grads"));
         double[][] expected = D2(fx.GetProperty("expected").GetProperty("afterStep"));
 
-        var adam = new Adam(lr);   // stav (m/v/t) si dorovnává sám při prvním Update
+        var adam = new Adam(lr);   // the state (m/v/t) sizes itself on the first Update
 
         for (int step = 0; step < grads.Length; step++)
         {
             for (int i = 0; i < w.Length; i++)
                 w[i] = adam.Update(w[i], grads[step][i], i);
 
-            Same($"adam: váhy po kroku {step + 1}", expected[step], w);
+            Same($"adam: weights after step {step + 1}", expected[step], w);
         }
     }
 }

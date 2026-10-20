@@ -1,20 +1,31 @@
-using My_DNN.Loss_functions;
-using My_DNN.Optimizers;
+using MDNN.Losses;
+using MDNN.Optimizers;
 
-namespace My_DNN
+namespace MDNN
 {
-    // Instanční konfigurace modelu — postupně nahrazuje globální GeneralNeuralNetworkSettings (Fáze 3).
-    // Každý model má svůj NetworkContext → dva modely v procesu si nešlapou po sobě.
+    /// <summary>
+    /// Per-model configuration: loss, optimizer, random source, regularization and training mode.
+    /// </summary>
+    /// <remarks>
+    /// Each model has its own context, so two models in one process do not interfere with each other.
+    /// </remarks>
     public class NetworkContext
     {
+        /// <summary>
+        /// Loss function used for training. Defaults to <see cref="MSE"/>.
+        /// </summary>
         public Loss Loss { get; set; } = new MSE();
         private Optimizer _optimizer = new SGD(0.0001);
 
-        // Optimizer modelu. Každý neuron (a každá Conv vrstva) má vlastní klon — stav je
-        // per-parametr. Změna po sestavení modelu se PROPÍŠE do všech vrstev: dostanou nový
-        // optimizer s prázdným stavem. Dřív se nepropsala vůbec — vrstvy trénovaly dál
-        // původním, ale do souboru se uložil nový, takže po načtení model trénoval jiným
-        // optimizerem než před uložením. Přiřazení téže instance nic nedělá (stav zůstane).
+        // Each neuron (and each Conv layer) holds its own clone — the state is per parameter.
+        // Changing it after the model is built propagates to all layers: they get a new
+        // optimizer with empty state. Previously the change did not propagate at all — layers
+        // kept training with the old one while the new one was saved to the file, so after
+        // loading the model trained with a different optimizer. Assigning the same instance is a no-op.
+        /// <summary>
+        /// The model's optimizer. Setting a different instance after the model is built
+        /// replaces the optimizer in all layers (with empty state).
+        /// </summary>
         public Optimizer Optimizer
         {
             get => _optimizer;
@@ -28,28 +39,29 @@ namespace My_DNN
             }
         }
 
-        // Kdo se má o změnu optimizeru dozvědět — LayerManager modelu. Jedno místo, ne
-        // událost: při znovunačtení vrstev se přepíše, takže starý správce nezůstane viset.
+        // Who needs to know about an optimizer change — the model's LayerManager. A single slot,
+        // not an event: it is overwritten when layers are reloaded, so a stale manager does not linger.
         internal Action<Optimizer>? OptimizerChanged { get; set; }
 
-        // Zdroj náhody pro CELÝ model: inicializace vah/kernelů, míchání datasetu i výběr
-        // vzorků v minibatchi. Dřív to byly tři nezávislé zdroje
-        // (GeneralNeuralNetworkSettings.rnd, Train._rnd, Random.Shared v ShuffleTensor)
-        // a žádný z nich nešel nastavit → stejný experiment nešlo spustit dvakrát.
+        // Random source for the WHOLE model: weight/kernel initialization, dataset shuffling and
+        // sample selection in a minibatch. Previously these were three independent sources
+        // (GeneralNeuralNetworkSettings.Random, Train._rnd, Random.Shared in ShuffleTensor), none of
+        // them settable, so the same experiment could not be run twice.
         //
-        // Když se seed nezadá, spadne se zpátky na sdílený globální rnd — chování zůstává
-        // přesně jako dřív (žádná změna pro existující kód).
+        // Without a seed it falls back to the shared global generator.
         //
-        // POZOR: `Random` není thread-safe. Dnes se z něj tahá jen ze sekvenčních míst
-        // (výběr vzorku a míchání jsou mimo Task.Run), ale při data-paralelním minibatchi
-        // z Fáze 5 to bude potřeba ošetřit — buď zámek, nebo stream na vlákno.
+        // NOTE: `Random` is not thread-safe. It is drawn from only on sequential paths; parallel
+        // training gives each replica its own generator (see CreateReplica).
         private Random? _random;
         private int? _seed;
         private bool _randomAlreadyUsed;
 
-        // Seed s možností přečíst zpět — AutoML si u kandidáta potřebuje poznamenat,
-        // čím se běh dá zopakovat, a jinak by ho musel evidovat vedle modelu.
-        // null = žádný seed, jede se na sdíleném globálním generátoru (jako dřív).
+        // Readable back so that a caller (e.g. an AutoML runner training many candidates) can record
+        // how to reproduce a run without tracking the seed separately.
+        /// <summary>
+        /// Seed of the model's random generator, or <c>null</c> to use the shared global generator.
+        /// Must be set before any weights are initialized.
+        /// </summary>
         public int? Seed
         {
             get => _seed;
@@ -61,26 +73,29 @@ namespace My_DNN
             }
         }
 
+        /// <summary>
+        /// Random generator used for initialization, shuffling and sampling. Setting it clears <see cref="Seed"/>.
+        /// </summary>
         public Random Random
         {
             get
             {
-                // Od prvního čerpání je pozdě cokoli přenastavovat — váhy už jsou vylosované.
+                // After the first draw it is too late to change anything — the weights are already drawn.
                 _randomAlreadyUsed = true;
-                return _random ??= GeneralNeuralNetworkSettings.rnd;
+                return _random ??= GeneralNeuralNetworkSettings.Random;
             }
             set
             {
                 ThrowIfRandomAlreadyUsed(nameof(Random));
                 _random = value;
-                _seed = null;   // vlastní generátor → seed neznáme, ať ho Seed nehlásí falešně
+                _seed = null;   // custom generator → seed unknown, so Seed must not report a false one
             }
         }
 
-        // Bez tohohle guardu byla situace tichá past: LayerManager.Add() losuje váhy výstupní
-        // vrstvy HNED, takže seed nastavený až po Add() na ni nedosáhl. Model pak vyšel
-        // ČÁSTEČNĚ reprodukovatelný (skryté vrstvy ano, výstupní ne) a nic to nehlásilo —
-        // což je horší než zjevná chyba, protože to vypadá, že reprodukovatelnost funguje.
+        // Without this guard there was a silent trap: LayerManager.Add() draws the output layer's
+        // weights IMMEDIATELY, so a seed set after Add() did not reach it. The model came out only
+        // PARTLY reproducible (hidden layers yes, output no) with no warning — worse than an
+        // obvious error, because reproducibility appeared to work.
         private void ThrowIfRandomAlreadyUsed(string propertyName)
         {
             if (_randomAlreadyUsed)
@@ -89,34 +104,42 @@ namespace My_DNN
                     $"{propertyName} cannot be set after the generator has already been drawn from " +
                     "(weights or kernels are already initialized). The model would only be partly " +
                     "reproducible. Pass the seed to the constructor instead: " +
-                    "new MDNN(layer, optimizer, loss, seed: 42), or MDNN.LoadModel(path, seed: 42).");
+                    "new NeuralNetwork(layer, optimizer, loss, seed: 42), or NeuralNetwork.LoadModel(path, seed: 42).");
             }
         }
+        /// <summary>
+        /// Whether training runs over sequences (recurrent layers keep state across samples).
+        /// </summary>
         public bool SequenceTrain { get; set; } = false;
+        /// <summary>
+        /// Whether computations should run on the GPU.
+        /// </summary>
         public bool CalculationViaGpu { get; set; } = false;
+        /// <summary>
+        /// Shape of a single input sample. <c>{ 0 }</c> means not known yet (inferred from the first input).
+        /// </summary>
         public int[] InputShape { get; set; } = new int[] { 0 };
 
-        // ---------------------------------------------------------------- regularizace
+        // ---------------------------------------------------------------- regularization
 
         private double _l2 = 0.0;
 
         /// <summary>
-        /// Koeficient L2 regularizace (weight decay). 0 = vypnuto (výchozí).
-        ///
-        /// Trestá velké váhy, čímž brání přeučení: k účelové funkci se přičte
-        /// <c>λ/2 · Σw²</c>, což v gradientu znamená <c>+ λ·w</c>.
-        ///
-        /// POZOR na dvě věci:
-        /// 1. Aplikuje se JEN na váhy a kernely, NE na biasy. Bias jen posouvá práh,
-        ///    jeho zmenšování model nezjednoduší, jen mu sebere schopnost se posunout.
-        /// 2. Trénovací loss, kterou knihovna vypisuje, ten člen λ/2·Σw² NEobsahuje —
-        ///    stejně jako `weight_decay` v PyTorchi. Vypsaná loss je tedy čistá chyba
-        ///    predikce, ne celá minimalizovaná funkce.
-        ///
-        /// Pozn.: tohle je klasické L2 (přičte se ke gradientu, takže u Adamu projde
-        /// i adaptivním škálováním). Oddělený weight decay à la AdamW, který se
-        /// aplikuje mimo adaptivní člen, je jiná věc a knihovna ho zatím nemá.
+        /// L2 regularization coefficient (weight decay). 0 = off (default).
         /// </summary>
+        /// <remarks>
+        /// Penalizes large weights to reduce overfitting: <c>λ/2 · Σw²</c> is added to the objective,
+        /// i.e. <c>+ λ·w</c> in the gradient.
+        ///
+        /// Two caveats:
+        /// 1. It applies ONLY to weights and kernels, NOT to biases. A bias only shifts the threshold;
+        ///    shrinking it does not simplify the model, it just takes away its ability to shift.
+        /// 2. The training loss reported by the library does NOT include the λ/2·Σw² term — same as
+        ///    `weight_decay` in PyTorch. The reported loss is the pure prediction error.
+        ///
+        /// This is classic L2 (added to the gradient, so with Adam it also passes through the adaptive
+        /// scaling). Decoupled weight decay as in AdamW is a different thing and is not implemented.
+        /// </remarks>
         public double L2
         {
             get => _l2;
@@ -133,17 +156,17 @@ namespace My_DNN
         private double _dropout = 0.0;
 
         /// <summary>
-        /// Globální dropout pro celý model. 0 = vypnuto (výchozí).
-        ///
-        /// Platí pro každou vrstvu, která si NEurčí vlastní hodnotu — takže u pětivrstvé
-        /// sítě stačí jeden řádek místo pěti. Konkrétní vrstva ho přebije tím, že si
-        /// zadá vlastní (<c>new Dense(64, new ReLu(), dropout: 0.2)</c>), včetně nuly,
-        /// kterou se dropout na té vrstvě vypne.
-        ///
-        /// NEAPLIKUJE SE NA VÝSTUPNÍ VRSTVU. Zahazovat výstupy sítě není regularizace,
-        /// je to poškozování predikce — a je to chyba, kterou by globální přepínač jinak
-        /// tiše zavedl. Kdo to opravdu chce, musí si to na výstupní vrstvě zadat explicitně.
+        /// Global dropout rate for the whole model. 0 = off (default).
         /// </summary>
+        /// <remarks>
+        /// Applies to every layer that does NOT set its own value, so a five-layer network needs one line
+        /// instead of five. A layer overrides it with its own value
+        /// (<c>new Dense(64, new ReLU(), dropout: 0.2)</c>), including zero, which disables dropout on that layer.
+        ///
+        /// It is NOT applied to the output layer. Dropping the network's outputs is not regularization, it
+        /// corrupts the prediction — a mistake a global switch would otherwise introduce silently. To really
+        /// do it, set it explicitly on the output layer.
+        /// </remarks>
         public double Dropout
         {
             get => _dropout;
@@ -159,25 +182,26 @@ namespace My_DNN
         }
 
         /// <summary>
-        /// Je model v trénovacím režimu? Rozhoduje o chování vrstev, které se při
-        /// tréninku a při predikci chovají jinak — dnes dropout.
-        ///
-        /// Nastavuje se automaticky: <c>Fit</c> ho na dobu svého průchodu zapne,
-        /// samostatné <c>GetResults</c> ho nechá vypnutý. Díky tomu dá predikce na stejný
-        /// vstup vždy stejnou odpověď, i když je dropout zapnutý.
+        /// Whether the model is in training mode. Controls layers that behave differently in training
+        /// and in prediction (currently dropout).
         /// </summary>
+        /// <remarks>
+        /// Set automatically: <c>Fit</c> turns it on for the duration of its pass, a standalone
+        /// <c>GetResults</c> leaves it off. So a prediction for the same input always gives the same
+        /// answer, even with dropout enabled.
+        /// </remarks>
         public bool IsTraining { get; set; } = false;
 
-        // Kontext repliky pro paralelní trénink. Stejné nastavení tréninku, ale vlastní
-        // akumulátor loss a VLASTNÍ generátor náhody — `Random` není thread-safe a z dropoutu
-        // se z něj tahá v každém vzorku. Seed dodá volající z generátoru originálu, takže
-        // je to se seedem modelu pořád reprodukovatelné.
+        // Replica context for parallel training. Same training settings, but its own loss accumulator
+        // and its OWN random generator — `Random` is not thread-safe and dropout draws from it for every
+        // sample. The caller derives the seed from the original's generator, so a seeded model stays
+        // reproducible.
         internal NetworkContext CreateReplica(int randomSeed)
         {
             return new NetworkContext
             {
                 Loss = Loss.CreateReplica(),
-                Optimizer = Optimizer,   // replika parametry neaktualizuje, jen kvůli úplnosti
+                Optimizer = Optimizer,   // a replica does not update parameters; set only for completeness
                 SequenceTrain = SequenceTrain,
                 InputShape = InputShape,
                 L2 = L2,

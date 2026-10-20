@@ -1,19 +1,20 @@
 using System;
 using Xunit;
-using My_DNN;
-using My_DNN.Layers;
-using My_DNN.Activation_functions;
-using My_DNN.Optimizers;
+using MDNN;
+using MDNN.Layers;
+using MDNN.Activations;
+using MDNN.Optimizers;
+using MDNN.Losses;
 
 namespace MDNN.Tests;
 
 /// <summary>
-/// `new Tensor(pole)` musí dát správný tvar pro každý vstup, který knihovna přijímá.
+/// `new Tensor(array)` must produce the correct shape for every input the library accepts.
 ///
-/// Dřív konstruktor bral tvar z `Rank`, a ten je u zubatého pole vždycky 1: z
-/// `double[4][4][1]` vznikl Shape [4] nad 16 prvky. Tvar a data se rozešly a vrstvy,
-/// které čtou plochá data podle tvaru, počítaly nad nesmyslem — Conv bez chyby,
-/// Dense s IndexOutOfRange. Správně to uměl jen `ConvertArrayToTensor`.
+/// Previously the constructor took the shape from `Rank`, which is always 1 for a jagged array:
+/// `double[4][4][1]` became Shape [4] over 16 elements. Shape and data diverged, and layers that
+/// read the flat data according to the shape computed garbage: Conv without an error, Dense with
+/// IndexOutOfRange. Only the old `ConvertArrayToTensor` got it right.
 /// </summary>
 public class TensorConstructionTests
 {
@@ -48,7 +49,7 @@ public class TensorConstructionTests
         var tensor = new Tensor(JaggedImage(4, 3, 2));
 
         Assert.Equal(new[] { 4, 3, 2 }, tensor.Shape);
-        Assert.Equal(new Tensor(MultiImage(4, 3, 2)).Data, tensor.Data);   // row-major jako multidim
+        Assert.Equal(new Tensor(MultiImage(4, 3, 2)).Data, tensor.Data);   // row-major, same as multidim
     }
 
     [Fact]
@@ -75,7 +76,7 @@ public class TensorConstructionTests
 
         Assert.Equal(new[] { 2, 2 }, tensor.Shape);
         Assert.Equal(new[] { 1.0, 2.0, 3.0, 4.0 }, tensor.Data);
-        Assert.IsType<double[,]>(tensor.GetOriginalData());
+        Assert.IsType<double[,]>(tensor.ToArray());
     }
 
     [Fact]
@@ -84,20 +85,20 @@ public class TensorConstructionTests
         var tensor = new Tensor(new int[,] { { 1, 2 }, { 3, 4 } });
 
         Assert.Equal(new[] { 2, 2 }, tensor.Shape);
-        Assert.IsType<double[,]>(tensor.GetOriginalData());
+        Assert.IsType<double[,]>(tensor.ToArray());
     }
 
     [Fact]
     public void Unsupported_element_type_is_rejected_with_a_clear_exception()
     {
-        // Dřív FormatException z Convert.ToDouble("a") až při prvním čtení .Data.
+        // Previously a FormatException from Convert.ToDouble("a"), only on the first read of .Data.
         Assert.Throws<ArgumentException>(() => new Tensor(new string[] { "a" }));
     }
 
     [Fact]
     public void Conv_gives_the_same_result_for_jagged_and_multidim_input()
     {
-        var model = new My_DNN.MDNN(new Conv(2, 2, new Linear(), "valid"), new SGD(0.01), new MSE(), seed: 1);
+        var model = new NeuralNetwork(new Conv(2, 2, new Linear(), "valid"), new SGD(0.01), new MSE(), seed: 1);
 
         Tensor fromMulti = model.GetResults(new Tensor(MultiImage(4, 4, 1)));
         Tensor fromJagged = model.GetResults(new Tensor(JaggedImage(4, 4, 1)));

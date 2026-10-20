@@ -1,21 +1,31 @@
-﻿using My_DNN.Activation_functions;
-using My_DNN.Layers.classes;
-using My_DNN.Save_neural_network;
-using My_DNN.Optimizers;
+﻿using MDNN.Activations;
+using MDNN.Layers;
+using MDNN.Serialization;
+using MDNN.Optimizers;
 
-namespace My_DNN.Layers
+namespace MDNN.Layers
 {
 
-    public class Dense : LayerBasedOnNeurons
+    /// <summary>
+    /// Fully connected layer: every neuron sees the whole (flattened) input. Supports dropout.
+    /// </summary>
+    public class Dense : NeuronLayer
     {
+        /// <inheritdoc/>
         public override List<Neuron> Neurons => neurons;
+        /// <inheritdoc/>
         public override string Name => "Dense";
-        // Snímek, ne okno do pracovního pole — viz Tensor.FromVector.
-        public override Tensor Layer_output => Tensor.FromVector(output);
-        public override Tensor Layer_raw_output => Tensor.FromVector(raw_output);
-        public override int[] Input_size_and_shape => input_size;
-        public override int[] Output_size_and_shape => new int[] { output.Length };
-        public override Activation_func Activation_Func
+        // A snapshot, not a window into the working array — see Tensor.FromVector.
+        /// <inheritdoc/>
+        public override Tensor Output => Tensor.FromVector(output);
+        /// <inheritdoc/>
+        public override Tensor RawOutput => Tensor.FromVector(raw_output);
+        /// <inheritdoc/>
+        public override int[] InputShape => input_size;
+        /// <inheritdoc/>
+        public override int[] OutputShape => new int[] { output.Length };
+        /// <inheritdoc/>
+        public override ActivationFunction Activation
         {
             get { return activation_func; }
             set
@@ -23,7 +33,7 @@ namespace My_DNN.Layers
                 activation_func = value;
                 foreach (Neuron neuron in neurons)
                 {
-                    neuron.Activation_Func = activation_func;
+                    neuron.Activation = activation_func;
                 }
             }
         }
@@ -33,21 +43,21 @@ namespace My_DNN.Layers
         private double[] output;
         private double[] raw_output;
         private List<Neuron> neurons;
-        private Activation_func activation_func;
+        private ActivationFunction activation_func;
 
         // ---------------------------------------------------------------- dropout
 
         private double? dropout;
 
-        // Maska z posledního forwardu: 0 = neuron byl vypnutý, 1/(1-p) = přežil,
-        // 1 = dropout se neuplatnil (predikce nebo rate 0). Backward MUSÍ použít TUTÉŽ
-        // masku, proto se drží mezi forwardem a backwardem, negeneruje se znovu.
+        // Mask from the last forward pass: 0 = neuron was dropped, 1/(1-p) = it survived,
+        // 1 = dropout did not apply (prediction or rate 0). Backward MUST use the SAME
+        // mask, so it is kept between forward and backward instead of being regenerated.
         private double[]? dropoutMask;
 
         /// <summary>
-        /// Dropout pro TUTO vrstvu. <c>null</c> (výchozí) = použij globální
-        /// <see cref="NetworkContext.Dropout"/>. Vlastní hodnota globální přebije —
-        /// včetně nuly, kterou se dropout na téhle vrstvě vypne.
+        /// Dropout rate for THIS layer. <c>null</c> (default) = use the global
+        /// <see cref="NetworkContext.Dropout"/>. A layer-specific value overrides the global one —
+        /// including zero, which turns dropout off for this layer.
         /// </summary>
         public double? DropoutRate
         {
@@ -67,23 +77,30 @@ namespace My_DNN.Layers
                     "every neuron and the scaling factor 1/(1-p) would divide by zero.");
         }
 
-        /// <summary>Kolik se doopravdy zahazuje: vlastní hodnota, jinak globální —
-        /// a na výstupní vrstvě se globální ZÁMĚRNĚ ignoruje (viz NetworkContext.Dropout).</summary>
+        /// <summary>The rate actually applied: the layer's own value, otherwise the global one —
+        /// which is DELIBERATELY ignored on the output layer and on a softmax layer
+        /// (see NetworkContext.Dropout and PrepareDropoutMask).</summary>
         private double EffectiveDropout
         {
             get
             {
                 if (dropout != null) return dropout.Value;
-                if (IsOutputLayer) return 0.0;
+                if (IsOutputLayer || activation_func.AppliesToLayer) return 0.0;
                 return Context?.Dropout ?? 0.0;
             }
         }
 
-        /// <param name="dropout">Podíl neuronů zahozených při tréninku, 0 ≤ p &lt; 1.
-        /// null = zdědit globální <see cref="NetworkContext.Dropout"/>.</param>
-        public Dense(int number_of_neuron, Activation_func? activation_func = null, double? dropout = null)
+        /// <summary>
+        /// Creates a dense layer. The input size and the weights are set up later by
+        /// <c>Build</c>, when the layer is attached to a model.
+        /// </summary>
+        /// <param name="neuronCount">Number of neurons (= size of the output).</param>
+        /// <param name="activation">Activation function; <c>null</c> = the default hidden activation.</param>
+        /// <param name="dropout">Fraction of neurons dropped during training, 0 ≤ p &lt; 1.
+        /// null = inherit the global <see cref="NetworkContext.Dropout"/>.</param>
+        public Dense(int neuronCount, ActivationFunction? activation = null, double? dropout = null)
         {
-            if (number_of_neuron <= 0)
+            if (neuronCount <= 0)
             {
                 throw new ArgumentException("The number of neurons in a layer must be greater than 0");
             }
@@ -91,26 +108,28 @@ namespace My_DNN.Layers
             if (dropout != null) ValidateDropout(dropout.Value);
             this.dropout = dropout;
 
-            // aktivace: default když nezadaná; správný input size + neurony dopočítá LayerAdjustment (při připojení k modelu)
-            this.activation_func = activation_func ?? GeneralNeuralNetworkSettings.default_hidden_layers_activation_func;
+            // activation: default when not given; the correct input size + neurons are set by Build (when attached to a model)
+            this.activation_func = activation ?? GeneralNeuralNetworkSettings.DefaultHiddenActivation;
             input_size = new int[] { 0 };
 
-            output = new double[number_of_neuron];
-            raw_output = new double[number_of_neuron];
+            output = new double[neuronCount];
+            raw_output = new double[neuronCount];
 
             neurons = new List<Neuron>();
 
-            for (int i = 0; i < number_of_neuron; i++)
+            for (int i = 0; i < neuronCount; i++)
             {
-                neurons.Add(new Neuron(input_size[0], this.activation_func));   // placeholder (0 vah), přepíše LayerAdjustment
+                neurons.Add(new Neuron(input_size[0], this.activation_func));   // placeholder (0 weights), replaced by Build
             }
         }
-        public Dense(ExportDenseLayer layer)
+        // `optimizerPrototype` = optimizer of the model being loaded; each neuron gets its own clone
+        // (with the state from the file). null = global default, see Neuron.
+        internal Dense(ExportDenseLayer layer, Optimizer? optimizerPrototype = null)
         {
-            activation_func = Activation_func.inicialization_activation_func(layer.Name_of_activation_function);
+            activation_func = ActivationFunction.FromName(layer.Name_of_activation_function);
 
-            // Starší soubory tenhle klíč nemají → null → vrstva se vrátí k dědění globální
-            // hodnoty, což je i výchozí chování nového modelu. Zpětně kompatibilní.
+            // Older files lack this key → null → the layer inherits the global value,
+            // which is also the default for a new model. Backward compatible.
             if (layer.DropoutRate != null) ValidateDropout(layer.DropoutRate.Value);
             dropout = layer.DropoutRate;
 
@@ -123,60 +142,63 @@ namespace My_DNN.Layers
 
             foreach (ExportNeuron neuron in saved)
             {
-                neurons.Add(new Neuron(neuron, activation_func));
+                neurons.Add(new Neuron(neuron, activation_func, optimizerPrototype));
             }
 
             input_size = new int[] { neurons[0].Weights.Length };
 
         }
-        public override void WireShapes(int? number_of_elements = null, int[]? number_of_input = null)
+        /// <inheritdoc/>
+        public override void WireShapes(int? outputSize = null, int[]? inputShape = null)
         {
 
-            if (number_of_input != null)
+            if (inputShape != null)
             {
-                if (number_of_input.Length == 1)
+                if (inputShape.Length == 1)
                 {
-                    input_size = number_of_input;
+                    input_size = inputShape;
                 }
 
                 else
                 {
                     input_size = new int[] { 1 };
-                    foreach (int input in number_of_input)
+                    foreach (int input in inputShape)
                     {
                         input_size[0] *= input;
                     }
                 }
             }
 
-            if (number_of_elements != null)
+            if (outputSize != null)
             {
-                output = new double[(int)number_of_elements];
-                raw_output = new double[(int)number_of_elements];
+                output = new double[(int)outputSize];
+                raw_output = new double[(int)outputSize];
             }
 
         }
 
+        /// <inheritdoc/>
         public override bool IsMaterialized =>
             input_size[0] > 0 && NeuronsMatchShape(output.Length, input_size[0]);
 
+        /// <inheritdoc/>
         public override void MaterializeParameters()
         {
             if (input_size[0] <= 0)
             {
-                return;   // tvar vstupu ještě neznáme, není z čeho stavět
+                return;   // input shape not known yet, nothing to build from
             }
 
-            // Přestavuj JEN když se tvar opravdu mění. Jinak by i volání, které nic nemění,
-            // tiše smazalo natrénované váhy. Když se tvar MĚNÍ, je přestavba nevyhnutelná —
-            // mění se délka vektoru vah a staré hodnoty nemají kam sednout.
+            // Rebuild ONLY when the shape actually changes. Otherwise even a no-op call would
+            // silently wipe trained weights. When the shape DOES change, a rebuild is unavoidable —
+            // the weight vector length changes and the old values have nowhere to go.
             if (!NeuronsMatchShape(output.Length, input_size[0]))
             {
-                // Staví se do lokálního seznamu a do `neurons` se přiřadí až HOTOVÝ. Dřív se
-                // `neurons` přepsalo hned a optimizer z Contextu se klonoval až potom — když
-                // klonování spadlo, zůstaly ve vrstvě nové neurony s GLOBÁLNÍM SGD(0.0001)
-                // z konstruktoru. Další volání už tvar viděla jako hotový, takže kdo výjimku
-                // chytil a pokračoval, tiše trénoval úplně jiným optimizerem.
+                // Built into a local list and assigned to `neurons` only when COMPLETE. Previously
+                // `neurons` was overwritten first and the Context optimizer cloned afterwards — if
+                // cloning threw, the layer kept new neurons with the constructor's GLOBAL optimizer,
+                // later calls saw the shape as done, and whoever caught the exception silently
+                // trained with a different optimizer.
                 var rebuilt = new List<Neuron>();
 
                 for (int i = 0; i < output.Length; i++)
@@ -184,19 +206,19 @@ namespace My_DNN.Layers
                     rebuilt.Add(new Neuron(input_size[0], activation_func, Context?.Random));
                 }
 
-                // per-model optimizer: každý neuron dostane VLASTNÍ klon optimizeru z Contextu
-                // (nezávislost modelů, Fáze 3). Konstruktor neuronu si bere klon GLOBÁLNÍHO
-                // optimizeru, takže bez tohohle by model s Adamem trénoval globálním SGD.
+                // Per-model optimizer: each neuron gets ITS OWN clone of the Context optimizer
+                // (models are independent of each other). The neuron constructor takes a clone of
+                // the GLOBAL optimizer, so without this a model with Adam would train with global SGD.
                 //
-                // Jen pro čerstvě postavené neurony. Dřív se to dělalo při KAŽDÉ materializaci
-                // a Clone_optimizer staví optimizer s prázdným stavem, takže se tím
-                // zahazovaly momenty Adamu. Stačilo přidat vrstvu — MaterializeAll projde
-                // celý řetěz, takže o rozjetý stav přišly i vrstvy, kterých se to netýkalo.
+                // Only for freshly built neurons. Previously this ran on EVERY materialization, and
+                // the clone starts with empty state, so Adam's moments were thrown away. Adding a
+                // layer was enough — MaterializeAll walks the whole chain, so unrelated layers lost
+                // their accumulated state too.
                 if (Context != null)
                 {
                     foreach (Neuron n in rebuilt)
                     {
-                        n.Optimizer = Optimizer.Clone_optimizer(Context.Optimizer);
+                        n.Optimizer = Context.Optimizer.CreateFresh();
                     }
                 }
 
@@ -204,13 +226,13 @@ namespace My_DNN.Layers
             }
         }
 
-        // Bude tahle vrstva při tréninku losovat masku? Repliky podle toho poznají, jestli
-        // potřebují vlastní generátor náhody — viz ReplicaPool.
+        // Will this layer draw a dropout mask during training? Replicas use this to decide
+        // whether they need their own random generator — see ReplicaPool.
         internal bool UsesDropout => EffectiveDropout > 0.0;
 
-        // Replika pro paralelní trénink — viz Layer.CreateReplica. Sdílí: váhy (přes
-        // repliky neuronů), aktivaci, nastavení dropoutu. Vlastní: výstupy a masku dropoutu,
-        // které se mění s každým vzorkem.
+        // Replica for parallel training — see Layer.CreateReplica. Shared: weights (via
+        // neuron replicas), activation, dropout settings. Own: outputs and the dropout mask,
+        // which change with every sample.
         internal override Layer CreateReplica()
         {
             Dense replica = (Dense)MemberwiseClone();
@@ -221,38 +243,35 @@ namespace My_DNN.Layers
             return replica;
         }
 
-        // Sedí už postavené neurony přesně na požadovaný tvar?
+        // Do the already built neurons match the requested shape exactly?
         private bool NeuronsMatchShape(int neuronCount, int inputSize)
         {
             return neurons.Count == neuronCount
                    && neurons.Count > 0
                    && neurons[0].Weights.Length == inputSize;
         }
-        public override Tensor FeedForward(Tensor input_values)
+        /// <inheritdoc/>
+        public override Tensor FeedForward(Tensor input)
         {
 
-            double[] values = input_values.Data;
+            double[] values = input.Data;
 
             if (Context != null && Context.CalculationViaGpu)
             {
                 return FeedForwardViaGpu(values);
             }
 
-            // Masku je potřeba znát PŘED výpočtem, aby se vypnuté neurony daly rovnou
-            // přeskočit — u p=0.5 to ušetří polovinu skalárních součinů této vrstvy.
+            // The mask must be known BEFORE the computation so dropped neurons can be
+            // skipped — at p=0.5 that saves half of this layer's dot products.
+            // A softmax layer never has a mask (PrepareDropoutMask rejects it).
             PrepareDropoutMask();
-
-            // Softmax počítá přes CELÝ vektor raw_output, takže se z něj nesmí nic
-            // vynechat — jinak by se normalizovalo přes zastaralá čísla. Tam se tedy
-            // spočítá všechno a maska se uplatní až na hotový výstup.
-            bool canSkip = dropoutMask != null && !activation_func.Apply_to_layer;
 
             for (int i = 0; i < neurons.Count; i++)
             {
-                if (canSkip && dropoutMask![i] == 0.0)
+                if (dropoutMask != null && dropoutMask[i] == 0.0)
                 {
-                    // Vypnutý neuron se NEPOČÍTÁ. Nuly se nastavují explicitně, ať v polích
-                    // nezůstanou hodnoty z minulého vzorku.
+                    // A dropped neuron is NOT computed. Zeros are set explicitly so the arrays
+                    // don't keep values from the previous sample.
                     output[i] = 0;
                     raw_output[i] = 0;
                     neurons[i].Output = 0;
@@ -264,9 +283,9 @@ namespace My_DNN.Layers
                 raw_output[i] = neurons[i].RawOutput;
             }
 
-            if (activation_func.Apply_to_layer)
+            if (activation_func.AppliesToLayer)
             {
-                LayerActivationFunc? layerActivationFunc = activation_func as LayerActivationFunc;
+                LayerActivationFunction? layerActivationFunc = activation_func as LayerActivationFunction;
 
                 if (layerActivationFunc == null)
                 {
@@ -286,16 +305,16 @@ namespace My_DNN.Layers
             return Tensor.FromVector(output);
         }
 
-        // Vylosuje masku pro tento vzorek. null = dropout se neuplatní vůbec (vypnutý,
-        // nebo běží predikce) — pak se nikde nenásobí a nealokuje.
-        // Testovací můstek. Gradient check volá forward opakovaně a porovnává, jak se mění
-        // loss — to má smysl jen tehdy, když je to POKAŽDÉ TÁŽ funkce. S losovanou maskou
-        // by se pod rukama měnila a kontrola by neměřila nic. Zmrazením se z dropoutu
-        // stane obyčejné násobení konstantním vektorem, které se ověřit dá.
+        // Test hook. A gradient check calls forward repeatedly and compares how the loss
+        // changes — that only makes sense if it is the SAME function every time. With a
+        // freshly drawn mask it would keep changing and the check would measure nothing.
+        // Freezing turns dropout into plain multiplication by a constant vector, which can be verified.
         internal bool FreezeDropoutMaskForTests { get; set; }
 
         internal double[]? DropoutMaskForTests => dropoutMask;
 
+        // Draws the mask for this sample. null = dropout does not apply at all (off,
+        // or prediction is running) — then nothing is multiplied or allocated.
         private void PrepareDropoutMask()
         {
             double rate = EffectiveDropout;
@@ -305,6 +324,20 @@ namespace My_DNN.Layers
             {
                 dropoutMask = null;
                 return;
+            }
+
+            // Softmax normalizes over the WHOLE layer, so even a dropped neuron affects the
+            // other outputs and its weight gradient is not zero — skipping it in backward
+            // (as with other activations) would give a wrong gradient. And with the softmax + CE
+            // fusion the loss would see an output with some probabilities missing. Dropout on
+            // softmax makes no sense anyway (it drops the prediction), hence an error rather than
+            // silent nonsense. Global dropout never reaches a softmax layer (EffectiveDropout);
+            // only an explicitly set rate gets here.
+            if (activation_func.AppliesToLayer)
+            {
+                throw new NotSupportedException(
+                    $"Dropout cannot be used on a layer with a layer-wide activation ({activation_func.Name}). " +
+                    "Remove DropoutRate from this layer, or put the dropout on the layer before it.");
             }
 
             if (FreezeDropoutMaskForTests && dropoutMask != null
@@ -318,8 +351,8 @@ namespace My_DNN.Layers
                 dropoutMask = new double[neurons.Count];
             }
 
-            // Zesílení přeživších drží střední hodnotu výstupu stejnou jako bez dropoutu
-            // („inverted dropout"). Díky tomu predikce nemusí nic dopočítávat.
+            // Scaling up the survivors keeps the expected output the same as without dropout
+            // ("inverted dropout"), so prediction needs no correction.
             double scale = 1.0 / (1.0 - rate);
             Random random = Context!.Random;
 
@@ -329,8 +362,8 @@ namespace My_DNN.Layers
             }
         }
 
-        // Dopočet pro neurony, které se spočítaly (skip je nechal na nule): vynulovat
-        // zahozené a zesílit přeživší.
+        // Post-processing of the computed outputs (skipped neurons are already zero):
+        // zero the dropped ones and scale up the survivors.
         private void ApplyDropoutMask()
         {
             if (dropoutMask == null) return;
@@ -341,15 +374,16 @@ namespace My_DNN.Layers
                 neurons[i].Output = output[i];
             }
         }
-        // ---------------------------------------------------------------- konvence B
+        // ---------------------------------------------------------------- backward
 
+        /// <inheritdoc/>
         public override Tensor Backward(Tensor gradOutput, bool preActivation = false,
                                         bool computeInputGradient = true)
         {
-            // Kopíruje se JEN když je co přepsat. Jediná mutace `grad` je násobení
-            // dropout maskou níž; bez dropoutu se pole jen čte, takže obranná kopie
-            // by byla alokace navíc na každou vrstvu a každý vzorek — a při stovkách
-            // tisíc kroků tréninku to není nic.
+            // Copied ONLY when something will be overwritten. The only mutation of `grad` is
+            // the dropout-mask multiplication below; without dropout the array is only read, so
+            // a defensive copy would be an extra allocation per layer per sample — which adds up
+            // over hundreds of thousands of training steps.
             double[] grad = dropoutMask != null
                 ? (double[])gradOutput.Data.Clone()
                 : gradOutput.Data;
@@ -358,18 +392,18 @@ namespace My_DNN.Layers
                 throw new ArgumentException(
                     $"Dense has {neurons.Count} neurons, but the gradient from above has {grad.Length} values.");
 
-            // 1) dropout — TÁŽ maska jako ve forwardu, a PŘED derivací aktivace,
-            //    protože maska působí na výstup vrstvy.
+            // 1) dropout — the SAME mask as in forward, and BEFORE the activation derivative,
+            //    because the mask acts on the layer's output.
             if (dropoutMask != null)
             {
                 for (int i = 0; i < grad.Length; i++) grad[i] *= dropoutMask[i];
             }
 
-            // 2) ∂L/∂output → ∂L/∂z. Při fúzi softmax+CE je `grad` už ∂L/∂z (s − t)
-            //    a aktivace se přeskakuje, jinak by se softmax derivace použila dvakrát.
+            // 2) ∂L/∂output → ∂L/∂z. With the softmax+CE fusion `grad` is already ∂L/∂z (s − t)
+            //    and the activation is skipped, otherwise the softmax derivative would be applied twice.
             double[] delta = preActivation ? grad : ApplyActivationBackward(grad);
 
-            // 3) gradienty vlastních parametrů
+            // 3) gradients of the layer's own parameters
             for (int i = 0; i < neurons.Count; i++)
             {
                 if (dropoutMask != null && dropoutMask[i] == 0.0)
@@ -381,9 +415,8 @@ namespace My_DNN.Layers
                 neurons[i].CalculateGradients(delta[i]);
             }
 
-            // 4) ∂L/∂input — JEDINÁ věc, kterou dnešní Dense nedělá. Není to nový výpočet,
-            //    jen se přesouvá tam, kam patří: dnes tuhle smyčku píše vrstva POD Dense
-            //    (Conv/MaxPool/Dense v GradientFromAbove) a sahá si přitom do CIZÍCH vah.
+            // 4) ∂L/∂input = Wᵀ · delta. Each layer computes it from its OWN weights, so the
+            //    layer below never has to reach into another layer's weights.
             if (!computeInputGradient) return Tensor.Empty;
 
             int inputs = neurons[0].Weights.Length;
@@ -392,7 +425,7 @@ namespace My_DNN.Layers
             for (int i = 0; i < neurons.Count; i++)
             {
                 double d = delta[i];
-                if (d == 0.0) continue;          // vypnutý dropoutem → nepřispívá
+                if (d == 0.0) continue;          // dropped by dropout → contributes nothing
 
                 double[] w = neurons[i].Weights;
                 for (int j = 0; j < inputs; j++) gradInput[j] += d * w[j];
@@ -401,13 +434,13 @@ namespace My_DNN.Layers
             return new Tensor(gradInput);
         }
 
-        // Aktivace působící na celou vrstvu (softmax) potřebuje CELÝ vektor gradientu —
-        // per-prvkové násobení Derivative() by použilo jen diagonálu Jacobiánu a bylo by špatně.
+        // A layer-wide activation (softmax) needs the WHOLE gradient vector — element-wise
+        // multiplication by Derivative() would use only the Jacobian's diagonal, which is wrong.
         private double[] ApplyActivationBackward(double[] gradFromAbove)
         {
-            if (activation_func.Apply_to_layer)
+            if (activation_func.AppliesToLayer)
             {
-                LayerActivationFunc? layerActivationFunc = activation_func as LayerActivationFunc;
+                LayerActivationFunction? layerActivationFunc = activation_func as LayerActivationFunction;
 
                 if (layerActivationFunc == null)
                 {
@@ -421,10 +454,11 @@ namespace My_DNN.Layers
             for (int j = 0; j < Neurons.Count; j++)
             {
                 Neuron neuron = Neurons[j];
-                e[j] = gradFromAbove[j] * neuron.Activation_Func.Derivative(neuron.RawOutput);
+                e[j] = gradFromAbove[j] * neuron.Activation.Derivative(neuron.RawOutput);
             }
             return e;
         }
+        /// <inheritdoc/>
         public override void UpdateParams()
         {
             foreach (Neuron neuron in neurons)
@@ -456,9 +490,9 @@ namespace My_DNN.Layers
 
             raw_output = gpuOutput.Select(d => (double)d).ToArray();
 
-            if (activation_func.Apply_to_layer)
+            if (activation_func.AppliesToLayer)
             {
-                LayerActivationFunc? layerActivationFunc = activation_func as LayerActivationFunc;
+                LayerActivationFunction? layerActivationFunc = activation_func as LayerActivationFunction;
 
                 if (layerActivationFunc == null)
                 {
@@ -472,7 +506,7 @@ namespace My_DNN.Layers
             {
 
                 neurons[j].RawOutput = raw_output[j];
-                if (!activation_func.Apply_to_layer)
+                if (!activation_func.AppliesToLayer)
                 {
                     output[j] = activation_func.Apply(raw_output[j]);
                 }

@@ -40,19 +40,17 @@ Další možnosti:
 
 ## Instalace
 
-MDNN je distribuována jako dynamická knihovna `MDNN.dll`. Pro použití:
-
-1. Přidejte do projektu referenci na projekt `MDNN`, nebo na `MDNN.dll`, který sestaví.
-2. Zahrňte příslušné jmenné prostory ve zdrojovém kódu.
-
-Grafy loss jsou v samostatné knihovně `MDNN.Plotting` (přináší ScottPlot, který jádro
-knihovny nepotřebuje) — pokud je chcete, přidejte referenci i na ni, viz
-[Tvorba grafů](#tvorba-grafů).
-
-Obě jdou zabalit i jako NuGet balíčky, `MDNN` a `MDNN.Plotting`:
+MDNN je k dispozici na NuGetu a cílí na .NET 9.
 
 ```
-dotnet pack MDNN/MDNN.sln -c Release
+dotnet add package MDNN
+```
+
+Grafy loss jsou v samostatném balíčku `MDNN.Plotting` (přináší ScottPlot, který jádro
+knihovny nepotřebuje) — pokud je chcete, přidejte i ten, viz [Tvorba grafů](#tvorba-grafů):
+
+```
+dotnet add package MDNN.Plotting
 ```
 
 ## Rychlý start
@@ -60,12 +58,11 @@ dotnet pack MDNN/MDNN.sln -c Release
 Minimální příklad, který vytvoří a natrénuje síť:
 
 ```csharp
-using My_DNN;
-using My_DNN.Layers;
-using My_DNN.Layers.classes;
-using My_DNN.Optimizers;
-using My_DNN.Loss_functions;
-using My_DNN.Activation_functions;
+using MDNN;
+using MDNN.Layers;
+using MDNN.Optimizers;
+using MDNN.Losses;
+using MDNN.Activations;
 
 double[][] inputsDataset = { /* vstupní vzorky */ };
 double[][] outputDataset = { /* odpovídající cíle */ };
@@ -76,8 +73,8 @@ Loss loss = new MSE();                          // ztrátová funkce
 
 uint epochs = 1000;
 
-MDNN model = new MDNN(outputLayer, optimizer, loss);
-model.Layers.Add(new Dense(8, new ReLu()));     // skrytá vrstva
+NeuralNetwork model = new NeuralNetwork(outputLayer, optimizer, loss);
+model.Layers.Add(new Dense(8, new ReLU()));     // skrytá vrstva
 
 model.Train.TrainLoop(inputsDataset, outputDataset, epochs, 1);
 
@@ -92,10 +89,10 @@ Kompletní spustitelné příklady pro každý typ úlohy — klasifikace, regre
 
 ## Konfigurace modelu
 
-Model se vytváří přes třídu `MDNN`, která je centrálním objektem pro práci se sítí:
+Model se vytváří přes třídu `NeuralNetwork`, která je centrálním objektem pro práci se sítí:
 
 ```csharp
-MDNN model = new MDNN(outputLayer, optimizer, loss);
+NeuralNetwork model = new NeuralNetwork(outputLayer, optimizer, loss);
 ```
 
 Parametry konstruktoru:
@@ -104,30 +101,37 @@ Parametry konstruktoru:
 - `optimizer` (volitelný) – objekt `Optimizer`. Výchozí hodnota je `SGD(0.0001)`.
 - `loss` (volitelný) – ztrátová funkce. Výchozí hodnota je `MSE()`.
 
-Podporované optimizéry: `SGD`, `Adam`, `Momentum`.
+Podporované optimizéry: `SGD(learningRate)`, `Adam(learningRate, beta1, beta2)`, `Momentum(learningRate, momentum)`.
 Podporované ztrátové funkce: `MSE`, `CrossEntropy`.
+
+Obě ztrátové funkce jsou **součty přes výstupní hodnoty**, ne průměry: `MSE` je `Σ(výstup − cíl)²`
+a `CrossEntropy` je `−Σ cíl · ln(výstup)` — stejně jako PyTorch s `reduction='sum'`.
+Gradient se průměruje přes vzorky minibatche, ne přes výstupy jednoho vzorku.
 
 Každý model vlastní svou konfiguraci, takže v jednom procesu může existovat více nezávislých modelů.
 
-Vlastní optimizér nebo ztrátovou funkci lze vytvořit zděděním odpovídající bázové třídy (například `Optimizer` nebo `Loss`) a implementací jejích abstraktních členů. `CreateFresh()` vlastního optimizéru musí vrátit novou instanci se stejnými hyperparametry a prázdným stavem — každý neuron dostane vlastní kopii. Má-li jeho stav přežít uložení a načtení, přepište i `ExportState()` a `ImportState()`; bez nich se načte s prázdným stavem. Načítání podle jména postaví jen vestavěné optimizéry a loss — pro vlastní předejte instanci: `MDNN.LoadModel(cesta, optimizer: new MujOptimizer(…), loss: new MojeLoss())`. Vlastní aktivaci zatím načíst nejde. V obou případech to skončí výjimkou `ArgumentException`, místo aby se tiše dosadila jiná funkce.
+Vlastní optimizér nebo ztrátovou funkci lze vytvořit zděděním odpovídající bázové třídy (například `Optimizer` nebo `Loss`) a implementací jejích abstraktních členů. `CreateFresh()` vlastního optimizéru musí vrátit novou instanci se stejnými hyperparametry a prázdným stavem — každý neuron dostane vlastní kopii. Má-li jeho stav přežít uložení a načtení, přepište i `ExportState()` a `ImportState()`; bez nich se načte s prázdným stavem. Načítání podle jména postaví jen vestavěné optimizéry a loss — pro vlastní předejte instanci: `NeuralNetwork.LoadModel(cesta, optimizer: new MujOptimizer(…), loss: new MujLoss())`. Vlastní aktivaci zatím načíst nejde. V obou případech to skončí výjimkou `ArgumentException`, místo aby se tiše dosadila jiná funkce.
 
-Poznámka k `CrossEntropy`: je určená pro použití se softmax výstupní vrstvou. Počítá fúzovaný gradient softmax + kategorická cross-entropy (`výstup − cíl`), což je numericky stabilní forma. Použití `CrossEntropy` bez softmax výstupní vrstvy vyhodí výjimku.
+Poznámka k `CrossEntropy`: je určená pro použití s výstupní vrstvou `Softmax`. Počítá fúzovaný gradient softmax + kategorická cross-entropy (`výstup − cíl`), což je numericky stabilní forma. Použití `CrossEntropy` bez výstupní vrstvy `Softmax` vyhodí výjimku.
 
 ## Přidávání vrstev
 
 Vrstvy se přidávají přes vlastnost `Layers`:
 
 ```csharp
-model.Layers.Add(new Dense(64, new ReLu()));    // skrytá vrstva, 64 neuronů, ReLU
+model.Layers.Add(new Dense(64, new ReLU()));    // skrytá vrstva, 64 neuronů, ReLU
 model.Layers.Add(new Dense(32, new Sigmoid())); // skrytá vrstva, 32 neuronů, sigmoid
 ```
 
 Kromě `Add()` nabízí `Layers` také:
 
 - `Insert()` – vloží vrstvu na danou pozici
-- `RemoveAt()` – odebere vrstvu na dané pozici
-- `OutputLayerActivationFunc()` – nastaví novou výstupní aktivační funkci
-- `ClearAllLayersAndSetNewOutputLayer()` – odebere všechny vrstvy a nastaví novou výstupní vrstvu
+- `RemoveAt()` – odebere vrstvu na dané pozici (poslední zbývající vrstvu odebrat nejde)
+- `SetOutputActivation()` – nastaví novou výstupní aktivační funkci
+- `Clear(outputLayer)` – odebere všechny vrstvy a nastaví novou výstupní vrstvu
+
+`model.Layers.Layers` je seznam vrstev v pořadí, jen ke čtení; měnit ho jde jen metodami výš,
+protože ty zároveň přepojí tvary celého řetězu.
 
 Podporované vrstvy:
 
@@ -136,11 +140,11 @@ Podporované vrstvy:
 - `Conv()`
 - `MaxPool()`
 
-Pokud se konstruktoru vrstvy nezadá aktivační funkce, použije se výchozí aktivace pro skryté vrstvy (ReLU). U výstupních vrstev zadejte aktivaci explicitně (například `Linear` pro regresi nebo `Softmax` pro klasifikaci).
+Pokud se konstruktoru vrstvy nezadá aktivační funkce, použije se ReLU (`GeneralNeuralNetworkSettings.DefaultHiddenActivation`) — i u výstupní vrstvy, takže tam aktivaci zadejte explicitně (například `Linear` pro regresi nebo `Softmax` pro klasifikaci).
 
-Vlastní vrstvu lze vytvořit zděděním jedné z abstraktních tříd `Layer`, `LayerBasedOnNeurons` nebo `LayerWithUntrainedParameters` a implementací jejích abstraktních členů.
+Vlastní vrstvu lze vytvořit zděděním jedné z abstraktních tříd `Layer`, `NeuronLayer` nebo `ParameterlessLayer` a implementací jejích abstraktních členů.
 
-Dostupné aktivační funkce: `Linear`, `ReLu`, `Leak_ReLu`, `Sigmoid`, `Tanh`, `Softmax`.
+Dostupné aktivační funkce: `Linear`, `ReLU`, `LeakyReLU`, `Sigmoid`, `Tanh`, `Softmax`.
 
 ## Regularizace
 
@@ -173,24 +177,27 @@ jednotlivý a musí si k odpovědi vybudovat několik nezávislých cest.
 
 ```csharp
 model.Context.Dropout = 0.5;                        // výchozí pro každou skrytou vrstvu
-model.Layers.Add(new Dense(64, new ReLu()));        // zdědí 0.5
-model.Layers.Add(new Dense(32, new ReLu(), 0.2));   // vlastní hodnota má přednost
-model.Layers.Add(new Dense(16, new ReLu(), 0.0));   // výslovně vypnuto
+model.Layers.Add(new Dense(64, new ReLU()));        // zdědí 0.5
+model.Layers.Add(new Dense(32, new ReLU(), 0.2));   // vlastní hodnota má přednost
+model.Layers.Add(new Dense(16, new ReLU(), 0.0));   // výslovně vypnuto
 ```
 
 Hodnota zadaná na vrstvě vždy přebije globální, včetně `0.0` pro vypnutí. Hodnota vrstvy je
-k dispozici i později jako `DropoutRate` (`null` znamená „zdědit").
+k dispozici i později jako `DropoutRate` (`null` znamená „zdědit“).
 
 - **Globální hodnota se nikdy neuplatní na výstupní vrstvu.** Zahazovat vlastní výstupy sítě
   není regularizace, je to poškozování, takže ho jeden globální přepínač nesmí tiše zavést.
   Explicitně zadaná hodnota na výstupní vrstvě funguje, pokud o to opravdu stojíte.
+- **Na vrstvě se `Softmax` dropout použít nejde.** Softmax normalizuje přes celou vrstvu, takže
+  zahozený neuron dál ovlivňuje ostatní výstupy. Globální hodnota takovou vrstvu přeskočí;
+  hodnota zadaná přímo na ní vyhodí při startu tréninku `NotSupportedException`.
 - Dropout je aktivní **jen uvnitř `Fit()`** (a tedy uvnitř trénovacích smyček).
   `GetResults()` běží bez něj, takže predikce je deterministická — stejný vstup dá vždy
   stejnou odpověď.
-- Přeživší neurony se během tréninku škálují `1/(1-p)` („inverted dropout"), což drží
+- Přeživší neurony se během tréninku škálují `1/(1-p)` („inverted dropout“), což drží
   střední hodnotu výstupu beze změny, a inference proto nepotřebuje žádnou korekci.
 - Vypnuté neurony se **přeskakují, nenásobí nulou**. Jejich skalární součiny se vůbec
-  nepočítají, ve forwardu ani v backwardu. Na síti 512-512 trvá trénink s `dropout: 0.5`
+  nepočítají, v dopředném ani ve zpětném průchodu. Na síti 512-512 trvá trénink s `dropout: 0.5`
   asi 82 % času tréninku bez dropoutu — dropout tu trénink *zrychluje*, což knihovny
   postavené na GPU nedokážou.
 - Zatím je podporovaný jen na vrstvách `Dense`.
@@ -204,7 +211,7 @@ Předejte konstruktoru seed a dva běhy téhož programu dají bit po bitu stejn
 inicializace vah, pořadí vzorků, míchání datasetu i masky dropoutu čerpají z jednoho generátoru.
 
 ```csharp
-MDNN model = new MDNN(new Dense(3, new Softmax()), new Adam(0.01), new CrossEntropy(), seed: 42);
+NeuralNetwork model = new NeuralNetwork(new Dense(3, new Softmax()), new Adam(0.01), new CrossEntropy(), seed: 42);
 
 int? used = model.Context.Seed;   // jde přečíst zpět a ukládá se s modelem
 ```
@@ -214,7 +221,8 @@ z generátoru už čerpalo, vyhodí `InvalidOperationException`: váhy výstupn�
 už při skládání modelu, takže později nastavený seed by dal model reprodukovatelný jen zčásti
 — horší než zjevná chyba, protože to vypadá, že to fungovalo.
 
-Bez seedu knihovna použije sdílený globální generátor, přesně jako dřív.
+Bez seedu knihovna použije sdílený globální generátor
+(`GeneralNeuralNetworkSettings.Random`).
 
 ## Trénování modelu
 
@@ -224,7 +232,9 @@ Trénování řídí třída `Train`. K dispozici jsou čtyři úrovně kontroly
 
 Nejúplnější trénovací procedura. Poskytuje:
 
-- Automatické ukládání modelu s nejlepší validační chybou (checkpoint pro early stopping)
+- Ponechání nejlepšího modelu: na konci tréninku má model váhy z epochy s nejnižší validační
+  chybou, ne z poslední epochy
+- Volitelný early stopping (`EarlyStoppingEnabled`, `EarlyStoppingPatience`, `EarlyStoppingMinDelta`)
 - Automatické zamíchání a rozdělení datasetu na trénovací, validační a testovací sadu
 - Výpis průběhu do konzole
 - Detekci hodnot `NaN`
@@ -232,18 +242,18 @@ Nejúplnější trénovací procedura. Poskytuje:
 
 **Jedna epocha = jeden úplný průchod trénovací sadou.** Každou epochu se pořadí vzorků znovu
 zamíchá a data se zpracují po minibatchích, s jedním krokem optimizéru na dávku. Parametr
-`number_of_epoch` tedy počítá průchody daty, ne kroky optimizéru — ty najdete
+`epochs` tedy počítá průchody daty, ne kroky optimizéru — ty najdete
 v `Train.OptimizerSteps`.
 
 Parametry:
 
-- `Array inputs_values` (povinný) – vstupní dataset. Každý řádek je jeden trénovací vzorek.
+- `Array inputs` (povinný) – vstupní dataset. Každý řádek je jeden trénovací vzorek.
   Vzorek má nejvýš tři rozměry, takže dataset je nejvýš 4D — pro obrázky
   `[vzorek, výška, šířka, kanály]` — a pro sekvence nejvýš 5D
   `[sekvence, krok, výška, šířka, kanály]`.
-- `Array current_output_values` (povinný) – odpovídající cíle.
-- `uint number_of_epoch` (povinný) – počet trénovacích epoch.
-- `uint size_of_mini_batch` (volitelný, výchozí `1`) – velikost minibatche.
+- `Array targets` (povinný) – odpovídající cíle.
+- `uint epochs` (povinný) – počet trénovacích epoch.
+- `uint miniBatchSize` (volitelný, výchozí `1`) – velikost minibatche.
 - `bool isSequence` (volitelný, výchozí `false`) – nastavte na `true` pro sekvenční vstupní data (například časové řady).
 
 Tohle přetížení je zkratka: zadaná data rozdělí podle poměrů a trénuje. Pokud už máte vlastní
@@ -255,7 +265,7 @@ model.Train.SetDatasets(
     valid: new LabeledData(validX, validY),
     test:  new LabeledData(testX, testY));   // test je volitelný
 
-model.Train.TrainLoop(numberOfEpoch: 50, sizeOfMiniBatch: 32);
+model.Train.TrainLoop(epochs: 50, miniBatchSize: 32);
 ```
 
 Co vynecháte, to se ukrojí za vás:
@@ -268,19 +278,19 @@ Co vynecháte, to se ukrojí za vás:
 | `SetDatasets(train, valid, test)` | nic se nekrojí |
 
 Z testovací sady se nikdy nekrojí — je to konečný nestranný odhad. Nastavení
-`TestNeuralNetworkAfterTraining = false` navíc zabrání tomu, aby se testovací sada ukrojila
+`TestAfterTraining = false` navíc zabrání tomu, aby se testovací sada ukrojila
 z vaší validační, takže validační sada zůstane celá.
 
 ### `SimpleTrainLoop()`
 
-Zjednodušená trénovací smyčka s checkpointingem, výpisem do konzole a detekcí `NaN`, bez rozdělení datasetu a vykreslování grafu z `TrainLoop()`.
+Zjednodušená trénovací smyčka s výpisem do konzole a detekcí `NaN`, bez rozdělení datasetu, validace a vykreslování grafu z `TrainLoop()`. Se zapnutým `AutoSave` zapíše model na disk pokaždé, když trénovací loss dosáhne nového minima; model v paměti zůstane na poslední epoše.
 
 Parametry:
 
-- `double[][] inputs_values` (povinný)
-- `double[][] current_output_values` (povinný)
-- `uint number_of_epoch` (povinný)
-- `uint size_of_mini_batch` (volitelný, výchozí `1`)
+- `double[][] inputs` (povinný)
+- `double[][] targets` (povinný)
+- `uint epochs` (povinný)
+- `uint miniBatchSize` (volitelný, výchozí `1`)
 
 ### Paralelní trénink (`Workers`)
 
@@ -310,7 +320,7 @@ Co je dobré vědět:
   (`isSequence: true`; mimo něj teče skrytý stav z jednoho vzorku do dalšího) a paralelní
   trénink nejde kombinovat s GPU. Všechny tři případy vyhodí `NotSupportedException`, místo
   aby se tiše trénovalo jinak.
-- **Paralelně běží i validace a test** — validace mezi epochami, `TestNeuralNetwork()`
+- **Paralelně běží i validace a test** — validace mezi epochami, `Evaluate()`
   i závěrečný test v `TrainLoop()`. Jde jen o dopředné průchody: výstupy se spočítají
   paralelně a loss a skóre se z nich pak sečtou v pořadí vzorků, takže vyjdou **bit po bitu
   stejně** jako při `Workers = 1` — a s nimi i výběr nejlepšího modelu a early stopping.
@@ -325,7 +335,7 @@ Prostřední cesta, která umožňuje napsat si vlastní trénovací smyčku. `F
 double[][] inputsDataset = { /* vstupní data */ };
 double[][] currentOutputDataset = { /* cíle */ };
 
-MDNN model = new MDNN(new Dense(3), new Adam(0.001), seed: 42);
+NeuralNetwork model = new NeuralNetwork(new Dense(3), new Adam(0.001), seed: 42);
 // Dense(3) má tři výstupní neurony, takže každý cíl musí mít tři hodnoty — počet cílů musí odpovídat počtu neuronů výstupní vrstvy.
 
 int numberOfEpochs = 50;
@@ -358,7 +368,7 @@ for (int epoch = 0; epoch < numberOfEpochs; epoch++)
 }
 ```
 
-Vlastní smyčka nemá žádné epochy: `Train.CurrentEpoch` zůstává `0` a posouvá se jen
+Vlastní smyčka nemá vlastní epochy: `Train.CurrentEpoch` zůstává `0` a posouvá se jen
 `Train.OptimizerSteps`.
 
 ### `FeedForward()` a `BackPropagation()`
@@ -379,17 +389,11 @@ Tyhle dvě metody jsou přesně dvě poloviny `Fit()`, a je to záruka, ne náho
 chová stejně jako uvnitř `Fit()`. (Pro predikci použijte `model.GetResults()` — ta dropout
 záměrně nechává vypnutý, takže stejný vstup dá vždy stejnou odpověď.)
 
-**Odstraněno:** `BackPropagation()` mívala druhé přetížení, které bralo předpočítané gradienty
-jednotlivých vrstev. Je pryč a nikdy nefungovalo tak, jak signatura slibovala — `Dense`
-argument respektovala, zatímco `Conv` a `RNN` ho ignorovaly a četly vnitřní stav. Každá vrstva
-má teď jediný vstupní bod do backwardu (viz [Zpětný průchod](#zpětný-průchod)), takže zvenku
-už není co předávat.
-
 ## GPU akcelerace
 
 ### GPU
 
-Výpočty sítě mohou volitelně běžet na NVIDIA GPU přes doprovodnou knihovnu `gpu.dll` (napsanou v C++ / CUDA). Vyžaduje to CUDA Toolkit a `gpu.dll`. GPU je nastavení per-model:
+Výpočty sítě mohou volitelně běžet na NVIDIA GPU přes nativní knihovnu `gpu.dll` (C++ / CUDA). **Není součástí NuGet balíčku** — sestavte ji z [`MDNN/GPU/GPU.cu`](https://github.com/SilM4r/MDNN/blob/main/MDNN/GPU/GPU.cu) pomocí CUDA Toolkitu a dejte ji vedle své aplikace. GPU je nastavení per-model:
 
 ```csharp
 model.Context.CalculationViaGpu = true;
@@ -401,23 +405,8 @@ cesta je tedy jen pro Windows s CUDA.
 **GPU cesta počítá ve `float`, CPU cesta v `double`.** Hodnoty se na vstupu převádějí a na
 výstupu zase zpět, takže tentýž model nedá na obou cestách stejná čísla — počítejte se shodou
 zhruba na 7 platných cifer místo 16. U GPU kernelů je to běžné, ale je dobré to vědět, než
-začnete výsledky obou cest porovnávat. GPU cestu používají jen vrstvy `Dense`; všechno ostatní
-běží na CPU bez ohledu na tenhle přepínač.
-
-### Odstraněné `...Async` API
-
-Dřívější verze měly asynchronní protějšky (`TrainLoopAsync()`, `FitAsync()`,
-`GetResultsAsync()`). **Byly odstraněny** a nic se tím neztratilo — byly `async` bez jediného
-`await`, takže vlákno nikdy neuvolnily. Paralelismus, o který se pokoušely, byl `Task.Run`
-po neuronech, a to je *pomalejší* než obyčejná smyčka: režie naplánování na neuron je vyšší
-než samotný výpočet.
-
-Horší bylo, že šlo o druhou cestu k témuž výpočtu, která se od první potichu rozešla. Dropout
-přibyl jen do synchronní cesty, takže asynchronní tiše počítala špatné gradienty, dokud to
-neodhalilo právě odstranění.
-
-Paralelismus se vrátil, ale přes **dávku**, ne přes neurony — to je osa, na které je opravdu
-co dělit. Viz [Paralelní trénink](#paralelní-trénink-workers).
+začnete výsledky obou cest porovnávat. GPU cestu používá jen dopředný průchod vrstev `Dense`
+a neuplatňuje dropout; všechno ostatní běží na CPU bez ohledu na tenhle přepínač.
 
 ## Ukládání a načítání modelů
 
@@ -426,7 +415,7 @@ Po tréninku lze model uložit do JSON a později načíst k inferenci. K použi
 ```csharp
 model.SaveAsJson("save"); // zapíše save.json
 
-MDNN loaded = MDNN.LoadModel("save.json");   // funguje i "save" — přípona je volitelná
+NeuralNetwork loaded = NeuralNetwork.LoadModel("save.json");   // funguje i "save" — přípona je volitelná
 Tensor result = loaded.GetResults(new Tensor(inputsDataset[0]));   // jeden vzorek
 ```
 
@@ -453,7 +442,7 @@ seed uložený v souboru.
 kroků `Adam` i rychlost `Momentum` se ukládají u každého neuronu a každé vrstvy `Conv`.
 N kroků, uložení, načtení a dalších M kroků dá bit po bitu stejný výsledek jako N + M kroků bez
 přerušení. (Bez stavu by `Adam` začínal znovu s vynulovanými momenty a jeho první kroky po
-načtení by byly velké jako na úplném začátku tréninku.) Stav soubor zhruba ztrojnásobí; pro
+načtení by byly velké jako na úplném začátku tréninku.) Se stavem je soubor zhruba 3–4× větší; pro
 model jen na predikci:
 
 ```csharp
@@ -467,7 +456,7 @@ Pro pokračování s jinými hyperparametry — třeba s nižším learning rate
 `LoadModel`; musí být stejného druhu jako v souboru a uložený stav se načte do něj:
 
 ```csharp
-MDNN model = MDNN.LoadModel("model", optimizer: new Adam(0.0001));
+NeuralNetwork model = NeuralNetwork.LoadModel("model", optimizer: new Adam(0.0001));
 ```
 
 Nejlepší model, který `TrainLoop()` na konci obnoví, si nese stav optimizéru z epochy, ze které
@@ -477,22 +466,27 @@ pochází, takže se z něj dá rovnou trénovat dál.
 
 ### Tensor
 
-`Tensor` je univerzální datový typ pro vícerozměrná pole. Uchovává:
+`Tensor` je univerzální datový typ pro vícerozměrná pole. Drží hodnoty jako ploché pole
+v pořadí po řádcích (`Data`) a rozměry (`Shape`).
 
-- původní vícerozměrné pole (`OriginalInput`),
-- ekvivalentní ploché pole (`Data`) pro rychlejší výpočty,
-- a tvar jako seznam rozměrů (`Shape`).
+`new Tensor(pole)` přijme jakékoli pravidelné pole typu `double`, `int` nebo `float` — jednorozměrné, vícerozměrné (`double[,,]`) i jagged (`double[][][]`); `int`/`float` převede na `double` a nepravidelné pole odmítne. `new Tensor(data, shape)` obalí ploché pole bez kopírování.
 
-`new Tensor(pole)` přijme jakékoli pravidelné pole typu `double`, `int` nebo `float` — jednorozměrné, vícerozměrné (`double[,,]`) i jagged (`double[][][]`); `int`/`float` převede na `double` a nepravidelné pole odmítne. Podporuje přetváření přes `Reshape(int[] newShape)` a pohodlný přístup k prvkům i převody mezi jagged a vícerozměrnými poli.
+- `Reshape(int[] newShape)` – změní tvar, data zůstanou
+- `GetSubTensor(i)` / `GetSubTensor(i, j)` – jeden vzorek (nebo jeden krok sekvence) jako nový tenzor
+- `Slice(start, length)` – rozsah vzorků
+- `ToArray()` – data jako běžné .NET pole v tvaru tenzoru (`double[]`, `double[,]`, …)
 
 ### Konzolové výstupy
 
-Statická třída `ConsoleControler` obstarává výpisy do konzole:
+Statická třída `ConsoleController` obstarává výpisy do konzole (`model.Info()` volá první z nich):
 
 - `ShowModelInfo()` – vypíše podrobné informace o modelu
 - `ShowEpochInfo()` – vypíše informace o aktuální epoše během tréninku
-- `ShowScoreOfmodel()` – vypíše přesnost modelu
-- `ErrorHandler()` – vypisuje chybové hlášky
+- `ShowScore()` / `ShowDatasetScores()` – vypíše přesnost modelu
+- `ShowError()` – vypisuje chybové hlášky
+
+Trénovací smyčky přes ni vypisují, dokud to nevypnete: `Train.ShowModelInfo`,
+`Train.ConsoleReportCount` (kolik výpisů epoch za běh).
 
 ### NetworkContext
 
@@ -509,7 +503,7 @@ Každý model vlastní `NetworkContext` (`model.Context`), který drží jeho b�
 | `SequenceTrain` | režim sekvenčního tréninku (časové řady) |
 | `CalculationViaGpu` | přepínač GPU |
 
-`GeneralNeuralNetworkSettings` drží už jen výchozí hodnoty platné pro celý proces (výchozí aktivační funkce a sdílený generátor náhody).
+`GeneralNeuralNetworkSettings` drží jen záložní hodnoty pro celý proces, použité tam, kde žádný model není: výchozí aktivaci vrstvy vytvořené bez ní (`DefaultHiddenActivation`), optimizér samostatné vrstvy (`DefaultOptimizer`) a sdílený generátor náhody pro modely bez seedu (`Random`).
 
 ### Tvorba grafů
 
@@ -517,13 +511,13 @@ Grafy trénovací a validační loss v průběhu epoch jsou v samostatné knihov
 takže jádro knihovny nezávisí na ScottPlotu. Zapojí se jednou na model:
 
 ```csharp
-using My_DNN;   // GraphPlotter je v MDNN.Plotting, stejný jmenný prostor
+using MDNN;   // GraphPlotter je v balíčku MDNN.Plotting, stejný jmenný prostor
 
 model.Train.UseLossChart();   // TrainLoop pak na konci uloží loss.png
 ```
 
 Graf se uloží jako `loss.png` do pracovního adresáře, na konci `TrainLoop()` a při divergenci
-tréninku. Snadno se tak odhalí přeučení nebo nedotrénování. `ShowLossChartInTrainLoop = false`
+tréninku. Snadno se tak odhalí přeučení nebo nedotrénování. `ShowLossChart = false`
 ho zase vypne. Bez `UseLossChart()` se žádný graf nekreslí — jádro knihovny nabízí jen háček
 `Train.LossChart(epochs, trainLoss, validLoss)`, na který jde napojit i vlastní kód pro grafy.
 
@@ -534,7 +528,7 @@ Tahle sekce popisuje, co se děje pod kapotou. K používání knihovny ji čís
 ### Objektový model
 
 ```
-MDNN (model)
+NeuralNetwork (model)
 ├── NetworkContext        běhová konfigurace modelu (loss, optimizér, tvar vstupu, přepínače)
 ├── LayerManager (Layers) seřazený seznam vrstev + líné odvození tvaru
 │   └── Layer             Dense · Conv · MaxPool · RNN
@@ -542,8 +536,8 @@ MDNN (model)
 └── Train                 trénovací smyčky a vstupní body forward/backward
 ```
 
-- `MDNN` je objekt nejvyšší úrovně. Vlastní `NetworkContext`, `LayerManager` (dostupný jako `model.Layers`) a pomocníka `Train` (`model.Train`).
-- `Layer` je abstraktní předek všech typů vrstev. `Dense` a `RNN` jsou složené z objektů `Neuron` (dědí z `LayerBasedOnNeurons`); `Conv` drží kernely a biasy přímo; `MaxPool` nemá trénovatelné parametry a jen si pamatuje, které pozice vyhrály.
+- `NeuralNetwork` je objekt nejvyšší úrovně. Vlastní `NetworkContext`, `LayerManager` (dostupný jako `model.Layers`) a pomocníka `Train` (`model.Train`).
+- `Layer` je abstraktní předek všech typů vrstev. `Dense` a `RNN` jsou složené z objektů `Neuron` (dědí z `NeuronLayer`); `Conv` drží kernely a biasy přímo; `MaxPool` nemá trénovatelné parametry a jen si pamatuje, které pozice vyhrály.
 - `Neuron` drží své váhy, bias, naakumulované gradienty a **vlastní** instanci optimizéru.
 - `Tensor` je nosič dat předávaný mezi vrstvami (ploché pole `Data` plus `Shape`).
 - `NetworkContext` (`model.Context`) drží stav modelu. Protože tento stav není globální, dva modely v jednom procesu jsou plně nezávislé.
@@ -554,26 +548,28 @@ modelem si navíc každý neuron pamatuje, co v tom průchodu dostal a co spoč�
 ```csharp
 foreach (Layer layer in model.Layers.Layers)
 {
-    if (layer is LayerBasedOnNeurons byNeurons)   // Dense, RNN
+    if (layer is NeuronLayer byNeurons)   // Dense, RNN
     {
         for (int i = 0; i < byNeurons.Neurons.Count; i++)
         {
             Neuron n = byNeurons.Neurons[i];
             Console.WriteLine($"{layer.Name} #{i}: bias {n.Bias}, váhy [{string.Join(", ", n.Weights)}]");
             Console.WriteLine($"   vstup [{string.Join(", ", n.Inputs)}] -> w·x+b = {n.RawOutput} " +
-                              $"-> {n.Activation_Func.Name} -> {n.Output}");
+                              $"-> {n.Activation.Name} -> {n.Output}");
         }
     }
 }
 ```
 
-Stav jde zvenku jen číst (`Output`, `RawOutput`, `Inputs`, `Activation_Func`, `Optimizer`);
+Stav jde zvenku jen číst (`Output`, `RawOutput`, `Inputs`, `Activation`, `Optimizer`);
 zapisuje do něj jen knihovna, takže ho nejde omylem změnit mimo pořadí, ve kterém trénink
 počítá. `Weights` vrací přímo pole vah.
 
 ### Odvození tvaru vstupu (lazy)
 
-Vrstvy se vytvářejí bez znalosti velikosti vstupu — zadává se jen počet neuronů (nebo kernelů). Při prvním dopředném průchodu model zaznamená tvar vstupu do `Context.InputShape` a zavolá `Layers.SetInputSizeForFirstLayer()`, která projde vrstvy a každé zavolá `LayerAdjustment()`. Každá vrstva si odvodí skutečnou velikost vstupu z výstupu předchozí vrstvy a teprve pak alokuje parametry (neurony, kernely). Proto váhy vrstvy neexistují, dokud model poprvé neuvidí data.
+Vrstvy se vytvářejí bez znalosti velikosti vstupu — zadává se jen počet neuronů (nebo kernelů). Při prvním dopředném průchodu model zaznamená tvar vstupu do `Context.InputShape` a zapojí řetěz ve dvou krocích: `WireShapes()` na každé vrstvě zleva doprava odvodí tvar jejího vstupu z výstupu předchozí vrstvy; pak `MaterializeParameters()` jedním průchodem zleva doprava alokuje a inicializuje parametry (neurony, kernely). Proto váhy vrstvy neexistují, dokud model poprvé neuvidí data. Model jde zapojit i předem přes `model.Layers.SetInputShape(new[] { … })`.
+
+Protože se parametry losují v pořadí architektury, dva modely se stejným seedem a stejnou architekturou dostanou stejné váhy bez ohledu na to, jestli vznikly přes `Add()` nebo `Insert()`.
 
 ### Dopředný průchod
 
@@ -595,10 +591,9 @@ na vrstvu.
 Dva důsledky stojí za to rozepsat, protože právě je tenhle tvar přináší:
 
 - **Vrstva nikdy nesahá do souseda.** Každá propaguje gradient přes vlastní váhy, takže `Conv`
-  a `MaxPool` už nepotřebují zvláštní větev „další vrstva je `Dense`" (dřív četly matici vah
-  té vrstvy a ručně přepočítávaly ploché indexy).
-- **Žádný skrytý stav mezi voláními.** Neexistuje zvláštní háček „naseeduj výstupní vrstvu"
-  ani pole, které by neslo hodnotu z jedné metody backwardu do další.
+  a `MaxPool` nepotřebují zvláštní větev „další vrstva je `Dense`“.
+- **Žádný skrytý stav mezi voláními.** Neexistuje zvláštní háček pro výstupní vrstvu ani pole,
+  které by neslo hodnotu z jedné metody zpětného průchodu do další.
 
 `preActivation` říká, že `gradOutput` už je `∂L/∂z`, takže se derivace aktivace přeskočí.
 Jediný takový případ je fúze softmax + cross-entropy níž, kde softmax patří k loss, ne k vrstvě
@@ -606,7 +601,7 @@ Jediný takový případ je fúze softmax + cross-entropy níž, kde softmax pat
 
 `computeInputGradient: false` znamená, že `∂L/∂input` nikdo nepotřebuje, takže se nepočítá.
 Používá se pro první vrstvu modelu — pod ní už nic není — a u `Conv` tím odpadne nejdražší
-operace celého backwardu.
+operace celého zpětného průchodu.
 
 Každá vrstva aplikuje derivaci aktivace podle své konvence: `Conv` ano, `RNN` ne (její RTRL
 citlivosti ji už obsahují).
@@ -615,11 +610,11 @@ Gradienty se **akumulují, ne aplikují**. `UpdateParams()` vydělí naakumulova
 
 ### Fúze softmax + cross-entropy
 
-Když je loss `CrossEntropy` (hlásí `RequiresSoftmax`) a výstupní vrstva používá `Softmax`, výstupní gradient se spočítá rovnou jako `výstup − cíl`. Je to fúzovaná, numericky stabilní forma: Jacobián softmaxu se přeskočí a derivace aktivace se záměrně *nenásobí*, jinak by se uplatnila dvakrát. Použití `CrossEntropy` bez softmax výstupní vrstvy vyhodí výjimku.
+Když je loss `CrossEntropy` (hlásí `RequiresSoftmax`) a výstupní vrstva používá `Softmax`, výstupní gradient se spočítá rovnou jako `výstup − cíl`. Je to fúzovaná, numericky stabilní forma: Jacobián softmaxu se přeskočí a derivace aktivace se záměrně *nenásobí*, jinak by se uplatnila dvakrát. Použití `CrossEntropy` bez výstupní vrstvy `Softmax` vyhodí výjimku.
 
 ### Optimizéry
 
-Každý `Neuron` (a každá vrstva `Conv`) vlastní svou instanci optimizéru, naklonovanou z toho v `NetworkContext`u modelu. Stav optimizéru je proto per-parametr a per-model — například `Adam` drží odhady prvního a druhého momentu s bias korekcí pro každou jednotlivou váhu. Metoda `Update(value, gradient, index)` optimizéru vrací novou hodnotu parametru. Před každou dávkou aktualizací vrstva zavolá `EnsureCapacity(parameterCount)`, takže optimizér se stavem si ho alokuje jednou a na přesnou velikost, místo aby rostl po jedné váze; výchozí implementace nedělá nic.
+Každý `Neuron` (a každá vrstva `Conv`) vlastní svou instanci optimizéru, naklonovanou z toho v `NetworkContext`u modelu. Stav optimizéru je proto per-parametr a per-model — například `Adam` drží odhady prvního a druhého momentu s bias korekcí pro každou jednotlivou váhu. Metoda `Update(value, gradient, index)` optimizéru vrací novou hodnotu parametru. Před každým průchodem aktualizace vrstva zavolá `EnsureCapacity(parameterCount)`, takže optimizér se stavem si ho alokuje jednou a na přesnou velikost, místo aby rostl po jedné váze; výchozí implementace nedělá nic.
 
 ### Rekurentní vrstvy (RTRL)
 
@@ -648,7 +643,7 @@ Dva důsledky, které je dobré znát:
 
 ### Inicializace vah
 
-Neurony vrstev Dense a RNN se inicializují rovnoměrným rozdělením ve stylu Xavier/He — `U(−1, 1) · sqrt(6 / n_inputs)` — a biasy začínají na nule.
+Váhy neuronů vrstev `Dense` a `RNN` i kernely `Conv` se inicializují rovnoměrným rozdělením ve stylu He — `U(−1, 1) · sqrt(6 / fan_in)`, kde `fan_in` je počet vstupů neuronu (u `Conv` výška × šířka kernelu × vstupní kanály) — a biasy začínají na nule.
 
 ### Správnost: numerický gradient check a parita s PyTorchem
 
@@ -684,7 +679,7 @@ Co pokrývají:
 
 - **Numerické gradient checky** pro každou vrstvu, včetně cest regularizace
 - **Paritní testy proti PyTorchi** (viz [výše](#správnost-numerický-gradient-check-a-parita-s-pytorchem)) — výstupy vrstev, gradienty a kroky optimizéru porovnané s vnější referencí
-- Unit testy aktivačních funkcí, loss funkcí a optimizérů
+- Unit testy aktivačních funkcí, ztrátových funkcí a optimizérů
 - Uložení a načtení tam a zpět, včetně toho, co uložený model musí zachovat
 - Paralelní trénink proti sekvenčnímu, pro každý typ vrstvy
 - Smoke testy tréninku od začátku do konce

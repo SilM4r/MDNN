@@ -1,28 +1,27 @@
 ﻿using System;
   using Xunit;
-  using My_DNN;
-  using My_DNN.Layers;
-  using My_DNN.Activation_functions;
-  using My_DNN.Layers.classes;
-  using My_DNN.Optimizers;
-  using My_DNN.Loss_functions;
+  using MDNN;
+  using MDNN.Layers;
+  using MDNN.Activations;
+  using MDNN.Optimizers;
+  using MDNN.Losses;
   using System.Linq;
 
   namespace MDNN.Tests;
 
   public class DataSplitTests : GradientCheckTestBase
   {
-      // Dřív tu byl test `DividingDataIntoDatasets_userValidNoTest_carves_test_from_original_valid`,
-      // který hlídal větev „uživatel dodal VALID, ale ne TEST → vyřízni test z validu".
-      // Ta větev byla ZRUŠENÁ spolu se settery: datasety se teď dodávají jedním voláním
-      // SetDatasets(train, valid, test) a použijí se, jak jsou. Regrese, kterou ten test
-      // hlídal (test se krájel z už zmenšeného validu → "Invalid slice range!"), tedy
-      // nemůže nastat, protože ta cesta v kódu není. Nahrazeno testy nové sémantiky níž.
+      // There used to be a test `DividingDataIntoDatasets_userValidNoTest_carves_test_from_original_valid`
+      // guarding the branch "user supplied VALID but not TEST → carve test out of valid".
+      // That branch was REMOVED together with the setters: datasets are now supplied with a
+      // single SetDatasets(train, valid, test) call. The regression it guarded (test carved
+      // from an already shrunk valid → "Invalid slice range!") can no longer happen because
+      // that code path is gone. Replaced by the tests of the new semantics below.
 
       [Fact]
       public void Explicit_datasets_are_used_as_given()
       {
-          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          var model = new NeuralNetwork(new Dense(1, new Linear()), new SGD(0.01), new MSE());
 
           var (trainX, trainY) = MakeSamples(30);
           var (validX, validY) = MakeSamples(8);
@@ -33,78 +32,78 @@
               new LabeledData(validX, validY),
               new LabeledData(testX, testY));
 
-          model.Train.DividingDataIntoDatasets(trainX, trainY);
+          model.Train.SplitDatasets(trainX, trainY);
 
-          // žádné krájení, žádné poměry — přesně to, co uživatel dal
-          Assert.Equal(30, model.Train.TrainDataInputs!.Shape[0]);
-          Assert.Equal(8, model.Train.ValidDataInputs!.Shape[0]);
-          Assert.Equal(5, model.Train.TestDataInputs!.Shape[0]);
+          // no carving, no ratios — exactly what the user supplied
+          Assert.Equal(30, model.Train.TrainInputs!.Shape[0]);
+          Assert.Equal(8, model.Train.ValidInputs!.Shape[0]);
+          Assert.Equal(5, model.Train.TestInputs!.Shape[0]);
           Assert.True(model.Train.HasExplicitDatasets);
       }
 
       [Fact]
       public void Missing_test_is_carved_from_valid()
       {
-          // Chybějící sada se ukrojí ze SVÉ SOUROZENKYNĚ, ne z trainu. Poměr valid:test
-          // je defaultně 0.15:0.15, takže z 8 validních vzorků vyjde 4 valid / 4 test.
-          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          // A missing set is carved from its SIBLING, not from train. The valid:test ratio
+          // defaults to 0.15:0.15, so 8 valid samples give 4 valid / 4 test.
+          var model = new NeuralNetwork(new Dense(1, new Linear()), new SGD(0.01), new MSE());
 
           var (trainX, trainY) = MakeSamples(30);
           var (validX, validY) = MakeSamples(8);
 
           model.Train.SetDatasets(new LabeledData(trainX, trainY), new LabeledData(validX, validY));
-          model.Train.DividingDataIntoDatasets(trainX, trainY);
+          model.Train.SplitDatasets(trainX, trainY);
 
-          Assert.Equal(30, model.Train.TrainDataInputs!.Shape[0]);   // train NEDOTČENÝ
-          Assert.Equal(4, model.Train.ValidDataInputs!.Shape[0]);
-          Assert.Equal(4, model.Train.TestDataInputs!.Shape[0]);
+          Assert.Equal(30, model.Train.TrainInputs!.Shape[0]);   // train UNTOUCHED
+          Assert.Equal(4, model.Train.ValidInputs!.Shape[0]);
+          Assert.Equal(4, model.Train.TestInputs!.Shape[0]);
       }
 
       [Fact]
       public void Missing_valid_is_carved_from_train_not_from_test()
       {
-          // Typicky MNIST: dodán train a test, validační sada chybí.
-          // Testovací sada je finální nezaujatý odhad → z ní se nekrájí NIKDY.
-          // Validační se v praxi bere z trainu, takže se ukrojí odtamtud.
-          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          // Typically MNIST: train and test supplied, validation set missing.
+          // The test set is the final unbiased estimate → it is NEVER carved from.
+          // In practice validation comes from train, so it is carved from there.
+          var model = new NeuralNetwork(new Dense(1, new Linear()), new SGD(0.01), new MSE());
 
           var (trainX, trainY) = MakeSamples(30);
           var (testX, testY) = MakeSamples(10);
 
           model.Train.SetDatasets(new LabeledData(trainX, trainY), valid: null, test: new LabeledData(testX, testY));
-          model.Train.DividingDataIntoDatasets(trainX, trainY);
+          model.Train.SplitDatasets(trainX, trainY);
 
-          Assert.Equal(10, model.Train.TestDataInputs!.Shape[0]);    // test NEDOTČENÝ
-          Assert.Equal(24, model.Train.TrainDataInputs!.Shape[0]);   // 30 × 0.7/(0.7+0.15)
-          Assert.Equal(6, model.Train.ValidDataInputs!.Shape[0]);    // zbytek
+          Assert.Equal(10, model.Train.TestInputs!.Shape[0]);    // test UNTOUCHED
+          Assert.Equal(24, model.Train.TrainInputs!.Shape[0]);   // 30 × 0.7/(0.7+0.15)
+          Assert.Equal(6, model.Train.ValidInputs!.Shape[0]);    // remainder
       }
 
       [Fact]
       public void Test_is_not_carved_when_final_testing_is_off()
       {
-          // Ukrojit test z validu má smysl jen když se po tréninku opravdu testuje.
-          // Jinak by uživatel přišel o kus validační sady kvůli datům, co nikdo nepoužije.
-          // Řídí to TestNeuralNetworkAfterTraining — jedno rozhodnutí, ne dvě.
-          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
-          model.Train.TestNeuralNetworkAfterTraining = false;
+          // Carving test out of valid only makes sense if testing actually runs after training.
+          // Otherwise the user would lose part of the validation set to data nobody uses.
+          // TestAfterTraining controls it — one decision, not two.
+          var model = new NeuralNetwork(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          model.Train.TestAfterTraining = false;
 
           var (trainX, trainY) = MakeSamples(30);
           var (validX, validY) = MakeSamples(8);
 
           model.Train.SetDatasets(new LabeledData(trainX, trainY), new LabeledData(validX, validY));
-          model.Train.DividingDataIntoDatasets(trainX, trainY);
+          model.Train.SplitDatasets(trainX, trainY);
 
-          Assert.Equal(30, model.Train.TrainDataInputs!.Shape[0]);
-          Assert.Equal(8, model.Train.ValidDataInputs!.Shape[0]);   // celá, neukrojená
-          Assert.Null(model.Train.TestDataInputs);
+          Assert.Equal(30, model.Train.TrainInputs!.Shape[0]);
+          Assert.Equal(8, model.Train.ValidInputs!.Shape[0]);   // whole, not carved
+          Assert.Null(model.Train.TestInputs);
       }
 
       [Fact]
       public void Explicit_test_survives_final_testing_being_off()
       {
-          // Když test dodáš sám, vypnutý přehled ho nesmí zahodit — jen se nevypíše.
-          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
-          model.Train.TestNeuralNetworkAfterTraining = false;
+          // If you supply test yourself, disabled final testing must not discard it — it just isn't reported.
+          var model = new NeuralNetwork(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          model.Train.TestAfterTraining = false;
 
           var (trainX, trainY) = MakeSamples(30);
           var (validX, validY) = MakeSamples(8);
@@ -114,45 +113,45 @@
               new LabeledData(trainX, trainY),
               new LabeledData(validX, validY),
               new LabeledData(testX, testY));
-          model.Train.DividingDataIntoDatasets(trainX, trainY);
+          model.Train.SplitDatasets(trainX, trainY);
 
-          Assert.Equal(8, model.Train.ValidDataInputs!.Shape[0]);
-          Assert.Equal(5, model.Train.TestDataInputs!.Shape[0]);
+          Assert.Equal(8, model.Train.ValidInputs!.Shape[0]);
+          Assert.Equal(5, model.Train.TestInputs!.Shape[0]);
       }
 
       [Fact]
       public void SetDatasets_with_train_only_splits_everything()
       {
-          // Když nedodáš ani valid ani test, není z čeho jiného krájet než z trainu —
-          // dostaneš klasické rozdělení podle poměrů — dřív na to byla samostatná metoda.
-          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          // With neither valid nor test supplied, there is nothing to carve from but train —
+          // you get the classic ratio split (this used to be a separate method).
+          var model = new NeuralNetwork(new Dense(1, new Linear()), new SGD(0.01), new MSE());
           var (x, y) = MakeSamples(100);
 
           model.Train.SetDatasets(new LabeledData(x, y));
-          model.Train.DividingDataIntoDatasets(x, y);
+          model.Train.SplitDatasets(x, y);
 
-          Assert.Equal(70, model.Train.TrainDataInputs!.Shape[0]);
-          Assert.Equal(15, model.Train.ValidDataInputs!.Shape[0]);
-          Assert.Equal(15, model.Train.TestDataInputs!.Shape[0]);
+          Assert.Equal(70, model.Train.TrainInputs!.Shape[0]);
+          Assert.Equal(15, model.Train.ValidInputs!.Shape[0]);
+          Assert.Equal(15, model.Train.TestInputs!.Shape[0]);
       }
 
       [Fact]
       public void Carving_needs_at_least_two_samples()
       {
-          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          var model = new NeuralNetwork(new Dense(1, new Linear()), new SGD(0.01), new MSE());
           var (trainX, trainY) = MakeSamples(30);
           var (validX, validY) = MakeSamples(1);
 
           model.Train.SetDatasets(new LabeledData(trainX, trainY), new LabeledData(validX, validY));
 
-          var ex = Assert.Throws<ArgumentException>(() => model.Train.DividingDataIntoDatasets(trainX, trainY));
-          Assert.Contains("TestNeuralNetworkAfterTraining", ex.Message);
+          var ex = Assert.Throws<ArgumentException>(() => model.Train.SplitDatasets(trainX, trainY));
+          Assert.Contains("TestAfterTraining", ex.Message);
       }
 
       [Fact]
       public void TrainLoop_with_data_is_a_shortcut_for_split_plus_loop()
       {
-          // TrainLoop(X, Y, ...) musí dělat PŘESNĚ totéž co SetDatasets(all) + TrainLoop(...)
+          // TrainLoop(X, Y, ...) must do EXACTLY the same as SetDatasets(all) + TrainLoop(...)
           var (X, Y) = MakeArrays(40);
           var probe = new Tensor(new double[] { 0.3 });
 
@@ -166,13 +165,13 @@
           Assert.Equal(shortcut.GetResults(probe).Data[0], explicitForm.GetResults(probe).Data[0]);
       }
 
-      private static My_DNN.MDNN Quiet(int? seed = null)
+      private static NeuralNetwork Quiet(int? seed = null)
       {
-          var m = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE(), seed);
-          m.Train.ShowLossChartInTrainLoop = false;
-          m.Train.ShowModelInfoIntrainLoop = false;
-          m.Train.AutoSaveInTrainLoop = false;
-          m.Train.TestNeuralNetworkAfterTraining = false;
+          var m = new NeuralNetwork(new Dense(1, new Linear()), new SGD(0.01), new MSE(), seed);
+          m.Train.ShowLossChart = false;
+          m.Train.ShowModelInfo = false;
+          m.Train.AutoSave = false;
+          m.Train.TestAfterTraining = false;
           return m;
       }
 
@@ -187,8 +186,8 @@
       [Fact]
       public void LabeledData_rejects_mismatched_sample_counts()
       {
-          // Nekonzistentní dvojice teď nejde ani vyrobit — dřív šlo nastavit vstupy
-          // bez cílů a spadlo to až u prvního valid reportu.
+          // An inconsistent pair cannot even be constructed now — previously you could set
+          // inputs without targets and it only failed at the first valid report.
           var (x, _) = MakeSamples(10);
           var (_, y) = MakeSamples(7);
 
@@ -200,7 +199,7 @@
       [Fact]
       public void TrainLoop_without_data_requires_SetDatasets()
       {
-          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          var model = new NeuralNetwork(new Dense(1, new Linear()), new SGD(0.01), new MSE());
 
           var ex = Assert.Throws<InvalidOperationException>(() => model.Train.TrainLoop(5));
           Assert.Contains("SetDatasets", ex.Message);
@@ -209,30 +208,30 @@
       [Fact]
       public void Default_split_ratios_are_70_15_15()
       {
-          // beze změny konfigurace = dosavadní default (100 vzorků → 70/15/15)
-          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          // no configuration change = the default (100 samples → 70/15/15)
+          var model = new NeuralNetwork(new Dense(1, new Linear()), new SGD(0.01), new MSE());
           var (x, y) = MakeSamples(100);
 
-          model.Train.DividingDataIntoDatasets(x, y);
+          model.Train.SplitDatasets(x, y);
 
-          Assert.Equal(15, model.Train.ValidDataInputs!.Shape[0]);
-          Assert.Equal(15, model.Train.TestDataInputs!.Shape[0]);   // train = zbytek = 70
+          Assert.Equal(15, model.Train.ValidInputs!.Shape[0]);
+          Assert.Equal(15, model.Train.TestInputs!.Shape[0]);   // train = remainder = 70
       }
 
       [Fact]
       public void Custom_split_ratios_respected_and_remainder_auto_computed()
       {
-          // Train=0.6, Valid=0.2, Test vynechaný → dopočítá se 0.2 (zbytek).
-          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          // Train=0.6, Valid=0.2, Test omitted → computed as 0.2 (the remainder).
+          var model = new NeuralNetwork(new Dense(1, new Linear()), new SGD(0.01), new MSE());
           model.Train.TrainSplitRatio = 0.6;
           model.Train.ValidSplitRatio = 0.2;
-          // TestSplitRatio zůstává null
+          // TestSplitRatio stays null
 
           var (x, y) = MakeSamples(100);
-          model.Train.DividingDataIntoDatasets(x, y);
+          model.Train.SplitDatasets(x, y);
 
-          Assert.Equal(20, model.Train.ValidDataInputs!.Shape[0]);
-          Assert.Equal(20, model.Train.TestDataInputs!.Shape[0]);   // train = zbytek = 60
+          Assert.Equal(20, model.Train.ValidInputs!.Shape[0]);
+          Assert.Equal(20, model.Train.TestInputs!.Shape[0]);   // train = remainder = 60
       }
 
       private static (Tensor x, Tensor y) MakeSamples(int n)
@@ -246,9 +245,9 @@
 
   public class DatasetSplitLeakTests : GradientCheckTestBase
   {
-      // 2c-14: druhý TrainLoop na stejném modelu viděl valid/test z prvního běhu, spadl do
-      // větve „uživatel dodal valid i test" a nastavil _trainDataInputs = CELÝ dataset —
-      // takže druhý běh trénoval i na testovacích datech. Tiše.
+      // A second TrainLoop on the same model saw valid/test from the first run, took the
+      // "user supplied both valid and test" branch and set _trainDataInputs = the WHOLE dataset —
+      // so the second run also trained on the test data. Silently.
       private static (double[][] X, double[][] Y) Data(int n)
       {
           var X = new double[n][];
@@ -261,13 +260,13 @@
           return (X, Y);
       }
 
-      private static My_DNN.MDNN QuietModel()
+      private static NeuralNetwork QuietModel()
       {
-          var model = new My_DNN.MDNN(new Dense(1, new Linear()), new SGD(0.01), new MSE());
-          model.Train.ShowLossChartInTrainLoop = false;
-          model.Train.ShowModelInfoIntrainLoop = false;
-          model.Train.AutoSaveInTrainLoop = false;
-          model.Train.TestNeuralNetworkAfterTraining = false;
+          var model = new NeuralNetwork(new Dense(1, new Linear()), new SGD(0.01), new MSE());
+          model.Train.ShowLossChart = false;
+          model.Train.ShowModelInfo = false;
+          model.Train.AutoSave = false;
+          model.Train.TestAfterTraining = false;
           return model;
       }
 
@@ -278,32 +277,33 @@
           var model = QuietModel();
 
           model.Train.TrainLoop(X, Y, 5);
-          int train1 = model.Train.TrainDataInputs!.Shape[0];
-          int valid1 = model.Train.ValidDataInputs!.Shape[0];
-          int test1  = model.Train.TestDataInputs!.Shape[0];
+          int train1 = model.Train.TrainInputs!.Shape[0];
+          int valid1 = model.Train.ValidInputs!.Shape[0];
+          int test1  = model.Train.TestInputs!.Shape[0];
 
           model.Train.TrainLoop(X, Y, 5);
-          int train2 = model.Train.TrainDataInputs!.Shape[0];
-          int valid2 = model.Train.ValidDataInputs!.Shape[0];
-          int test2  = model.Train.TestDataInputs!.Shape[0];
+          int train2 = model.Train.TrainInputs!.Shape[0];
+          int valid2 = model.Train.ValidInputs!.Shape[0];
+          int test2  = model.Train.TestInputs!.Shape[0];
 
-          Assert.Equal(14, train1);                       // 0.7 z 20
+          Assert.Equal(14, train1);                       // 0.7 of 20
           Assert.Equal((train1, valid1, test1), (train2, valid2, test2));
-          Assert.Equal(20, train2 + valid2 + test2);      // nic se neztratilo ani nezdvojilo
+          Assert.Equal(20, train2 + valid2 + test2);      // nothing lost or duplicated
       }
 
-      // POZNÁMKA: tenhle test bug 2c-14 NECHYTÁ (ověřeno — bez fixu procházel). Když uživatel
-      // dodá vlastní valid set, vyjdou obě cesty shodně: nefixnutá spadne do větve „mám valid
-      // i test" a nechá je být, fixnutá je přeřízne znovu ze stejného originálu. Drží se tu
-      // jako popis zamýšlené sémantiky (uživatelův vstup se nesmí s každým během dál
-      // ukrajovat), ne jako důkaz opravy — tím je test výš, kde train set ujel 14 → 20.
+      // NOTE: this test does NOT catch the bug above (verified — it passed without the fix).
+      // When the user supplies their own valid set, both paths behave the same: the unfixed one
+      // takes the "have valid and test" branch and leaves them alone, the fixed one re-carves
+      // them from the same original. It is kept as a description of the intended semantics
+      // (user input must not keep shrinking with every run), not as proof of the fix — that is
+      // the test above, where the train set drifted 14 → 20.
       [Fact]
       public void User_supplied_datasets_survive_repeated_runs()
       {
           var (X, Y) = Data(20);
           var model = QuietModel();
 
-          // uživatel dodá vlastní datasety → musí zůstat nedotčené i po opakovaných bězích
+          // the user supplies their own datasets → they must stay untouched across repeated runs
           var trainData = new LabeledData(
               new Tensor(X.SelectMany(r => r).ToArray(), new int[] { X.Length, 1 }),
               new Tensor(Y.SelectMany(r => r).ToArray(), new int[] { Y.Length, 1 }));
@@ -313,49 +313,49 @@
 
           model.Train.SetDatasets(trainData, validData);
 
-          // ať se test z validu opravdu ukrojí (jinak by nebylo co hlídat na stabilitu)
-          model.Train.TestNeuralNetworkAfterTraining = true;
+          // make sure test really is carved from valid (otherwise there would be no stability to check)
+          model.Train.TestAfterTraining = true;
 
           model.Train.TrainLoop(5);
-          int train1 = model.Train.TrainDataInputs!.Shape[0];
-          int valid1 = model.Train.ValidDataInputs!.Shape[0];
-          int test1 = model.Train.TestDataInputs!.Shape[0];
+          int train1 = model.Train.TrainInputs!.Shape[0];
+          int valid1 = model.Train.ValidInputs!.Shape[0];
+          int test1 = model.Train.TestInputs!.Shape[0];
 
           model.Train.TrainLoop(5);
 
-          // opakovaný běh musí dát stejné rozdělení — krájí se vždycky z PŮVODNÍ zadané
-          // sady, ne z té už zmenšené (tam byl kdysi "Invalid slice range!")
-          Assert.Equal(train1, model.Train.TrainDataInputs!.Shape[0]);
-          Assert.Equal(valid1, model.Train.ValidDataInputs!.Shape[0]);
-          Assert.Equal(test1, model.Train.TestDataInputs!.Shape[0]);
-          Assert.Equal(20, train1);                       // celý dodaný train set, nedotčený
-          Assert.Equal(4, valid1 + test1);                // jeho 4 valid vzorky, rozdělené 2/2
+          // a repeated run must give the same split — carving always starts from the ORIGINAL
+          // supplied set, not the already shrunk one (that once caused "Invalid slice range!")
+          Assert.Equal(train1, model.Train.TrainInputs!.Shape[0]);
+          Assert.Equal(valid1, model.Train.ValidInputs!.Shape[0]);
+          Assert.Equal(test1, model.Train.TestInputs!.Shape[0]);
+          Assert.Equal(20, train1);                       // the whole supplied train set, untouched
+          Assert.Equal(4, valid1 + test1);                // its 4 valid samples, split 2/2
       }
   }
 
   public class TensorInputTypeTests : GradientCheckTestBase
   {
-      // 2c-5: Tensor.ConvertArrayToTensor porovnává elementType.Name s "Int"/"Float"/"Double".
-      // Reálná .NET jména jsou Int32/Single/Double → projde jen double, ostatní vyhodí
-      // výjimku, jejíž vlastní text int i float slibuje.
+      // Tensor.ConvertArrayToTensor used to compare elementType.Name with "Int"/"Float"/"Double".
+      // The real .NET names are Int32/Single/Double → only double got through; the others threw
+      // an exception whose own message promised int and float support.
       [Fact]
       public void ConvertArrayToTensor_accepts_double_jagged()
           => Assert.Equal(new double[] { 1, 2 },
-                          Tensor.ConvertArrayToTensor(new double[][] { new double[] { 1, 2 } }).Data);
+                          new Tensor(new double[][] { new double[] { 1, 2 } }).Data);
 
       [Fact]
       public void ConvertArrayToTensor_accepts_int_jagged()
           => Assert.Equal(new double[] { 1, 2 },
-                          Tensor.ConvertArrayToTensor(new int[][] { new int[] { 1, 2 } }).Data);
+                          new Tensor(new int[][] { new int[] { 1, 2 } }).Data);
 
       [Fact]
       public void ConvertArrayToTensor_accepts_float_jagged()
           => Assert.Equal(new double[] { 1, 2 },
-                          Tensor.ConvertArrayToTensor(new float[][] { new float[] { 1f, 2f } }).Data);
+                          new Tensor(new float[][] { new float[] { 1f, 2f } }).Data);
 
-      // Nález z procházení příkladů: rozbalovala se jen JEDNA úroveň jagged pole, takže
-      // double[][] prošlo, ale double[][][] skončilo na "invalid type on input array".
-      // A to je přesně tvar sekvenčních dat ([sekvence][krok][rys]).
+      // Found while going through the examples: only ONE level of a jagged array was unpacked,
+      // so double[][] worked but double[][][] failed with "invalid type on input array".
+      // And that is exactly the shape of sequence data ([sequence][step][feature]).
       [Fact]
       public void ConvertArrayToTensor_accepts_triple_jagged()
       {
@@ -365,7 +365,7 @@
               new double[][] { new double[] { 5, 6 }, new double[] { 7, 8 } },
           };
 
-          Tensor tensor = Tensor.ConvertArrayToTensor(sequences);
+          Tensor tensor = new Tensor(sequences);
 
           Assert.Equal(new int[] { 2, 2, 2 }, tensor.Shape);
           Assert.Equal(new double[] { 1, 2, 3, 4, 5, 6, 7, 8 }, tensor.Data);
@@ -374,16 +374,16 @@
       [Fact]
       public void ConvertArrayToTensor_accepts_int_multidim()
           => Assert.Equal(new double[] { 1, 2 },
-                          Tensor.ConvertArrayToTensor(new int[,] { { 1, 2 } }).Data);
+                          new Tensor(new int[,] { { 1, 2 } }).Data);
 
-      // Zubaté (nepravidelné) pole nemá tvar, takže z něj tenzor udělat NELZE.
-      // Dřív to dopadlo pro každý typ jinak a ani jednou dobře: `double[][]` spadlo
-      // na IndexOutOfRange z hloubi kopírování, kdežto `int[][]` a `float[][]` prošly
-      // a vyrobily tvar podle DÉLKY PRVNÍHO ŘÁDKU — data se tím tiše zamíchala.
+      // A ragged (irregular) array has no shape, so it CANNOT be turned into a tensor.
+      // Previously each type failed differently and none correctly: `double[][]` threw
+      // IndexOutOfRange from deep inside the copy, while `int[][]` and `float[][]` passed
+      // and produced a shape based on the FIRST ROW'S LENGTH — silently scrambling the data.
       //
-      //   int[][] { {1,2}, {3,4,5}, {6} }  ->  tvar [3,2], Data.Length = 6
+      //   int[][] { {1,2}, {3,4,5}, {6} }  ->  shape [3,2], Data.Length = 6
       //
-      // Šest prvků se do 3x2 vejde, takže ani délka nic neprozradí.
+      // Six elements fit into 3x2, so not even the length gives it away.
       [Theory]
       [InlineData("double")]
       [InlineData("int")]
@@ -398,7 +398,7 @@
           };
 
           ArgumentException ex = Assert.Throws<ArgumentException>(
-              () => Tensor.ConvertArrayToTensor(ragged));
+              () => new Tensor(ragged));
 
           Assert.Contains("same length", ex.Message);
       }
@@ -406,7 +406,7 @@
       [Fact]
       public void ConvertArrayToTensor_accepts_deep_ragged_free_arrays()
       {
-          // Kontrola, že se stráž nechytá na pravidelných vnořených polích.
+          // Checks that the guard does not trip on regular nested arrays.
           double[][][] cube = new double[2][][];
           for (int i = 0; i < 2; i++)
           {
@@ -414,7 +414,7 @@
               for (int j = 0; j < 3; j++) cube[i][j] = new double[] { i, j, i + j, i * j };
           }
 
-          Tensor tensor = Tensor.ConvertArrayToTensor(cube);
+          Tensor tensor = new Tensor(cube);
 
           Assert.Equal(new[] { 2, 3, 4 }, tensor.Shape);
           Assert.Equal(24, tensor.Data.Length);

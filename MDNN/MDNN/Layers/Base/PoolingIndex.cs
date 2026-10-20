@@ -1,6 +1,6 @@
-﻿namespace My_DNN.Layers.classes
+﻿namespace MDNN.Layers
 {
-    public struct PoolingIndex
+    internal struct PoolingIndex
     {
         public int Row;
         public int Col;

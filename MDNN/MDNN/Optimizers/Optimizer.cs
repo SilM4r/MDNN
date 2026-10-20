@@ -1,42 +1,72 @@
-﻿using My_DNN.Save_neural_network;
+﻿using MDNN.Serialization;
 
 
-namespace My_DNN.Optimizers
+namespace MDNN.Optimizers
 {
+    /// <summary>
+    /// Base class for optimizers that update parameters from their gradients.
+    /// </summary>
+    /// <remarks>
+    /// Each neuron (and each Conv layer) holds its own instance, because the optimizer state is per parameter.
+    /// </remarks>
     public abstract class Optimizer
     {
+        /// <summary>
+        /// Name used in the model file; built-in optimizers are reconstructed from it on load.
+        /// </summary>
         public abstract string Name { get; }
+        /// <summary>
+        /// Hyperparameters saved to the model file (e.g. learning rate).
+        /// </summary>
         public abstract double[] Hyperparameters { get; }
-        public abstract double Update(double w, double gradient,  int paramIndex);
+        /// <summary>
+        /// Returns the updated value of parameter <paramref name="w"/> given its <paramref name="gradient"/>.
+        /// </summary>
+        /// <param name="w">Current parameter value.</param>
+        /// <param name="gradient">Gradient of the loss with respect to the parameter.</param>
+        /// <param name="paramIndex">Index of the parameter within this optimizer's state.</param>
+        public abstract double Update(double w, double gradient, int paramIndex);
 
-        // Připraví stav pro parametry 0..parameterCount-1 dopředu. Vrstva ho volá před
-        // dávkou Update, protože jen ona ví, kolik parametrů má — bez toho by stav rostl
-        // po jedné váze (přealokování na každou váhu = kvadraticky při první dávce).
-        // Už nasbíraný stav zůstává. Výchozí implementace nic nedělá — SGD stav nemá.
+        // The layer calls it before a batch of Update calls, because only the layer knows how many
+        // parameters it has — otherwise the state would grow one weight at a time (reallocating per
+        // weight = quadratic on the first batch). Existing state is kept.
+        /// <summary>
+        /// Prepares state for parameters <c>0..parameterCount-1</c> ahead of time.
+        /// The default does nothing (for stateless optimizers such as SGD).
+        /// </summary>
         public virtual void EnsureCapacity(int parameterCount) { }
 
-        // Nová instance téhož optimizeru: stejné hyperparametry, PRÁZDNÝ stav. Každý neuron
-        // (a každá Conv vrstva) potřebuje vlastní, protože stav je per-parametr.
-        //
-        // Abstraktní schválně. Výchozí implementace přes MemberwiseClone by byla mělká kopie,
-        // takže by klony sdílely pole se stavem (momenty Adamu) — tichá chyba, kterou hlídá
-        // Two_models_with_adam_do_not_share_momentum. Optimizer sám ví, jak se postavit.
+        // Abstract on purpose. A default implementation via MemberwiseClone would be a shallow copy,
+        // so clones would share the state arrays (Adam's moments) — a silent bug guarded by the test
+        // Two_models_with_adam_do_not_share_momentum. The optimizer itself knows how to build itself.
+        /// <summary>
+        /// Creates a new instance of the same optimizer: same hyperparameters, EMPTY state.
+        /// </summary>
         public abstract Optimizer CreateFresh();
 
-        // Stav optimizeru pro uložení modelu: pojmenovaná pole (u Adamu "m", "v", "t"),
-        // jedna hodnota na parametr. Bez něj se načtený model rozjíždí od nuly — Adam má
-        // vynulované momenty a krok 0, takže první kroky po načtení jsou velké jako na
-        // začátku tréninku a navázání není plynulé.
-        //
-        // null = optimizer stav nemá (SGD), nebo ho neumí uložit (vlastní optimizer, který
-        // tyhle dvě metody nepřepíše) — načte se pak s prázdným stavem jako dřív.
+        // Without it a loaded model restarts from zero — Adam has zeroed moments and step 0, so the
+        // first steps after loading are as large as at the start of training and resuming is not smooth.
+        /// <summary>
+        /// Exports the optimizer state for saving: named arrays (for Adam "m", "v", "t"), one value per parameter.
+        /// </summary>
+        /// <returns>
+        /// The state, or <c>null</c> if the optimizer has no state (SGD) or cannot save it
+        /// (a custom optimizer that does not override this) — it then loads with empty state.
+        /// </returns>
         public virtual Dictionary<string, double[]>? ExportState() => null;
 
-        // Protějšek ExportState. Dostane KOPII polí, takže si je smí nechat.
+        /// <summary>
+        /// Counterpart of <see cref="ExportState"/>. Receives a COPY of the arrays, so it may keep them.
+        /// </summary>
         public virtual void ImportState(Dictionary<string, double[]> state) { }
 
-        // Pole ze souboru: musí existovat a mít stejnou délku jako ostatní. Jinak je soubor
-        // poškozený a pokračovat by znamenalo počítat s nesmyslným stavem.
+        /// <summary>
+        /// Returns a copy of the state array <paramref name="key"/>; throws if it is missing or its length
+        /// differs from <paramref name="expectedLength"/> (the file is damaged).
+        /// </summary>
+        /// <param name="state">State dictionary passed to <see cref="ImportState"/>.</param>
+        /// <param name="key">Name of the array.</param>
+        /// <param name="expectedLength">Required length, or <c>null</c> to accept any.</param>
         protected static double[] RequireState(Dictionary<string, double[]> state, string key, int? expectedLength)
         {
             if (!state.TryGetValue(key, out double[]? values))
@@ -53,30 +83,20 @@ namespace My_DNN.Optimizers
             return (double[])values.Clone();
         }
 
-        protected static double Rms(double val)
+        internal static Optimizer FromExport(ExportOptimizer optimizer)
         {
-            double sqrt = Math.Sqrt(val);
-            if (sqrt == 0)
-            {
-                sqrt += double.Epsilon;
-            }
-            return sqrt;
+            return GetOptimizer(optimizer.Name, optimizer.Hyperparameters);
         }
 
-        public static Optimizer Refactor_optimizer(ExportOptimizer Optimizer)
-        {
-            return GetOptimizer(Optimizer.Name, Optimizer.Hyperparameters);
-        }
-
-        // Umí ho načtení postavit jen podle jména ze souboru?
+        // Can loading construct it from the name in the file alone?
         internal static bool IsBuiltIn(string name) => name is "SGD" or "Adam" or "Momentum";
 
-        // Optimizer pro načítaný model. `own` = optimizer, který má volající po ruce:
-        // předaný do LoadModel, nebo ten, který model už má (obnova snapshotu v TrainLoop).
-        //   - předaný do LoadModel vyhrává vždy, jen musí sedět jméno (jinak by se stav
-        //     ze souboru načítal do optimizeru, který s ním nemá nic společného);
-        //   - vestavěný se jinak postaví ze jména a hyperparametrů ze souboru;
-        //   - vlastní, který postavit neumíme, převezme `own` se stejným jménem.
+        // Optimizer for a model being loaded. `own` = the optimizer the caller has at hand:
+        // passed to LoadModel, or the one the model already has (snapshot restore in TrainLoop).
+        //   - one passed to LoadModel always wins, but the name must match (otherwise the state from
+        //     the file would be loaded into an unrelated optimizer);
+        //   - otherwise a built-in one is constructed from the name and hyperparameters in the file;
+        //   - a custom one we cannot construct is taken from `own` with the same name.
         internal static Optimizer ResolveForLoad(ExportOptimizer saved, Optimizer? own, bool ownWins)
         {
             if (own != null && own.Name == saved.Name && (ownWins || !IsBuiltIn(saved.Name)))
@@ -95,21 +115,13 @@ namespace My_DNN.Optimizers
             {
                 throw new ArgumentException(
                     $"Optimizer '{saved.Name}' is not built in, so loading cannot create it by name. " +
-                    "Pass an instance: MDNN.LoadModel(path, optimizer: new …).");
+                    "Pass an instance: NeuralNetwork.LoadModel(path, optimizer: new …).");
             }
 
-            return Refactor_optimizer(saved);
+            return FromExport(saved);
         }
 
-        // Dřív se klon stavěl podle jména přes GetOptimizer, a ten zná jen vestavěné
-        // optimizery — vlastní optimizer (README slibuje, že jde) proto spadl na
-        // „this optimizer does not exist" hned při sestavení první vrstvy.
-        public static Optimizer Clone_optimizer(Optimizer Optimizer)
-        {
-            return Optimizer.CreateFresh();
-        }
-
-        // Jen pro načtení ze souboru: tam je k dispozici jméno, ne instance.
+        // Only for loading from a file: there a name is available, not an instance.
         private static Optimizer GetOptimizer(string name, double[] hyperparameters)
         {
             switch (name)

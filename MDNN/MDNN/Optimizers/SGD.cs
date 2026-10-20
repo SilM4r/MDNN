@@ -1,27 +1,32 @@
-﻿namespace My_DNN.Optimizers
+﻿namespace MDNN.Optimizers
 {
+    /// <summary>
+    /// Plain stochastic gradient descent: <c>w ← w − learningRate · gradient</c>.
+    /// </summary>
     public class SGD : Optimizer
     {
-        private double L;
+        private readonly double learningRate;
 
-        public double[] Parameters = new double[1];
-
+        /// <inheritdoc/>
         public override string Name => "SGD";
-        public override double[] Hyperparameters => Parameters;
+        /// <inheritdoc/>
+        public override double[] Hyperparameters => new[] { learningRate };
 
-        public SGD(double learning_rate) 
+        /// <summary>
+        /// Creates an SGD optimizer with the given learning rate.
+        /// </summary>
+        public SGD(double learningRate)
         {
-            L = learning_rate;
-            Parameters[0] = L;
+            this.learningRate = learningRate;
         }
 
-        public override Optimizer CreateFresh() => new SGD(L);
+        /// <inheritdoc/>
+        public override Optimizer CreateFresh() => new SGD(learningRate);
 
-        public override double Update(double w, double gradient, int i)
+        /// <inheritdoc/>
+        public override double Update(double w, double gradient, int paramIndex)
         {
-            w = w - L * gradient;
-
-            return w;
+            return w - learningRate * gradient;
         }
     }
 }

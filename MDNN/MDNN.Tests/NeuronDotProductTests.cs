@@ -1,17 +1,17 @@
 using System;
 using System.Linq;
 using Xunit;
-using My_DNN;
-using My_DNN.Activation_functions;
+using MDNN;
+using MDNN.Activations;
 
 namespace MDNN.Tests;
 
 /// <summary>
-/// Skalární součin v <c>Neuron.FeedForward</c> sčítá ve čtyřech nezávislých řetězcích
-/// (kvůli rychlosti) a zbytek, když počet vstupů není dělitelný čtyřmi, dopočítá zvlášť.
+/// The dot product in <c>Neuron.FeedForward</c> sums in four independent chains (for speed) and
+/// handles the remainder separately when the input count is not divisible by four.
 ///
-/// Většina ostatních testů má 2–3 vstupy, takže by prošla jen zbytkovou smyčkou a hlavní
-/// čtyřřetězcovou by nikdy nespustila. Tady se projdou obě a všechny délky zbytku.
+/// Most other tests have 2–3 inputs, so they would only go through the remainder loop and never
+/// run the main four-chain one. Here both run, with every remainder length.
 /// </summary>
 public class NeuronDotProductTests
 {
@@ -40,16 +40,16 @@ public class NeuronDotProductTests
         double expected = bias;
         for (int i = 0; i < inputs; i++) expected += w[i] * x[i];
 
-        // Jiné pořadí sčítání → může se lišit v posledních bitech, ne víc.
+        // Different summation order → may differ in the last bits, no more.
         Assert.Equal(expected, neuron.FeedForward(x), 12);
     }
 
     [Fact]
     public void Every_input_counts_exactly_once()
     {
-        // Celá čísla jsou v double přesná, takže tady musí výsledek sedět PŘESNĚ —
-        // vynechaný nebo dvakrát započtený vstup (chyba v mezích smyček) by se ukázal hned.
-        const int inputs = 11;   // 2 celé čtveřice + zbytek 3
+        // Integers are exact in double, so the result must match EXACTLY here; an input that is
+        // skipped or counted twice (a loop-bounds bug) would show immediately.
+        const int inputs = 11;   // 2 full groups of four + remainder 3
         double[] w = Enumerable.Range(1, inputs).Select(i => (double)i).ToArray();
         double[] x = Enumerable.Range(1, inputs).Select(i => (double)(i * i)).ToArray();
 

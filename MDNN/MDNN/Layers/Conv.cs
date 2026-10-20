@@ -1,26 +1,36 @@
-﻿using My_DNN.Layers.classes;
-using My_DNN.Optimizers;
-using My_DNN.Save_neural_network;
+﻿using MDNN.Layers;
+using MDNN.Optimizers;
+using MDNN.Serialization;
+using MDNN.Activations;
 
-namespace My_DNN.Layers
+namespace MDNN.Layers
 {
+    /// <summary>
+    /// 2D convolution layer (stride 1) with "valid" or "same" padding; input and output are <c>[height, width, channels]</c>.
+    /// </summary>
     public class Conv : Layer
     {
-        public override string Name => "CNN";
+        /// <inheritdoc/>
+        public override string Name => "Conv";
 
-        public override int[] Input_size_and_shape => inputsShape;
+        /// <inheritdoc/>
+        public override int[] InputShape => inputsShape;
 
-        public override int[] Output_size_and_shape => outputShape;
+        /// <inheritdoc/>
+        public override int[] OutputShape => outputShape;
 
-        // Tentýž tvar jako vrací FeedForward. Dřív tu bylo `new Tensor(output)` nad jagged
-        // polem: `double[][][]` má Rank 1, takže Shape vyšel jako [outH] místo [h,w,kanály].
-        // Data byla správně, Shape ne — a projeví se to jen tehdy, když je Conv výstupní
-        // vrstva a někdo si Shape přečte. Navíc to bylo okno do pracovního pole, ne snímek.
-        public override Tensor Layer_output => Tensor.FromJagged3D(output, outputShape);
+        /// <summary>Snapshot of the last output (after activation) with shape <c>[h,w,filters]</c>.</summary>
+        // Same shape as FeedForward returns. Previously this was `new Tensor(output)` over the
+        // jagged array: `double[][][]` has Rank 1, so Shape came out as [outH] instead of
+        // [h,w,channels]. The data were right, the Shape was not — visible only when Conv is the
+        // output layer and someone reads Shape. It was also a view into the working array, not a snapshot.
+        public override Tensor Output => Tensor.FromJagged3D(output, outputShape);
 
-        public override Tensor Layer_raw_output => Tensor.FromJagged3D(raw_output, outputShape);
+        /// <summary>Snapshot of the last output before activation, shape <c>[h,w,filters]</c>.</summary>
+        public override Tensor RawOutput => Tensor.FromJagged3D(raw_output, outputShape);
 
-        public override Activation_func Activation_Func
+        /// <summary>Element-wise activation applied to each output value; layer-wide activations (e.g. Softmax) are rejected.</summary>
+        public override ActivationFunction Activation
         {
             get { return activation_func; }
             set 
@@ -30,26 +40,29 @@ namespace My_DNN.Layers
             }
         }
 
-        public double[][][][] Kernel  // [numFilters][kernelRows][kernelCols][inputChannels]
+        /// <summary>Kernel weights indexed <c>[filter][kernelRow][kernelCol][inputChannel]</c>.</summary>
+        public double[][][][] Kernels  // [numFilters][kernelRows][kernelCols][inputChannels]
         {
             get { return kernels; }
         }
+        /// <summary>One bias per filter.</summary>
         public double[] Biases
         {
             get { return biases; }
         }
+        /// <summary>Padding mode, lower-case: <c>"valid"</c> or <c>"same"</c>.</summary>
         public string Padding
         {
             get { return padding; }
         }
 
-        // Prázdné výchozí hodnoty: buffery se alokují až při zapojení (WireShapes), kernely
-        // při materializaci. Všechny konstruktory je přepíšou; prázdné pole je tu jen proto,
-        // aby pole nikdy nebylo null.
+        // Empty defaults: buffers are allocated during wiring (WireShapes), kernels during
+        // materialization. All constructors overwrite them; the empty array is here only so
+        // the fields are never null.
         private double[][][][] kernels = Array.Empty<double[][][]>();
-        internal double[][][][] dKernels = Array.Empty<double[][][]>();   // internal kvůli gradient-check testům
+        internal double[][][][] dKernels = Array.Empty<double[][][]>();   // internal for gradient-check tests
         private double[] biases = Array.Empty<double>();
-        internal double[] dBiases = Array.Empty<double>();                // internal kvůli gradient-check testům
+        internal double[] dBiases = Array.Empty<double>();                // internal for gradient-check tests
         private double[][][] dOutput = Array.Empty<double[][]>();
         private string padding;
         private double[][][] output = Array.Empty<double[][]>();
@@ -62,30 +75,31 @@ namespace My_DNN.Layers
         private int mini_batch_size;
         private Optimizer optimizer;
 
-        // Pro uložení stavu optimizeru do souboru (ExportCNNLayer).
+        // For saving the optimizer state to a file (ExportCNNLayer).
         internal Optimizer OptimizerForSave => optimizer;
 
         internal override void ReplaceOptimizer(Optimizer prototype)
         {
-            optimizer = Optimizer.Clone_optimizer(prototype);
+            optimizer = prototype.CreateFresh();
         }
 
-        // Kolik filtrů si vyžádalo poslední WireShapes; MaterializeParameters podle toho staví.
+        // Number of filters requested by the last WireShapes; MaterializeParameters builds accordingly.
         private int? requestedKernelCount;
 
-        private Activation_func activation_func;
+        private ActivationFunction activation_func;
 
-        public Conv(ExportCNNLayer layer)
+        // `optimizerPrototype` — see Dense(ExportDenseLayer, …)
+        internal Conv(ExportCNNLayer layer, Optimizer? optimizerPrototype = null)
         {
             kernels = BaseExportLayer.Required(layer.Kernel, Name, nameof(layer.Kernel));
             biases = BaseExportLayer.Required(layer.Biases, Name, nameof(layer.Biases));
-            activation_func = Activation_func.inicialization_activation_func(layer.Name_of_activation_function);
+            activation_func = ActivationFunction.FromName(layer.Name_of_activation_function);
             CheckIsActivationFuncIsNotApplyToLayer();
-            padding = BaseExportLayer.Required(layer.Padding, Name, nameof(layer.Padding));
+            padding = NormalizePadding(BaseExportLayer.Required(layer.Padding, Name, nameof(layer.Padding)));
 
-            optimizer = Optimizer.Clone_optimizer(GeneralNeuralNetworkSettings.optimizer);
+            optimizer = (optimizerPrototype ?? GeneralNeuralNetworkSettings.DefaultOptimizer).CreateFresh();
 
-            // navázání tréninku — viz Neuron(ExportNeuron, …)
+            // resuming training — see Neuron(ExportNeuron, …)
             if (layer.OptimizerState != null)
             {
                 optimizer.ImportState(layer.OptimizerState);
@@ -93,7 +107,7 @@ namespace My_DNN.Layers
 
             inputsShape = BaseExportLayer.Required(layer.InputShape, Name, nameof(layer.InputShape));
 
-            if (padding.ToLower() == "same")
+            if (padding == "same")
             {
                 outputShape = new int[] { inputsShape[0], inputsShape[1], kernels.Length };
             }
@@ -148,49 +162,74 @@ namespace My_DNN.Layers
             mini_batch_size = 0;
         }
 
-        public Conv(int number_of_kernels,int kernel_size, Activation_func? activation_func = null, string padding = "valid")
+        /// <summary>Creates a convolution layer; the input shape is wired when the layer is added to a model.</summary>
+        /// <param name="filters">Number of filters (output channels); must be greater than 0.</param>
+        /// <param name="kernelSize">Size of the square kernel; must be greater than 0.</param>
+        /// <param name="activation">Element-wise activation; defaults to <c>GeneralNeuralNetworkSettings.DefaultHiddenActivation</c>.</param>
+        /// <param name="padding"><c>"valid"</c> (no padding) or <c>"same"</c> (output has the input's height and width); case-insensitive.</param>
+        public Conv(int filters,int kernelSize, ActivationFunction? activation = null, string padding = "valid")
         {
-            this.activation_func = activation_func ?? GeneralNeuralNetworkSettings.default_hidden_layers_activation_func;
+            if (filters <= 0)
+                throw new ArgumentOutOfRangeException(nameof(filters), filters,
+                    "The number of kernels must be greater than 0.");
+            if (kernelSize <= 0)
+                throw new ArgumentOutOfRangeException(nameof(kernelSize), kernelSize,
+                    "The kernel size must be greater than 0.");
+
+            this.activation_func = activation ?? GeneralNeuralNetworkSettings.DefaultHiddenActivation;
             CheckIsActivationFuncIsNotApplyToLayer();
 
             inputsShape = new int[] { 0 };
             outputShape = new int[] { 0 };
-            this.padding = padding;
+            this.padding = NormalizePadding(padding);
 
-            // vstupní kanály = 0 (placeholder); správné kanály + kernely dopočítá LayerAdjustment
-            inicializationK_B_dK_dB(number_of_kernels, new int[] { kernel_size, kernel_size, 0 }, true);
+            // input channels = 0 (placeholder); Build fills in the real channels + kernels
+            inicializationK_B_dK_dB(filters, new int[] { kernelSize, kernelSize, 0 }, true);
 
-            optimizer = Optimizer.Clone_optimizer(GeneralNeuralNetworkSettings.optimizer);
+            optimizer = GeneralNeuralNetworkSettings.DefaultOptimizer.CreateFresh();
             mini_batch_size = 0;
 
         }
 
-        public override void WireShapes(int? number_of_kernels = null, int[]? input_Shape = null)
+        /// <inheritdoc/>
+        /// <remarks>For Conv, <paramref name="outputSize"/> sets the number of filters.</remarks>
+        public override void WireShapes(int? outputSize = null, int[]? inputShape = null)
         {
-            // Tvar vstupu ještě není známý (Insert/Add před SetInputSizeForFirstLayer předá
-            // placeholder {0}). Dřív se to protlačilo do ConvertTo2D → rows = ceil(sqrt(0)) = 0
-            // → DivideByZeroException z hloubi knihovny. Necháme vrstvu placeholderem;
-            // SetInputSizeForFirstLayer ji doplní, až tvar bude znám.
-            if (number_of_kernels != null)
+            // The input shape is not known yet (Insert/Add before SetInputShape passes the
+            // placeholder {0}). Previously it was pushed into ConvertTo2D → rows = ceil(sqrt(0)) = 0
+            // → DivideByZeroException deep inside the library. The layer stays a placeholder;
+            // SetInputShape completes it once the shape is known.
+            if (outputSize != null)
             {
-                requestedKernelCount = number_of_kernels;
+                requestedKernelCount = outputSize;
             }
 
-            if (input_Shape != null && input_Shape.Any(d => d <= 0))
+            if (inputShape != null && inputShape.Any(d => d <= 0))
             {
                 inputsShape = new int[] { 0 };
                 outputShape = new int[] { 0 };
                 return;
             }
 
-            if (input_Shape != null)
+            if (inputShape != null)
             {
-                // Tentýž normalizátor, jaký použije FeedForward. Dřív to byly dvě různé
-                // implementace: tady se uměl rank 1 a 3, ve forwardu navíc rank 2 — takže
-                // model s 2D vstupem se nedal zapojit, přestože průchod by ho zvládl.
-                inputsShape = SpatialShape.Normalize(input_Shape, Name);
+                // The same normalizer FeedForward uses. Previously there were two different
+                // implementations: this one handled rank 1 and 3, the forward also rank 2 — so a
+                // model with 2D input could not be wired even though the pass would handle it.
+                inputsShape = SpatialShape.Normalize(inputShape, Name);
 
-                if (padding.ToLower() == "same")
+                // Without padding the kernel must fit into the input — otherwise the output would
+                // have a negative or zero dimension and it would only crash on buffer allocation.
+                if (padding == "valid"
+                    && (inputsShape[0] < kernels[0].Length || inputsShape[1] < kernels[0][0].Length))
+                {
+                    throw new ArgumentException(
+                        $"{Name}: a {kernels[0].Length}×{kernels[0][0].Length} kernel does not fit the input " +
+                        $"{SpatialShape.Describe(inputsShape)} with \"valid\" padding. Use a smaller kernel, " +
+                        "or padding \"same\".");
+                }
+
+                if (padding == "same")
                 {
                     outputShape = new int[] { inputsShape[0], inputsShape[1], kernels.Length };
                 }
@@ -229,41 +268,43 @@ namespace My_DNN.Layers
 
         }
 
+        /// <inheritdoc/>
         public override bool IsMaterialized =>
             inputsShape.Length == 3
             && inputsShape[2] > 0
             && kernels.Length == (requestedKernelCount ?? kernels.Length)
             && kernels[0][0][0].Length == inputsShape[2];
 
+        /// <inheritdoc/>
         public override void MaterializeParameters()
         {
             if (inputsShape.Length != 3 || inputsShape[2] <= 0)
             {
-                return;   // tvar vstupu ještě neznáme
+                return;   // input shape not known yet
             }
 
             int filters = requestedKernelCount ?? kernels.Length;
 
-            // Kernely znovu inicializovat JEN když se mění jejich tvar (počet filtrů nebo
-            // počet vstupních kanálů). Jinak by i volání, které nic nemění, přepsalo
-            // natrénované kernely náhodnými čísly. ChangeKernel: false jen vynuluje
-            // dKernels/dBiases a kernely+biasy nechá být.
+            // Re-initialize kernels ONLY when their shape changes (number of filters or
+            // number of input channels). Otherwise even a no-op call would overwrite trained
+            // kernels with random numbers. ChangeKernel: false only zeroes
+            // dKernels/dBiases and leaves kernels+biases alone.
             bool kernelShapeMatches = kernels.Length == filters
                                       && kernels[0][0][0].Length == inputsShape[2];
 
-            // per-model optimizer jen když se kernely opravdu stavěly znovu — viz
-            // Dense.MaterializeParameters. Klonování při každé materializaci zahazovalo
-            // momenty Adamu i vrstvám, kterých se přepojení netýkalo.
+            // per-model optimizer only when the kernels were actually rebuilt — see
+            // Dense.MaterializeParameters. Cloning on every materialization discarded Adam's
+            // moments even for layers the rewiring did not affect.
             //
-            // Klonuje se PŘED přestavbou kernelů: když klonování spadne, vrstva zůstane,
-            // jak byla, a ne s novými kernely a starým optimizerem.
+            // The clone is made BEFORE rebuilding the kernels: if cloning throws, the layer stays
+            // as it was, rather than with new kernels and the old optimizer.
             Optimizer? fresh = Context != null && !kernelShapeMatches
-                ? Optimizer.Clone_optimizer(Context.Optimizer)
+                ? Context.Optimizer.CreateFresh()
                 : null;
 
             inicializationK_B_dK_dB(
                 filters,
-                new int[] { Kernel[0].Count(), Kernel[0][0].Count(), inputsShape[2] },
+                new int[] { kernels[0].Count(), kernels[0][0].Count(), inputsShape[2] },
                 !kernelShapeMatches);
 
             if (fresh != null)
@@ -272,10 +313,10 @@ namespace My_DNN.Layers
             }
         }
 
-        // Replika pro paralelní trénink — viz Layer.CreateReplica. Kernely i biasy SDÍLÍ
-        // odkazem (optimizer originálu je přepisuje na místě, až po dávce), takže se mezi
-        // dávkami nic nekopíruje. Vlastní: vstupní a výstupní buffery (alokuje je WireShapes
-        // stejně jako při zapojení) a akumulátory gradientů.
+        // Replica for parallel training — see Layer.CreateReplica. Kernels and biases are SHARED
+        // by reference (the original's optimizer updates them in place, after the batch), so
+        // nothing is copied between batches. Owned: input and output buffers (allocated by
+        // WireShapes just as during wiring) and gradient accumulators.
         internal override Layer CreateReplica()
         {
             Conv replica = (Conv)MemberwiseClone();
@@ -300,8 +341,8 @@ namespace My_DNN.Layers
             return replica;
         }
 
-        // Přičíst gradienty repliky a repliku vynulovat. Čítač dávky patří k tomu —
-        // UpdateParams jím dělí (viz Neuron.TakeGradientsFrom).
+        // Add the replica's gradients and reset the replica. The batch counter goes with them —
+        // UpdateParams divides by it (see Neuron.TakeGradientsFrom).
         internal override void TakeGradientsFrom(Layer replica)
         {
             Conv other = (Conv)replica;
@@ -330,24 +371,25 @@ namespace My_DNN.Layers
             other.mini_batch_size = 0;
         }
 
-        public override Tensor FeedForward(Tensor TensorValues)
+        /// <inheritdoc/>
+        public override Tensor FeedForward(Tensor input)
         {
-            // Tvar musí sedět na ten, na který je vrstva ZAPOJENÁ. Dřív se to nikde
-            // neporovnávalo: kopírovací smyčka níž se řídila tvarem příchozího tenzoru,
-            // ale konvoluce pak jela podle inputsShape/outputShape. Menší vstup proto
-            // přepsal jen svůj roh a zbytek se dopočítal z toho, co v bufferu zbylo
-            // po minulém vzorku — tiše, bez výjimky.
+            // The shape must match the one the layer is WIRED to. Previously this was never
+            // compared: the copy loop below followed the incoming tensor's shape, but the
+            // convolution then ran on inputsShape/outputShape. A smaller input overwrote only
+            // its corner and the rest was computed from leftovers of the previous sample —
+            // silently, without an exception.
             //
-            // Tvar se normalizuje jen PRO TUHLE METODU. Dřív se místo toho volalo
-            // TensorValues.Reshape(...), čímž vrstva přepsala tvar tenzoru, který jí dal
-            // volající — po průchodu modelem měl uživatel v ruce jiný Shape, než jaký zadal.
-            int[] shape = SpatialShape.RequireWiredShape(TensorValues.Shape, inputsShape, Name);
+            // The shape is normalized only FOR THIS METHOD. Previously inputs.Reshape(...) was
+            // called instead, so the layer changed the shape of the caller's tensor — after a pass
+            // through the model the user held a different Shape than they had given.
+            int[] shape = SpatialShape.RequireWiredShape(input.Shape, inputsShape, Name);
 
-            // Čte se rovnou z plochých dat. Dřív tu bylo (double[,,])GetOriginalData(),
-            // což si vynutilo postavit multidim kopii přes Array.CreateInstance + SetValue
-            // po prvcích — reflexe a boxing na každý forward. Row-major pořadí Data
-            // odpovídá [i,j,k], takže stačí jeden běžící index.
-            double[] inputValues = TensorValues.Data;
+            // Reads straight from the flat data. Previously this was (double[,,])ToArray(),
+            // which forced building a multi-dim copy via Array.CreateInstance + per-element
+            // SetValue — reflection and boxing on every forward. The row-major order of Data
+            // matches [i,j,k], so a single running index is enough.
+            double[] inputValues = input.Data;
 
             int flatIndex = 0;
             for (int i = 0; i < shape[0]; i++)
@@ -380,12 +422,12 @@ namespace My_DNN.Layers
             int outH = outputShape[0];
             int outW = outputShape[1];
 
-            // Pro každý filtr (výstupní kanál)
+            // For each filter (output channel)
             //
-            // Řádky zubatých polí se vytahují o úroveň výš (inRow, kRow, pixel, weights), ne až
-            // v nejvnitřnější smyčce: `paddedInput[i + ki][j + kj][c]` znamená tři skoky po
-            // haldě a tři kontroly mezí na KAŽDÉ násobení. Pořadí sčítání je stejné, takže
-            // výsledek je bit po bitu tentýž.
+            // Jagged-array rows are hoisted one level up (inRow, kRow, pixel, weights) instead of
+            // being indexed in the innermost loop: `paddedInput[i + ki][j + kj][c]` means three heap
+            // hops and three bounds checks on EVERY multiplication. The summation order is the
+            // same, so the result is bit-for-bit identical.
             for (int f = 0; f < numFilters; f++)
             {
                 double[][][] kernel = kernels[f];
@@ -411,7 +453,7 @@ namespace My_DNN.Layers
                                 }
                             }
                         }
-                        // Přičteme bias pro filtr f
+                        // Add the bias of filter f
                         double result = sum + biases[f];
                         output[i][j][f] = activation_func.Apply(result);
                         raw_output[i][j][f] = result;
@@ -422,23 +464,22 @@ namespace My_DNN.Layers
             return Tensor.FromJagged3D(output, outputShape);
         }
 
-        // Gradienty kernelů a biasů z už naplněného `dOutput`. Sdílí to stará cesta
-        // (BackPropagation) i nová (Backward), takže se ten výpočet nikde neduplikuje.
+        // Accumulates kernel and bias gradients from the already filled `dOutput` (called by Backward).
         private void AccumulateKernelAndBiasGradients()
         {
             mini_batch_size++;
 
             int inChannels = inputs[0][0].Length;
 
-            // Rozměry kernelů
+            // Kernel dimensions
             int numFilters = kernels.Length;
             int kH = kernels[0].Length;
             int kW = kernels[0][0].Length;
 
-            // Padding – pokud je režim "same", padujeme vstup stejně jako ve forward propagaci
+            // Padding – in "same" mode the input is padded exactly as in the forward pass
             double[][][] paddedInput = PadForSame(inputs);
 
-            // 1. Výpočet dBiases: pro každý filtr se sečtou všechny hodnoty z dOutput
+            // 1. dBiases: for each filter, sum all values of dOutput
             for (int f = 0; f < numFilters; f++)
             {
                 for (int i = 0; i < outputShape[0]; i++)
@@ -453,7 +494,7 @@ namespace My_DNN.Layers
             int outH = outputShape[0];
             int outW = outputShape[1];
 
-            // 2. Výpočet dKernels: pro každý filtr a každý prvek kernelu se vynásobí odpovídající hodnota z paddedInput a dOutput
+            // 2. dKernels: for each filter and each kernel element, multiply the matching values of paddedInput and dOutput
             for (int f = 0; f < numFilters; f++)
             {
                 for (int ki = 0; ki < kH; ki++)
@@ -462,7 +503,7 @@ namespace My_DNN.Layers
                     {
                         for (int c = 0; c < inChannels; c++)
                         {
-                            // řádky vytažené o úroveň výš — viz FeedForward
+                            // rows hoisted one level up — see FeedForward
                             double sum = 0;
                             for (int i = 0; i < outH; i++)
                             {
@@ -481,9 +522,10 @@ namespace My_DNN.Layers
             }
         }
 
+        /// <inheritdoc/>
         public override void UpdateParams()
         {
-            // stejná pojistka jako u Neuron.UpdateWeightsAndBias — prázdná dávka → NaN kernely
+            // same safeguard as Neuron.UpdateWeightsAndBias — empty batch → NaN kernels
             if (mini_batch_size == 0)
             {
                 return;
@@ -491,11 +533,11 @@ namespace My_DNN.Layers
 
             int numFilters = kernels.Length;
             int idx = 0;
-            // všechny filtry mají stejný tvar; +1 = bias filtru
+            // all filters have the same shape; +1 = the filter's bias
             int perFilter = kernels[0].Length * kernels[0][0].Length * kernels[0][0][0].Length + 1;
             optimizer.EnsureCapacity(numFilters * perFilter);
-            // L2 se aplikuje na kernely (to jsou váhy konvoluce), na biasy ne — viz
-            // NetworkContext.L2. Přičítá se k už zprůměrovanému gradientu.
+            // L2 applies to kernels (the convolution weights), not to biases — see
+            // NetworkContext.L2. It is added to the already averaged gradient.
             double weightDecay = Context?.L2 ?? 0;
 
             for (int f = 0; f < numFilters; f++)
@@ -503,7 +545,7 @@ namespace My_DNN.Layers
                 int kernelHeight = kernels[f].Length;
                 int kernelWidth = kernels[f][0].Length;
                 int inChannels = kernels[f][0][0].Length;
-                // Aktualizace vah pro daný filtr
+                // Update the weights of this filter
                 for (int i = 0; i < kernelHeight; i++)
                 {
                     for (int j = 0; j < kernelWidth; j++)
@@ -516,15 +558,16 @@ namespace My_DNN.Layers
                         }
                     }
                 }
-                // Aktualizace biasu pro daný filtr
+                // Update the bias of this filter
                 biases[f] = optimizer.Update(biases[f], dBiases[f] / mini_batch_size, idx++);
             }
             mini_batch_size = 0;
             inicializationK_B_dK_dB();
         }
 
-        // ---------------------------------------------------------------- konvence B
+        // ---------------------------------------------------------------- convention B
 
+        /// <inheritdoc/>
         public override Tensor Backward(Tensor gradOutput, bool preActivation = false,
                                         bool computeInputGradient = true)
         {
@@ -541,9 +584,8 @@ namespace My_DNN.Layers
                     $"Conv has output {outputShape[0]}×{outputShape[1]}×{outputShape[2]} " +
                     $"({expected} values), but the gradient from above has {gradOut.Length}.");
 
-            // 1) ∂L/∂output → ∂L/∂z. Tohle dělal SeedOutputGradient pro výstupní vrstvu
-            //    a obě větve CalculateLayerGradients pro ty ostatní — teď je to na jednom
-            //    místě, protože všechny vrstvy dostávají gradient stejnou cestou.
+            // 1) ∂L/∂output → ∂L/∂z. Done in one place for both the output layer and hidden
+            //    layers, because every layer receives its gradient the same way.
             int n = 0;
             for (int i = 0; i < outputShape[0]; i++)
             {
@@ -556,49 +598,46 @@ namespace My_DNN.Layers
                 }
             }
 
-            // 2) gradienty kernelů a biasů ze stejného dOutput
+            // 2) kernel and bias gradients from the same dOutput
             AccumulateKernelAndBiasGradients();
 
-            // 3) ∂L/∂input pro vrstvu pod sebou — u první vrstvy se přeskočí, je to
-            //    plná korelace, kterou by nikdo nepřevzal.
+            // 3) ∂L/∂input for the layer below — skipped for the first layer; it is a full
+            //    correlation whose result nobody would use.
             if (!computeInputGradient) return Tensor.Empty;
 
             return ComputeInputGradientFromDOutput();
         }
 
-        // ∂L/∂input z už naplněného `dOutput`. Vytaženo z CalculateLayerGradients, aby to
-        // mohla použít i nová Backward() — je to jediná část, kterou obě cesty sdílejí,
-        // a duplikovat 80 řádků indexové matematiky by byl přesně ten druh chyby,
-        // kterou by pak nikdo nenašel.
+        // ∂L/∂input from the already filled `dOutput` (step 3 of Backward).
         private Tensor ComputeInputGradientFromDOutput()
         {
             double[][][] dInput;
-            // Rozměry vstupu
+            // Input dimensions
             int H = inputs.Length;
             int W = inputs[0].Length;
             int inChannels = inputs[0][0].Length;
 
-            // Rozměry kernelů
+            // Kernel dimensions
             int numFilters = kernels.Length;
             int kH = kernels[0].Length;
             int kW = kernels[0][0].Length;
 
-            // Padding – pokud je režim "same", padujeme vstup stejně jako ve forward propagaci.
-            // Un-pad níž se řídí padTop/padLeft (ne totalem/2) — u sudého kernelu je padding
-            // asymetrický, takže by symetrický offset ukázal na špatné pixely.
+            // Padding – in "same" mode the input is padded exactly as in the forward pass.
+            // The un-pad below uses padTop/padLeft (not total/2) — with an even kernel the padding
+            // is asymmetric, so a symmetric offset would point at the wrong pixels.
             (int padTop, int padBottom, int padLeft, int padRight) = SamePaddingAmounts();
             double[][][] paddedInput = PadForSame(inputs);
 
             int paddedH = paddedInput.Length;
             int paddedW = paddedInput[0].Length;
 
-            // Očekávané rozměry výstupu (dOutput)
+            // Expected output dimensions (dOutput)
             int outH = dOutput.Length;
             int outW = dOutput[0].Length;
 
 
-            // Inicializace gradientů:
-            // dInput_padded má stejný tvar jako paddedInput: [paddedH][paddedW][inChannels]
+            // Gradient initialization:
+            // dInput_padded has the same shape as paddedInput: [paddedH][paddedW][inChannels]
             double[][][] dInputPadded = new double[paddedH][][];
             for (int i = 0; i < paddedH; i++)
             {
@@ -609,8 +648,8 @@ namespace My_DNN.Layers
                 }
             }
 
-            // 3. Výpočet dInput (vypočítáme gradient vůči padded vstupu)
-            // Pro každý výstupní bod se gradient "rozprostře" zpět na vstupní pixely pomocí hodnot kernelu
+            // 3. dInput (gradient with respect to the padded input)
+            // For each output point the gradient is "spread" back onto the input pixels through the kernel values
             for (int f = 0; f < numFilters; f++)
             {
                 double[][][] kernel = kernels[f];
@@ -619,7 +658,7 @@ namespace My_DNN.Layers
                 {
                     for (int j = 0; j < outW; j++)
                     {
-                        // řádky vytažené o úroveň výš — viz FeedForward
+                        // rows hoisted one level up — see FeedForward
                         double g = dOutput[i][j][f];
 
                         for (int ki = 0; ki < kH; ki++)
@@ -642,8 +681,8 @@ namespace My_DNN.Layers
                 }
             }
 
-            // Pokud jsme používali "same", odstraníme padding, abychom získali dInput se stejnými rozměry jako původní inputs
-            if (padding.ToLower() == "same")
+            // With "same", strip the padding so dInput has the same dimensions as the original inputs
+            if (padding == "same")
             {
                 dInput = new double[H][][];
                 for (int i = 0; i < H; i++)
@@ -661,7 +700,7 @@ namespace My_DNN.Layers
             }
             else
             {
-                // V režimu "valid" má dInputPadded rozměry odpovídající inputs
+                // In "valid" mode dInputPadded already has the dimensions of inputs
                 dInput = dInputPadded;
             }
 
@@ -670,21 +709,40 @@ namespace My_DNN.Layers
 
         private void CheckIsActivationFuncIsNotApplyToLayer()
         {
-            if (activation_func.Apply_to_layer)
+            if (activation_func.AppliesToLayer)
             {
-                throw new ArgumentException("unfortunately it is not possible to apply an activation function to a convulsion layer that is applied to the whole layer like softmax() instead use for example ReLu() or Tanh().");
+                throw new ArgumentException(
+                    "A convolution layer cannot use a layer-wide activation (e.g. Softmax). " +
+                    "Use e.g. ReLU() or Tanh(), and put the softmax on a following Dense layer.");
             }
         }
-        // Kolik nulových řádků/sloupců přidat pro režim "same".
+
+        // Padding is only "valid" or "same", case-insensitive; it is stored in lower case,
+        // so a plain comparison is enough later on. Previously anything other than "same"
+        // (e.g. the typo "smae" or "full") silently behaved as "valid".
+        private static string NormalizePadding(string padding)
+        {
+            string normalized = padding.Trim().ToLowerInvariant();
+
+            if (normalized != "valid" && normalized != "same")
+            {
+                throw new ArgumentException(
+                    $"Unknown padding '{padding}'. Use \"valid\" (no padding) or \"same\" (output has the size of the input).",
+                    nameof(padding));
+            }
+
+            return normalized;
+        }
+        // How many zero rows/columns to add in "same" mode.
         //
-        // Dřív se počítalo symetricky jako k/2 na každou stranu. Pro LICHÝ kernel to sedí,
-        // pro SUDÝ ne: padded rozměr vyšel in + 2·(k/2) = in + k, takže konvoluce měla dát
-        // in + 1 řádků — jenže smyčka jela jen do outputShape[0] = in, takže poslední řádek
-        // a sloupec tiše zmizely (žádná výjimka, jen chybějící data).
+        // Previously this was symmetric, k/2 on each side. That works for an ODD kernel but not
+        // an EVEN one: the padded size was in + 2·(k/2) = in + k, so the convolution should have
+        // produced in + 1 rows — but the loop only ran to outputShape[0] = in, so the last row
+        // and column silently disappeared (no exception, just missing data).
         //
-        // Nově celkem k-1 (to je přesně tolik, aby výstup vyšel na velikost vstupu),
-        // rozdělené před/za. U lichého k to vyjde symetricky jako dřív, u sudého asymetricky
-        // — stejná konvence jako TensorFlow/Keras/PyTorch.
+        // Now the total is k-1 (exactly enough for the output to match the input size), split
+        // before/after. For odd k it is symmetric as before, for even k asymmetric — the same
+        // convention as TensorFlow/Keras/PyTorch.
         private (int top, int bottom, int left, int right) SamePaddingAmounts()
         {
             int totalRows = kernels[0].Length - 1;
@@ -696,11 +754,11 @@ namespace My_DNN.Layers
             return (top, totalRows - top, left, totalCols - left);
         }
 
-        // Vrátí vstup opadovaný podle režimu; pro "valid" vrací původní pole beze změny.
-        // Sdílené forwardem i oběma backward cestami, aby se nemohly rozejít.
+        // Returns the input padded according to the mode; for "valid" returns the original array unchanged.
+        // Shared by the forward pass and both backward steps (kernel gradients, input gradient) so they cannot diverge.
         private double[][][] PadForSame(double[][][] input)
         {
-            if (padding.ToLower() != "same")
+            if (padding != "same")
             {
                 return input;
             }
@@ -790,9 +848,9 @@ namespace My_DNN.Layers
                     }
                 }
 
-                // zdroj náhody z modelu (reprodukovatelnost přes seed); samostatná vrstva
-                // bez modelu spadne na globální generátor
-                Random kernelRandom = Context?.Random ?? GeneralNeuralNetworkSettings.rnd;
+                // random source from the model (reproducible via seed); a standalone layer
+                // without a model falls back to the global generator
+                Random kernelRandom = Context?.Random ?? GeneralNeuralNetworkSettings.Random;
 
                 for (int l = 0; l < nkernels; l++)
                 {

@@ -1,33 +1,32 @@
 using System;
 using System.Linq;
 using Xunit;
-using My_DNN;
-using My_DNN.Layers;
-using My_DNN.Layers.classes;
-using My_DNN.Activation_functions;
-using My_DNN.Optimizers;
-using My_DNN.Loss_functions;
+using MDNN;
+using MDNN.Layers;
+using MDNN.Activations;
+using MDNN.Optimizers;
+using MDNN.Losses;
 
 namespace MDNN.Tests;
 
 /// <summary>
-/// Zapojování tvarů: první průchod projde řetěz zleva doprava, každá vrstva dostane
-/// výstupní tvar té předchozí — a od té chvíle je tvar DANÝ.
+/// Shape wiring: the first pass walks the chain left to right, each layer gets the previous
+/// layer's output shape, and from then on the shape is FIXED.
 ///
-/// Tyhle testy hlídají obě půlky té věty:
-///   1. zapojení musí zvládnout všechny tvary vstupu, které zvládne forward
-///      (dřív ne: `WireShapes` uměl rank 1 a 3, `FeedForward` navíc rank 2)
-///   2. po zapojení musí jiný tvar SPADNOUT, ne se tiše dopočítat z toho, co zbylo
-///      v bufferu po minulém vzorku
+/// These tests guard both halves of that sentence:
+///   1. wiring must handle every input shape the forward pass handles
+///      (previously it did not: `WireShapes` handled rank 1 and 3, `FeedForward` also rank 2)
+///   2. after wiring, a different shape must FAIL, not be silently computed from what was
+///      left in the buffer from the previous sample
 ///
-/// Před opravou byl projev té druhé půlky tenhle: vrstva zapojená na 4×4 dostala
-/// vstup 3×3 samých nul a vrátila čísla z předchozího vzorku. Bez výjimky.
+/// Before the fix the second half showed like this: a layer wired for 4×4 received a 3×3
+/// input of zeros and returned numbers from the previous sample. No exception.
 /// </summary>
 public class ShapeWiringTests
 {
-    private static My_DNN.MDNN ModelWith(params Layer[] hidden)
+    private static NeuralNetwork ModelWith(params Layer[] hidden)
     {
-        var model = new My_DNN.MDNN(new Dense(2, new Linear()), new SGD(0.01), new MSE(), seed: 1);
+        var model = new NeuralNetwork(new Dense(2, new Linear()), new SGD(0.01), new MSE(), seed: 1);
         foreach (Layer l in hidden) model.Layers.Add(l);
         return model;
     }
@@ -42,33 +41,33 @@ public class ShapeWiringTests
         return img;
     }
 
-    // ------------------------------------------------------------ 1) zapojení celého řetězu
+    // ------------------------------------------------------------ 1) wiring the whole chain
 
     [Fact]
     public void First_forward_wires_the_whole_chain_left_to_right()
     {
         var model = ModelWith(new Conv(2, 3, new Tanh(), "valid"), new MaxPool(2), new Dense(6, new Tanh()));
 
-        Assert.All(model.Layers.Layers, l => Assert.True(l.Input_size_and_shape[0] <= 0));
+        Assert.All(model.Layers.Layers, l => Assert.True(l.InputShape[0] <= 0));
 
         model.GetResults(new Tensor(Filled(8, 8, 1, 0.5)));
 
         var layers = model.Layers.Layers;
-        Assert.Equal(new[] { 8, 8, 1 }, layers[0].Input_size_and_shape);
-        Assert.Equal(new[] { 6, 6, 2 }, layers[0].Output_size_and_shape);
-        Assert.Equal(new[] { 6, 6, 2 }, layers[1].Input_size_and_shape);
-        Assert.Equal(new[] { 3, 3, 2 }, layers[1].Output_size_and_shape);
-        Assert.Equal(new[] { 18 }, layers[2].Input_size_and_shape);   // 3*3*2 zploštěno pro Dense
-        Assert.Equal(new[] { 6 }, layers[3].Input_size_and_shape);
+        Assert.Equal(new[] { 8, 8, 1 }, layers[0].InputShape);
+        Assert.Equal(new[] { 6, 6, 2 }, layers[0].OutputShape);
+        Assert.Equal(new[] { 6, 6, 2 }, layers[1].InputShape);
+        Assert.Equal(new[] { 3, 3, 2 }, layers[1].OutputShape);
+        Assert.Equal(new[] { 18 }, layers[2].InputShape);   // 3*3*2 flattened for Dense
+        Assert.Equal(new[] { 6 }, layers[3].InputShape);
         Assert.All(layers, l => Assert.True(l.IsMaterialized));
     }
 
-    // ------------------------------------------------------------ 2) zapojení umí totéž co forward
+    // ------------------------------------------------------------ 2) wiring handles what forward handles
 
     [Theory]
-    [InlineData(3)]   // [4,4,1] — kanálová dimenze zadaná
-    [InlineData(2)]   // [4,4]   — 2D obrázek bez kanálů: TOHLE dřív padalo
-    [InlineData(1)]   // [16]    — plochý vektor
+    [InlineData(3)]   // [4,4,1] — channel dimension given
+    [InlineData(2)]   // [4,4]   — 2D image without channels: THIS used to crash
+    [InlineData(1)]   // [16]    — flat vector
     public void Conv_as_first_layer_accepts_every_rank_the_forward_accepts(int rank)
     {
         var model = ModelWith(new Conv(1, 2, new Linear(), "valid"));
@@ -82,9 +81,9 @@ public class ShapeWiringTests
 
         Tensor output = model.GetResults(input);
 
-        // valid + kernel 2 nad 4×4 → 3×3×1 → Dense(2)
+        // valid + kernel 2 over 4×4 → 3×3×1 → Dense(2)
         Assert.Equal(2, output.Data.Length);
-        Assert.Equal(new[] { 4, 4, 1 }, model.Layers.Layers[0].Input_size_and_shape);
+        Assert.Equal(new[] { 4, 4, 1 }, model.Layers.Layers[0].InputShape);
     }
 
     [Fact]
@@ -95,7 +94,7 @@ public class ShapeWiringTests
         Tensor output = model.GetResults(new Tensor(new double[4, 4]));
 
         Assert.Equal(2, output.Data.Length);
-        Assert.Equal(new[] { 4, 4, 1 }, model.Layers.Layers[0].Input_size_and_shape);
+        Assert.Equal(new[] { 4, 4, 1 }, model.Layers.Layers[0].InputShape);
     }
 
     [Fact]
@@ -105,24 +104,24 @@ public class ShapeWiringTests
 
         var ex = Assert.ThrowsAny<Exception>(() => model.GetResults(new Tensor(new double[2, 4, 4, 1])));
 
-        // Podstata testu: hláška nesmí být prázdná. Dřív tady byl `throw new Exception()`
-        // úplně bez textu a uživatel neměl jak zjistit, co se stalo.
+        // The point of the test: the message must not be empty. Previously this was a bare
+        // `throw new Exception()` with no text, and the user had no way to find out what happened.
         Assert.False(string.IsNullOrWhiteSpace(ex.Message));
-        Assert.Contains("CNN", ex.Message);
+        Assert.Contains("Conv", ex.Message);
     }
 
-    // ------------------------------------------------------------ 3) po zapojení je tvar daný
+    // ------------------------------------------------------------ 3) after wiring the shape is fixed
 
     [Fact]
     public void Conv_rejects_a_smaller_input_instead_of_reusing_the_stale_buffer()
     {
         var model = ModelWith(new Conv(1, 2, new Linear(), "valid"));
 
-        // první vzorek naplní vstupní buffer stovkami
+        // the first sample fills the input buffer with hundreds
         model.GetResults(new Tensor(Filled(4, 4, 1, 100.0)));
 
-        // druhý vzorek je menší; před opravou se přepsal jen jeho roh a zbytek
-        // se dopočítal ze stovek, které tam zbyly — tiše, bez výjimky
+        // the second sample is smaller; before the fix only its corner was overwritten and the
+        // rest was computed from the leftover hundreds, silently, with no exception
         var ex = Assert.Throws<ArgumentException>(
             () => model.GetResults(new Tensor(Filled(3, 3, 1, 0.0))));
 
@@ -161,7 +160,7 @@ public class ShapeWiringTests
 
         model.GetResults(new Tensor(Filled(4, 4, 1, 1.0)));
 
-        // Dřív: IndexOutOfRangeException z hloubi kopírovací smyčky, bez zmínky o tvarech.
+        // Previously: IndexOutOfRangeException from deep inside the copy loop, no mention of shapes.
         var ex = Assert.Throws<ArgumentException>(
             () => model.GetResults(new Tensor(Filled(5, 5, 1, 1.0))));
 
@@ -172,7 +171,7 @@ public class ShapeWiringTests
     [Fact]
     public void The_right_shape_keeps_working_after_a_rejected_one()
     {
-        // Odmítnutý vstup nesmí vrstvu rozhodit — tvary se nemění, model jede dál.
+        // A rejected input must not disturb the layer: shapes stay, the model keeps working.
         var model = ModelWith(new Conv(1, 2, new Linear(), "valid"));
 
         double[] before = model.GetResults(new Tensor(Filled(4, 4, 1, 0.25))).Data;
@@ -182,17 +181,17 @@ public class ShapeWiringTests
         double[] after = model.GetResults(new Tensor(Filled(4, 4, 1, 0.25))).Data;
 
         Assert.Equal(before, after);
-        Assert.Equal(new[] { 4, 4, 1 }, model.Layers.Layers[0].Input_size_and_shape);
+        Assert.Equal(new[] { 4, 4, 1 }, model.Layers.Layers[0].InputShape);
     }
 
-    // ------------------------------------------------------------ 4) forward nesahá na vstup volajícího
+    // ------------------------------------------------------------ 4) forward does not touch the caller's input
 
     [Fact]
     public void Conv_does_not_reshape_the_tensor_it_was_given()
     {
-        // Vrstva si tvar normalizuje pro SEBE — tenzor patří volajícímu a nesmí se pod ním
-        // změnit. Dřív `FeedForward` volal TensorValues.Reshape(...), takže po průchodu
-        // modelem měl uživatelův tenzor najednou jiný Shape, než jaký mu zadal.
+        // The layer normalizes the shape for ITSELF; the tensor belongs to the caller and must not
+        // change under them. Previously `FeedForward` called TensorValues.Reshape(...), so after a
+        // pass through the model the user's tensor suddenly had a different Shape than they gave it.
         var model = ModelWith(new Conv(1, 2, new Linear(), "valid"));
 
         var input = new Tensor(new double[16]);
@@ -219,11 +218,11 @@ public class ShapeWiringTests
     [Fact]
     public void The_same_tensor_can_be_fed_twice_and_gives_the_same_answer()
     {
-        // Nejpraktičtější projev: kdo si vstup schová a pošle ho podruhé, musí dostat totéž.
+        // The most practical symptom: whoever keeps an input and sends it again must get the same result.
         //
-        // POZOR, tohle je GUARD, ne důkaz — prochází i před opravou. Přepsaný tvar
-        // ([9] → [3,3,1]) se totiž podruhé znormalizuje sám na sebe, takže se ta mutace
-        // navenek neprojeví. Důkaz nese dvojice testů výš, které tvar kontrolují přímo.
+        // NOTE: this is a GUARD, not proof; it passes before the fix too. The overwritten shape
+        // ([9] → [3,3,1]) normalizes to itself the second time, so the mutation is not visible
+        // from outside. The proof is the pair of tests above, which check the shape directly.
         var model = ModelWith(new Conv(1, 2, new Tanh(), "valid"));
 
         var input = new Tensor(new double[] { 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9 });
@@ -234,18 +233,18 @@ public class ShapeWiringTests
         Assert.Equal(first, second);
     }
 
-    // ------------------------------------------------------------ 5) trénink tím projde
+    // ------------------------------------------------------------ 5) training goes through
 
     [Fact]
     public void Training_a_CNN_over_2D_samples_runs()
     {
-        // Dataset [vzorky, výška, šířka] → per-vzorek [výška, šířka], tedy rank 2.
-        // Přesně ten případ, který dřív spadl na prázdné výjimce při zapojování.
+        // Dataset [samples, height, width] → per sample [height, width], i.e. rank 2.
+        // Exactly the case that used to fail with an empty exception during wiring.
         var model = ModelWith(new Conv(1, 3, new Tanh(), "valid"));
-        model.Train.ShowLossChartInTrainLoop = false;
-        model.Train.AutoSaveInTrainLoop = false;
-        model.Train.ShowModelInfoIntrainLoop = false;
-        model.Train.TestNeuralNetworkAfterTraining = false;
+        model.Train.ShowLossChart = false;
+        model.Train.AutoSave = false;
+        model.Train.ShowModelInfo = false;
+        model.Train.TestAfterTraining = false;
 
         var x = new double[20, 8, 8];
         var y = new double[20, 2];
@@ -263,6 +262,6 @@ public class ShapeWiringTests
         finally { Console.SetOut(original); }
 
         Assert.Equal(2u, model.Train.CurrentEpoch);
-        Assert.Equal(new[] { 8, 8, 1 }, model.Layers.Layers[0].Input_size_and_shape);
+        Assert.Equal(new[] { 8, 8, 1 }, model.Layers.Layers[0].InputShape);
     }
 }

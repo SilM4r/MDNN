@@ -1,32 +1,40 @@
-﻿namespace My_DNN.Optimizers
+﻿namespace MDNN.Optimizers
 {
+    /// <summary>
+    /// The Adam optimizer (adaptive moment estimation) with bias correction.
+    /// </summary>
     public class Adam : Optimizer
     {
-        private double b1;
-        private double b2;
-        private double L;
+        private readonly double b1;
+        private readonly double b2;
+        private readonly double learningRate;
         private double[] m = new double[0];
         private double[] v = new double[0];
         private int[] t = new int[0];
 
-        private double[] Parameters = new double[2];
-
-        public override double[] Hyperparameters => Parameters;
+        /// <inheritdoc/>
+        public override double[] Hyperparameters => new[] { learningRate, b1, b2 };
+        /// <inheritdoc/>
         public override string Name => "Adam";
 
-        public Adam(double L, double beta1 = 0.9, double beta2 = 0.999)
+        /// <summary>
+        /// Creates an Adam optimizer.
+        /// </summary>
+        /// <param name="learningRate">Step size.</param>
+        /// <param name="beta1">Decay rate of the first-moment estimate.</param>
+        /// <param name="beta2">Decay rate of the second-moment estimate.</param>
+        public Adam(double learningRate, double beta1 = 0.9, double beta2 = 0.999)
         {
-            this.L = L;
+            this.learningRate = learningRate;
             b1 = beta1;
             b2 = beta2;
-
-            Parameters = new double[] { this.L, b1, b2 };
-
         }
 
-        public override Optimizer CreateFresh() => new Adam(L, b1, b2);
+        /// <inheritdoc/>
+        public override Optimizer CreateFresh() => new Adam(learningRate, b1, b2);
 
-        // t je celé číslo, v souboru ale jako double — do 2^53 je to přesné.
+        // t is an integer but stored as double in the file — exact up to 2^53.
+        /// <inheritdoc/>
         public override Dictionary<string, double[]> ExportState() => new()
         {
             ["m"] = (double[])m.Clone(),
@@ -34,6 +42,7 @@
             ["t"] = t.Select(step => (double)step).ToArray(),
         };
 
+        /// <inheritdoc/>
         public override void ImportState(Dictionary<string, double[]> state)
         {
             double[] newM = RequireState(state, "m", null);
@@ -43,11 +52,12 @@
             m = newM;
             v = newV;
             t = newT.Select(step => (int)step).ToArray();
-            cachedT1 = cachedT2 = -1;   // korekce zkreslení se spočítá znovu pro načtené t
+            cachedT1 = cachedT2 = -1;   // bias correction is recomputed for the loaded t
         }
 
-        // Přesná velikost, žádná rezerva navíc: přebytečná kapacita (dřív zdvojnásobování,
-        // 785 → 1024 na neuron) stála ~3 % v každém UpdateParams kvůli větší paměti.
+        // Exact size, no spare room: excess capacity (previously doubling, 785 → 1024 per neuron)
+        // cost ~3 % in every UpdateParams due to the larger memory footprint.
+        /// <inheritdoc/>
         public override void EnsureCapacity(int parameterCount)
         {
             if (m.Length >= parameterCount) return;
@@ -57,27 +67,28 @@
             Array.Resize(ref t, parameterCount);
         }
 
-        public override double Update(double w, double gradient, int i)
+        /// <inheritdoc/>
+        public override double Update(double w, double gradient, int paramIndex)
         {
-            // Pojistka pro volání bez EnsureCapacity (optimizer použitý samostatně).
-            // Vrstvy si kapacitu připraví dopředu, takže v tréninku se sem nevstoupí.
-            if (m.Length <= i) EnsureCapacity(i + 1);
-            t[i]++;
-            m[i] = b1 * m[i] + (1 - b1) * gradient;
-            v[i] = b2 * v[i] + (1 - b2) * gradient * gradient;
-            double mHat = m[i] / BiasCorrection1(t[i]);
-            double vHat = v[i] / BiasCorrection2(t[i]);
-            return w - L * mHat / (Math.Sqrt(vHat) + 1e-8);
+            // Safeguard for calls without EnsureCapacity (optimizer used standalone).
+            // Layers prepare capacity ahead of time, so training never enters here.
+            if (m.Length <= paramIndex) EnsureCapacity(paramIndex + 1);
+            t[paramIndex]++;
+            m[paramIndex] = b1 * m[paramIndex] + (1 - b1) * gradient;
+            v[paramIndex] = b2 * v[paramIndex] + (1 - b2) * gradient * gradient;
+            double mHat = m[paramIndex] / BiasCorrection1(t[paramIndex]);
+            double vHat = v[paramIndex] / BiasCorrection2(t[paramIndex]);
+            return w - learningRate * mHat / (Math.Sqrt(vHat) + 1e-8);
         }
 
-        // Korekce zkreslení 1 − β^t. Dřív se počítala přes Math.Pow DVAKRÁT NA KAŽDOU VÁHU,
-        // a to byla zhruba třetina času UpdateParams. Přitom t mají všechny váhy jednoho
-        // neuronu stejné (Update je volá v jedné smyčce za sebou), takže stačí si pamatovat
-        // poslední t a jeho hodnotu — Math.Pow se pak počítá jednou na neuron a krok.
+        // Bias correction 1 − β^t. Previously computed via Math.Pow TWICE PER WEIGHT, which was about
+        // a third of UpdateParams time. All weights of one neuron share the same t (Update is called
+        // for them in one loop), so remembering the last t and its value is enough — Math.Pow then
+        // runs once per neuron and step.
         //
-        // Hodnota je přesně tatáž, jen se nepočítá znovu. Proto ne průběžné násobení β^t:
-        // to by bylo ještě levnější, ale posunulo by zaokrouhlení a výsledky by se proti
-        // dřívějšku (i proti PyTorchi) rozešly v posledních cifrách.
+        // The value is exactly the same, just not recomputed. Hence not a running product of β^t:
+        // cheaper still, but it would shift rounding and results would differ in the last digits
+        // from before (and from PyTorch).
         private int cachedT1 = -1, cachedT2 = -1;
         private double correction1, correction2;
 
