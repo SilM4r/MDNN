@@ -100,7 +100,15 @@ NeuralNetwork model = new NeuralNetwork([new Dense(64, new ReLU())], optimizer, 
 
 // zadaná výstupní vrstva, skryté se přidají potom
 NeuralNetwork model = new NeuralNetwork(outputLayer, optimizer, loss);
+
+// všechny vrstvy v jednom seznamu — poslední je výstupní
+NeuralNetwork model = NeuralNetwork.WithAllLayers(
+    [new Dense(64, new ReLU()), new Dense(10, new Softmax())], optimizer, loss, seed: 42);
 ```
+
+Seznam v konstruktoru obsahuje jen skryté vrstvy; pro všechny vrstvy včetně výstupní v jednom
+seznamu je `NeuralNetwork.WithAllLayers` (stejný model jako konstruktor s `outputLayer:`). Pro
+existující model je obdobou `model.Layers.ReplaceAll([...])`.
 
 Parametry konstruktoru (všechny volitelné):
 

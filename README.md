@@ -100,7 +100,15 @@ NeuralNetwork model = new NeuralNetwork([new Dense(64, new ReLU())], optimizer, 
 
 // the output layer given, hidden layers added afterwards
 NeuralNetwork model = new NeuralNetwork(outputLayer, optimizer, loss);
+
+// all layers in one list — the last one is the output layer
+NeuralNetwork model = NeuralNetwork.WithAllLayers(
+    [new Dense(64, new ReLU()), new Dense(10, new Softmax())], optimizer, loss, seed: 42);
 ```
+
+The list in the constructor holds only hidden layers; to give all layers including the output
+layer in one list, use `NeuralNetwork.WithAllLayers` (the same model as the constructor with
+`outputLayer:`). For an existing model the counterpart is `model.Layers.ReplaceAll([...])`.
 
 Constructor parameters (all optional):
 

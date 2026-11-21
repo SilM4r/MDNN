@@ -84,6 +84,72 @@ public class LayerListTests : GradientCheckTestBase
         Assert.Single(new NeuralNetwork(Array.Empty<Layer>()).Layers.Layers);
     }
 
+    // ------------------------------------------------------------ WithAllLayers
+
+    [Fact]
+    public void WithAllLayers_takes_the_last_layer_as_the_output_layer()
+    {
+        var hidden = new Dense(5, new ReLU());
+        var output = new Dense(2, new Softmax());
+
+        var model = NeuralNetwork.WithAllLayers([hidden, output], new SGD(0.1), new CrossEntropy());
+
+        Assert.Same(hidden, Assert.Single(model.Layers.Hidden));
+        Assert.Same(output, model.Layers.Output);
+        Assert.True(output.IsOutputLayer);
+    }
+
+    [Fact]
+    public void WithAllLayers_is_the_same_model_as_the_constructor()
+    {
+        var all = NeuralNetwork.WithAllLayers(
+            [new Dense(5, new ReLU()), new Dense(4, new Tanh()), new Dense(1, new Linear())],
+            new Adam(0.01), new MSE(), seed: 8);
+        var constructed = new NeuralNetwork(
+            [new Dense(5, new ReLU()), new Dense(4, new Tanh())],
+            new Adam(0.01), new MSE(), seed: 8, outputLayer: new Dense(1, new Linear()));
+
+        TrainFewSteps(all);
+        TrainFewSteps(constructed);
+
+        Assert.Equal(Parameters(constructed), Parameters(all));   // bit for bit
+    }
+
+    [Fact]
+    public void WithAllLayers_with_one_layer_is_just_the_output_layer()
+    {
+        var output = new Dense(3, new Linear());
+
+        var model = NeuralNetwork.WithAllLayers([output]);
+
+        Assert.Empty(model.Layers.Hidden);
+        Assert.Same(output, model.Layers.Output);
+    }
+
+    [Fact]
+    public void WithAllLayers_may_end_with_the_output_layer_from_the_data()
+    {
+        var model = NeuralNetwork.WithAllLayers([new Dense(5, new ReLU()), Dense.FromTargets()], new SGD(0.1), new MSE(), seed: 1);
+
+        model.Train.Fit(new Tensor(new double[] { 1, 2, 3 }), new Tensor(new double[] { 1, 0 }));
+
+        Assert.Equal(2, ((Dense)model.Layers.Output).NeuronCount);
+    }
+
+    [Fact]
+    public void WithAllLayers_rejects_an_invalid_list()
+    {
+        var shared = new Dense(2);
+
+        Assert.Throws<ArgumentNullException>(() => NeuralNetwork.WithAllLayers(null!));
+        Assert.Throws<ArgumentException>(() => NeuralNetwork.WithAllLayers(Array.Empty<Layer>()));
+        // a null output layer must not silently become "the output layer from the data"
+        Assert.Throws<ArgumentException>(() => NeuralNetwork.WithAllLayers(new Layer[] { new Dense(2), null! }));
+        Assert.Throws<ArgumentException>(() => NeuralNetwork.WithAllLayers(new Layer[] { null!, new Dense(2) }));
+        Assert.Throws<ArgumentException>(() => NeuralNetwork.WithAllLayers([shared, shared]));
+        Assert.Throws<ArgumentException>(() => NeuralNetwork.WithAllLayers([Dense.FromTargets(), new Dense(2)]));
+    }
+
     // ------------------------------------------------------------ one instance, one place
 
     [Fact]

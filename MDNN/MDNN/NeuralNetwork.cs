@@ -175,6 +175,44 @@ namespace MDNN
             Note = "";
         }
         /// <summary>
+        /// Creates a model from ALL its layers in one list, in order from input to output; the last one is
+        /// the output layer.
+        /// </summary>
+        /// <example>
+        /// <code>
+        /// var model = NeuralNetwork.WithAllLayers(
+        ///     [new Dense(64, new ReLU()), new Dense(10, new Softmax())],
+        ///     new Adam(0.001), new CrossEntropy(), seed: 42);
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// A shortcut for the constructor with <c>hiddenLayers</c> and <c>outputLayer</c> — the same model, with
+        /// the same seed bit-for-bit the same weights. Not a constructor because its list would be
+        /// indistinguishable from the constructor's list of hidden layers. The counterpart for an existing
+        /// model is <c>model.Layers.ReplaceAll([...])</c>. The last layer may be <see cref="Dense.FromTargets"/>.
+        /// </remarks>
+        /// <param name="layers">All layers, the last one is the output layer. Each instance may appear only once.</param>
+        /// <param name="optimizer">Optimizer; defaults to SGD.</param>
+        /// <param name="loss">Loss function; defaults to MSE.</param>
+        /// <param name="seed">Seed for reproducibility — see <see cref="NeuralNetwork(Optimizer?, Loss?, int?)"/>.</param>
+        /// <exception cref="ArgumentException">The list is empty, contains null, or a layer instance twice or from another model.</exception>
+        public static NeuralNetwork WithAllLayers(IEnumerable<Layer> layers, Optimizer? optimizer = null, Loss? loss = null, int? seed = null)
+        {
+            ArgumentNullException.ThrowIfNull(layers);
+
+            List<Layer> all = layers.ToList();
+            if (all.Count == 0)
+            {
+                throw new ArgumentException("The list of layers is empty — a model needs at least its output layer.", nameof(layers));
+            }
+
+            // checked here: a null passed on as `outputLayer` would silently mean "the output layer from the data"
+            Layer output = all[^1] ?? throw new ArgumentException($"Layer {all.Count} in the list (the output layer) is null.", nameof(layers));
+
+            return new NeuralNetwork(all.Take(all.Count - 1), optimizer, loss, seed, output);
+        }
+
+        /// <summary>
         /// Runs a forward pass and returns the network's output for <paramref name="inputs"/>.
         /// </summary>
         public Tensor GetResults(Tensor inputs)
