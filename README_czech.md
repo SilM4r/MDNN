@@ -127,9 +127,17 @@ Kromě `Add()` nabízí `Layers` také:
 - `RemoveAt()` – odebere vrstvu na dané pozici (poslední zbývající vrstvu odebrat nejde)
 - `SetOutputActivation()` – nastaví novou výstupní aktivační funkci
 - `Clear(outputLayer)` – odebere všechny vrstvy a nastaví novou výstupní vrstvu
+- `SetInputShape(shape)` – postaví model hned pro daný tvar vstupu, ne až při prvním průchodu
+- `Rebuild()` – zahodí váhy všech vrstev; model se postaví znovu pro další data, ať mají jakýkoli tvar
+- `RebuildIncompatible()` – další data smějí mít jiný tvar: nové váhy dostanou jen vrstvy, na které už nesedí, ostatní si své nechají
 
 `model.Layers.Layers` je seznam vrstev v pořadí, jen ke čtení; měnit ho jde jen metodami výš,
-protože ty zároveň přepojí tvary celého řetězu.
+protože ty zároveň rozhodnou, které postavené vrstvy už nesedí (viz
+[Stavba modelu](#stavba-modelu)).
+
+Postavený model bere jen data tvaru, pro který byl postaven. Data jiného tvaru — třeba širší
+vstup — jsou chyba, ne tichá nová inicializace první vrstvy; pokud ji opravdu chcete, zavolejte
+nejdřív `Rebuild()` nebo `RebuildIncompatible()`.
 
 Podporované vrstvy:
 
@@ -140,7 +148,7 @@ Podporované vrstvy:
 
 Pokud se konstruktoru vrstvy nezadá aktivační funkce, použije se ReLU (`GeneralNeuralNetworkSettings.DefaultHiddenActivation`) — i u výstupní vrstvy, takže tam aktivaci zadejte explicitně (například `Linear` pro regresi nebo `Softmax` pro klasifikaci).
 
-Vlastní vrstvu lze vytvořit zděděním jedné z abstraktních tříd `Layer`, `NeuronLayer` nebo `ParameterlessLayer` a implementací jejích abstraktních členů.
+Vlastní vrstvu lze vytvořit zděděním jedné z abstraktních tříd `Layer`, `NeuronLayer` nebo `ParameterlessLayer` a implementací jejích abstraktních členů. Stavba je rozdělená na `ComputeOutputShape(inputShape)` — čistou funkci, která řekne, co vrstva pro daný vstup vrací (a vyhodí výjimku, když ho vzít nemůže) — a `BuildCore(inputShape, random, optimizer)`, která vytvoří parametry; `ParameterlessLayer` potřebuje jen tu první.
 
 Dostupné aktivační funkce: `Linear`, `ReLU`, `LeakyReLU`, `Sigmoid`, `Tanh`, `Softmax`.
 
@@ -477,7 +485,7 @@ Každý model vlastní `NetworkContext` (`model.Context`), který drží jeho b�
 | `L2` | koeficient L2 weight decay, `0` = vypnuto |
 | `Dropout` | výchozí dropout pro skryté vrstvy, `0` = vypnuto |
 | `IsTraining` | běží trénovací průchod? Zapíná ho `Fit()` na dobu svého dopředného průchodu; právě tím se zapíná a vypíná dropout |
-| `InputShape` | tvar vstupu modelu, odvozený při prvním průchodu |
+| `InputShape` | tvar vstupu, pro který je model postavený, do postavení `null`; jen ke čtení (viz [Stavba modelu](#stavba-modelu)) |
 | `SequenceTrain` | režim sekvenčního tréninku (časové řady) |
 
 `GeneralNeuralNetworkSettings` drží jen záložní hodnoty pro celý proces, použité tam, kde žádný model není: výchozí aktivaci vrstvy vytvořené bez ní (`DefaultHiddenActivation`), optimizér samostatné vrstvy (`DefaultOptimizer`) a sdílený generátor náhody pro modely bez seedu (`Random`).
@@ -542,11 +550,29 @@ Stav jde zvenku jen číst (`Output`, `RawOutput`, `Inputs`, `Activation`, `Opti
 zapisuje do něj jen knihovna, takže ho nejde omylem změnit mimo pořadí, ve kterém trénink
 počítá. `Weights` vrací přímo pole vah.
 
-### Odvození tvaru vstupu (lazy)
+### Stavba modelu
 
-Vrstvy se vytvářejí bez znalosti velikosti vstupu — zadává se jen počet neuronů (nebo kernelů). Při prvním dopředném průchodu model zaznamená tvar vstupu do `Context.InputShape` a zapojí řetěz ve dvou krocích: `WireShapes()` na každé vrstvě zleva doprava odvodí tvar jejího vstupu z výstupu předchozí vrstvy; pak `MaterializeParameters()` jedním průchodem zleva doprava alokuje a inicializuje parametry (neurony, kernely). Proto váhy vrstvy neexistují, dokud model poprvé neuvidí data. Model jde zapojit i předem přes `model.Layers.SetInputShape(new[] { … })`.
+Vrstva, kterou vytvoříte, je jen **popis** — `new Dense(64, new ReLU())` ví, že bude mít
+64 neuronů (`NeuronCount`), ale váhy ještě nemá (`IsBuilt` je false, `Neurons` je prázdné,
+`InputShape` je `null`), protože nezná svůj vstup. Model vrstvy **postaví**, jakmile zná tvar
+dat: při prvním průchodu, nebo dřív přes `model.Layers.SetInputShape(new[] { … })`. Stavba má
+dva kroky:
 
-Protože se parametry losují v pořadí architektury, dva modely se stejným seedem a stejnou architekturou dostanou stejné váhy bez ohledu na to, jestli vznikly přes `Add()` nebo `Insert()`.
+1. Celý řetěz se **naplánuje**: pro každou vrstvu zleva doprava `ComputeOutputShape()` odvodí
+   tvar výstupu z tvaru vstupu, aniž by cokoli změnila. Vrstva, která svůj vstup vzít nemůže
+   (kernel se nevejde, nepodporovaný počet rozměrů), vyhodí výjimku už tady — dřív, než se
+   cokoli vylosuje, takže model nikdy nezůstane postavený napůl.
+2. Vrstvy se **postaví** jedním průchodem zleva doprava: alokují se buffery a náhodně se
+   inicializují parametry. `Context.InputShape` pak drží tvar, pro který je model postavený.
+
+Protože se parametry losují v pořadí architektury, dva modely se stejným seedem a stejnou
+architekturou dostanou stejné váhy bez ohledu na to, jestli vznikly přes `Add()` nebo `Insert()`.
+
+Změna struktury postaveného modelu (`Add`, `Insert`, `RemoveAt`) vrátí na popis ty vrstvy,
+kterým se tím posune vstup — typicky vrstvu hned za vloženou nebo odebranou; postaví se znovu
+při dalším průchodu, ostatní si váhy nechají. Načtený model je postavený hned; obnova nejlepšího
+modelu na konci `TrainLoop` (i `LoadWeightsInPlace` se souborem stejné architektury) nahraje
+parametry do existujících vrstev, takže odkazy, které na ně držíte, dál platí.
 
 ### Dopředný průchod
 

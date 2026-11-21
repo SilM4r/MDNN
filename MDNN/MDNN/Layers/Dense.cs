@@ -21,10 +21,6 @@ namespace MDNN.Layers
         /// <inheritdoc/>
         public override Tensor RawOutput => Tensor.FromVector(raw_output);
         /// <inheritdoc/>
-        public override int[] InputShape => input_size;
-        /// <inheritdoc/>
-        public override int[] OutputShape => new int[] { output.Length };
-        /// <inheritdoc/>
         public override ActivationFunction Activation
         {
             get { return activation_func; }
@@ -38,8 +34,11 @@ namespace MDNN.Layers
             }
         }
 
-        private int[] input_size;
+        // Number of inputs (the flattened input shape); 0 until the layer is built.
+        private int inputCount;
 
+        // Output buffers have the size of the layer (NeuronCount), which is known from the
+        // description, so they are allocated right in the constructor.
         private double[] output;
         private double[] raw_output;
         private List<Neuron> neurons;
@@ -91,8 +90,8 @@ namespace MDNN.Layers
         }
 
         /// <summary>
-        /// Creates a dense layer. The input size and the weights are set up later by
-        /// <c>Build</c>, when the layer is attached to a model.
+        /// Creates a dense layer. This is only a description — the weights are created when the
+        /// layer is built for its input (inside a model: on the first pass).
         /// </summary>
         /// <param name="neuronCount">Number of neurons (= size of the output).</param>
         /// <param name="activation">Activation function; <c>null</c> = the default hidden activation.</param>
@@ -108,19 +107,17 @@ namespace MDNN.Layers
             if (dropout != null) ValidateDropout(dropout.Value);
             this.dropout = dropout;
 
-            // activation: default when not given; the correct input size + neurons are set by Build (when attached to a model)
             this.activation_func = activation ?? GeneralNeuralNetworkSettings.DefaultHiddenActivation;
-            input_size = new int[] { 0 };
+
+            // Previously the constructor also created `neuronCount` placeholder neurons with ZERO
+            // weights (the real ones were built later). The layer then looked built while it was
+            // not, and the size the user asked for could only be read from the placeholders.
+            // Now the description is NeuronCount and the neurons exist only once built.
+            NeuronCount = neuronCount;
+            neurons = new List<Neuron>();
 
             output = new double[neuronCount];
             raw_output = new double[neuronCount];
-
-            neurons = new List<Neuron>();
-
-            for (int i = 0; i < neuronCount; i++)
-            {
-                neurons.Add(new Neuron(input_size[0], this.activation_func));   // placeholder (0 weights), replaced by Build
-            }
         }
         // `optimizerPrototype` = optimizer of the model being loaded; each neuron gets its own clone
         // (with the state from the file). null = global default, see Neuron.
@@ -134,7 +131,9 @@ namespace MDNN.Layers
             dropout = layer.DropoutRate;
 
             List<ExportNeuron> saved = BaseExportLayer.Required(layer.Neurons, Name, nameof(layer.Neurons));
+            BaseExportLayer.RequireNotEmpty(saved, Name, nameof(layer.Neurons));
 
+            NeuronCount = saved.Count;
             output = new double[saved.Count];
             raw_output = new double[saved.Count];
 
@@ -145,85 +144,87 @@ namespace MDNN.Layers
                 neurons.Add(new Neuron(neuron, activation_func, optimizerPrototype));
             }
 
-            input_size = new int[] { neurons[0].Weights.Length };
-
+            inputCount = neurons[0].Weights.Length;
+            MarkBuiltFromFile(new int[] { inputCount });
         }
-        /// <inheritdoc/>
-        public override void WireShapes(int? outputSize = null, int[]? inputShape = null)
+
+        // ---------------------------------------------------------------- building
+
+        /// <summary>Dense flattens any input to a vector: <c>[28, 28]</c> becomes <c>[784]</c>.</summary>
+        protected override int[] NormalizeInputShape(int[] inputShape) => new int[] { Flatten(inputShape) };
+
+        internal static int Flatten(int[] shape)
         {
-
-            if (inputShape != null)
+            int size = 1;
+            foreach (int dimension in shape)
             {
-                if (inputShape.Length == 1)
-                {
-                    input_size = inputShape;
-                }
-
-                else
-                {
-                    input_size = new int[] { 1 };
-                    foreach (int input in inputShape)
-                    {
-                        input_size[0] *= input;
-                    }
-                }
+                size *= dimension;
             }
-
-            if (outputSize != null)
-            {
-                output = new double[(int)outputSize];
-                raw_output = new double[(int)outputSize];
-            }
-
+            return size;
         }
 
         /// <inheritdoc/>
-        public override bool IsMaterialized =>
-            input_size[0] > 0 && NeuronsMatchShape(output.Length, input_size[0]);
+        protected override int[] ComputeOutputShape(int[] inputShape) => new int[] { NeuronCount };
 
         /// <inheritdoc/>
-        public override void MaterializeParameters()
+        protected override void BuildCore(int[] inputShape, Random random, Optimizer optimizerPrototype)
         {
-            if (input_size[0] <= 0)
+            // Built into a local list and assigned to `neurons` only when COMPLETE: if cloning the
+            // optimizer throws, the layer stays unbuilt instead of keeping new neurons with the
+            // constructor's GLOBAL optimizer.
+            var built = new List<Neuron>(NeuronCount);
+
+            // All neurons are drawn first, then the optimizers are cloned — the same order of random
+            // draws as before, so a seeded model gets bit-for-bit the same weights.
+            for (int i = 0; i < NeuronCount; i++)
             {
-                return;   // input shape not known yet, nothing to build from
+                built.Add(new Neuron(inputShape[0], activation_func, random));
             }
 
-            // Rebuild ONLY when the shape actually changes. Otherwise even a no-op call would
-            // silently wipe trained weights. When the shape DOES change, a rebuild is unavoidable —
-            // the weight vector length changes and the old values have nowhere to go.
-            if (!NeuronsMatchShape(output.Length, input_size[0]))
+            // Per-model optimizer: each neuron gets ITS OWN clone (the optimizer state is per parameter).
+            foreach (Neuron n in built)
             {
-                // Built into a local list and assigned to `neurons` only when COMPLETE. Previously
-                // `neurons` was overwritten first and the Context optimizer cloned afterwards — if
-                // cloning threw, the layer kept new neurons with the constructor's GLOBAL optimizer,
-                // later calls saw the shape as done, and whoever caught the exception silently
-                // trained with a different optimizer.
-                var rebuilt = new List<Neuron>();
-
-                for (int i = 0; i < output.Length; i++)
-                {
-                    rebuilt.Add(new Neuron(input_size[0], activation_func, Context?.Random));
-                }
-
-                // Per-model optimizer: each neuron gets ITS OWN clone of the Context optimizer
-                // (models are independent of each other). The neuron constructor takes a clone of
-                // the GLOBAL optimizer, so without this a model with Adam would train with global SGD.
-                //
-                // Only for freshly built neurons. Previously this ran on EVERY materialization, and
-                // the clone starts with empty state, so Adam's moments were thrown away. Adding a
-                // layer was enough — MaterializeAll walks the whole chain, so unrelated layers lost
-                // their accumulated state too.
-                if (Context != null)
-                {
-                    foreach (Neuron n in rebuilt)
-                    {
-                        n.Optimizer = Context.Optimizer.CreateFresh();
-                    }
-                }
-
-                neurons = rebuilt;
+                n.Optimizer = optimizerPrototype.CreateFresh();
             }
+
+            neurons = built;
+            inputCount = inputShape[0];
+            dropoutMask = null;
+        }
+
+        /// <inheritdoc/>
+        protected override void OnInvalidated()
+        {
+            neurons = new List<Neuron>();
+            inputCount = 0;
+            dropoutMask = null;
+        }
+
+        internal override bool CanImport(BaseExportLayer saved)
+        {
+            return IsBuilt
+                   && saved is ExportDenseLayer dense
+                   && dense.Name_of_activation_function == activation_func.Name
+                   && dense.Neurons != null
+                   && dense.Neurons.Count == NeuronCount
+                   && dense.Neurons.All(n => n.Weights.Length == inputCount);
+        }
+
+        internal override void ImportParameters(BaseExportLayer saved, Optimizer optimizerPrototype)
+        {
+            var dense = (ExportDenseLayer)saved;
+
+            if (dense.DropoutRate != null) ValidateDropout(dense.DropoutRate.Value);
+            dropout = dense.DropoutRate;
+
+            for (int i = 0; i < neurons.Count; i++)
+            {
+                neurons[i].ImportFrom(dense.Neurons![i], optimizerPrototype);
+            }
+
+            Array.Clear(output);
+            Array.Clear(raw_output);
+            dropoutMask = null;
         }
 
         // Will this layer draw a dropout mask during training? Replicas use this to decide
@@ -235,6 +236,8 @@ namespace MDNN.Layers
         // which change with every sample.
         internal override Layer CreateReplica()
         {
+            ThrowIfNotBuiltForReplica();
+
             Dense replica = (Dense)MemberwiseClone();
             replica.output = new double[output.Length];
             replica.raw_output = new double[raw_output.Length];
@@ -243,18 +246,26 @@ namespace MDNN.Layers
             return replica;
         }
 
-        // Do the already built neurons match the requested shape exactly?
-        private bool NeuronsMatchShape(int neuronCount, int inputSize)
-        {
-            return neurons.Count == neuronCount
-                   && neurons.Count > 0
-                   && neurons[0].Weights.Length == inputSize;
-        }
         /// <inheritdoc/>
         public override Tensor FeedForward(Tensor input)
         {
+            if (!IsBuilt)
+            {
+                throw new InvalidOperationException(
+                    $"{Name} is not built yet — add it to a model and run a sample through it, or call Build(inputShape).");
+            }
 
             double[] values = input.Data;
+
+            // Previously nothing checked this: a SHORTER input was silently multiplied with only the
+            // first weights and gave a meaningless output, a LONGER one crashed with
+            // IndexOutOfRange deep in Neuron.FeedForward. Conv and MaxPool already checked it.
+            if (values.Length != inputCount)
+            {
+                throw new ArgumentException(
+                    $"{Name} is built for {inputCount} inputs, but got {values.Length} " +
+                    $"(shape {SpatialShape.Describe(input.Shape)}). {ShapeChangeHint}");
+            }
 
             // The mask must be known BEFORE the computation so dropped neurons can be
             // skipped — at p=0.5 that saves half of this layer's dot products.
@@ -414,8 +425,7 @@ namespace MDNN.Layers
             //    layer below never has to reach into another layer's weights.
             if (!computeInputGradient) return Tensor.Empty;
 
-            int inputs = neurons[0].Weights.Length;
-            double[] gradInput = new double[inputs];
+            double[] gradInput = new double[inputCount];
 
             for (int i = 0; i < neurons.Count; i++)
             {
@@ -423,7 +433,7 @@ namespace MDNN.Layers
                 if (d == 0.0) continue;          // dropped by dropout → contributes nothing
 
                 double[] w = neurons[i].Weights;
-                for (int j = 0; j < inputs; j++) gradInput[j] += d * w[j];
+                for (int j = 0; j < inputCount; j++) gradInput[j] += d * w[j];
             }
 
             return new Tensor(gradInput);

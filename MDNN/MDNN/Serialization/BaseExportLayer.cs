@@ -23,6 +23,14 @@ namespace MDNN.Serialization
         internal static T Required<T>(T? value, string layerType, string field) where T : struct
             => value ?? throw new ModelFileCorruptedException(
                 $"Layer {layerType} in the model file is missing the field '{field}'.");
+
+        // An empty list of neurons/kernels: previously it crashed with IndexOutOfRange on neurons[0].
+        internal static void RequireNotEmpty(System.Collections.ICollection value, string layerType, string field)
+        {
+            if (value.Count == 0)
+                throw new ModelFileCorruptedException(
+                    $"Layer {layerType} in the model file has an empty '{field}'.");
+        }
     }
 
     internal class ExportDenseLayer : BaseExportLayer
@@ -90,7 +98,7 @@ namespace MDNN.Serialization
             // recognized by the factory (it shortens the type name).
             Name_of_activation_function = layer.Activation.Name;
             Padding = layer.Padding;
-            InputShape = layer.InputShape;
+            InputShape = layer.InputShape!;   // only a built layer is saved
             OptimizerState = includeOptimizerState ? layer.OptimizerForSave.ExportState() : null;
         }
     }
@@ -109,7 +117,7 @@ namespace MDNN.Serialization
         public ExportMaxPoolLayer(MaxPool layer)
         {
             LayerType = "MaxPool";
-            InputsShape = layer.InputShape;
+            InputsShape = layer.InputShape!;   // only a built layer is saved
             PoolSize = layer.PoolSize;
         }
     }

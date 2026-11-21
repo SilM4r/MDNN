@@ -5,8 +5,12 @@
     /// </summary>
     public abstract class NeuronLayer : Layer
     {
-        /// <summary>Neurons of the layer, each holding its own weights, bias and optimizer state.</summary>
+        /// <summary>Neurons of the layer, each holding its own weights, bias and optimizer state.
+        /// Empty until the layer is built.</summary>
         abstract public List<Neuron> Neurons { get; }
+
+        /// <summary>Number of neurons the layer has (or will have once it is built) — the size of its output.</summary>
+        public int NeuronCount { get; protected init; }
 
         // Shared by Dense and RNN: the replica shares weights by reference, so only the bias is copied.
         internal override void SyncReplica(Layer replica)

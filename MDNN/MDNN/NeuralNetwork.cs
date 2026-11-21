@@ -124,7 +124,13 @@ namespace MDNN
         /// </summary>
         public Tensor GetResults(Tensor inputs)
         {
-            EnsureReadyForInput(inputs);
+            // Building (and the check that the data fit the built model) lives in ONE place,
+            // LayerManager.EnsureBuilt. Asked only when something is missing — a built model goes
+            // straight to the forward pass, where every layer checks its own input.
+            if (layerManager.NeedsBuild)
+            {
+                layerManager.EnsureBuilt(inputs.Shape);
+            }
 
             Tensor values = inputs;
 
@@ -134,26 +140,6 @@ namespace MDNN
             }
 
             return values;
-        }
-        // The model is ready when every layer has its shape wired AND its parameters drawn.
-        //
-        // Previously only `Layers[0].InputShape[0] <= 0` ("input unknown") was checked. That is
-        // fragile: in a LOADED model the first layer has its input from the file, so the check failed
-        // and a layer added via Add() stayed unwired until an IndexOutOfRange in the forward pass.
-        // The second branch covers that case.
-        private void EnsureReadyForInput(Tensor inputs)
-        {
-            if (Layers.Layers[0].InputShape[0] <= 0)
-            {
-                // the input shape is learned only now, from the first sample
-                context.InputShape = inputs.Shape;
-                Layers.SetInputShape();
-            }
-            else if (Layers.HasUnmaterializedLayers)
-            {
-                // shapes are wired (Add/Insert recomputed them), only parameters are missing
-                Layers.MaterializeAll();
-            }
         }
 
         /// <summary>
@@ -243,8 +229,8 @@ namespace MDNN
 
         private void ApplyLoaded(NetworkSaveLoadManager loaded)
         {
-            // The layers are rebuilt from the file right away — no point propagating the optimizer
-            // change into the current ones.
+            // The layers get their parameters from the file right away (together with a fresh clone
+            // of the optimizer) — no point propagating the optimizer change into them first.
             context.OptimizerChanged = null;
 
             // A custom optimizer/loss that cannot be constructed by name is taken from the model's
@@ -253,7 +239,24 @@ namespace MDNN
             context.Optimizer = Optimizer.ResolveForLoad(loaded.Optimizer, context.Optimizer, ownWins: false);
             context.Loss = Loss.ResolveForLoad(loaded.Loss_functions, context.Loss, ownWins: false);
 
-            layerManager = new LayerManager(loaded.Layers, context);
+            // The file describes the same architecture (always so for the best-model snapshot of
+            // TrainLoop) → the parameters are copied INTO the existing layers. Previously new layer
+            // objects were built from the file: a reference the user held to a layer then pointed
+            // outside the model (with the weights of the last epoch, not the best one), and a model
+            // with a custom activation crashed at the very end of training — the file only has its
+            // name, which cannot be turned back into an instance.
+            //
+            // A different architecture (LoadWeightsInPlace with another model's file) still gets new
+            // layers, as before.
+            if (layerManager.TryImportParameters(loaded.Layers, context.Optimizer))
+            {
+                layerManager.ReconnectOptimizerChanges();
+            }
+            else
+            {
+                layerManager = new LayerManager(loaded.Layers, context);
+            }
+
             Note = loaded.Note;
         }
         /// <summary>

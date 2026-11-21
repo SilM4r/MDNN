@@ -1,4 +1,5 @@
 ﻿using MDNN.Activations;
+using MDNN.Optimizers;
 
 namespace MDNN.Layers
 {
@@ -11,9 +12,14 @@ namespace MDNN.Layers
         public override void UpdateParams() { return; }
         /// <summary>Always <see cref="Linear"/>; setting it has no effect.</summary>
         public override ActivationFunction Activation
-        { 
-            get => new Linear(); 
-            set { } 
+        {
+            get => new Linear();
+            set { }
         }
+
+        /// <summary>
+        /// There are no parameters to create; override it only when the layer needs buffers.
+        /// </summary>
+        protected override void BuildCore(int[] inputShape, Random random, Optimizer optimizerPrototype) { }
     }
 }

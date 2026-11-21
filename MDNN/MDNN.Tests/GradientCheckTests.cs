@@ -328,7 +328,7 @@
               input[i, j, c] = i * (y * z) + j * z + c;
 
           var pool = new MaxPool(poolsize);
-          pool.Build(null, new int[] { x, y, z });
+          pool.Build(new int[] { x, y, z });
           pool.FeedForward(new Tensor(input));
 
           // g has the shape of the OUTPUT, not a hard-coded 2×2×1
@@ -373,7 +373,7 @@
           for (int i=0;i<4;i++) for (int j=0;j<4;j++) input[i,j,0]=i*4+j;
           
           var pool = new MaxPool(2); 
-          pool.Build(null, new[]{4,4,1});
+          pool.Build(new[]{4,4,1});
           var o = (double[,,])pool.FeedForward(new Tensor(input)).ToArray();
           Assert.Equal(5.0, o[0,0,0]);   // max of window {0,1,4,5}
           Assert.Equal(15.0, o[1,1,0]);  // max of window {10,11,14,15}
@@ -487,7 +487,7 @@
               input[i, j, cc] = ((i * w + j) * c + cc) * 0.01 + 0.02;
 
           var conv = new Conv(filters, kernel, Act(actName), pad);
-          conv.Build(null, new int[] { h, w, c });
+          conv.Build(new int[] { h, w, c });
           conv.FeedForward(new Tensor(input));
 
           // output shape: valid = h-k+1, same = h
@@ -597,7 +597,7 @@
               input[i, j] = i * 4 + j + 0.1;
 
           var conv = new Conv(1, 2, new Linear(), "valid");
-          conv.Build(null, new int[] { 3, 4, 1 });
+          conv.Build(new int[] { 3, 4, 1 });
 
           var outp = conv.FeedForward(new Tensor(input));   // before the fix: ArgumentException (9 ≠ 12 elements)
 

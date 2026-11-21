@@ -309,8 +309,8 @@ namespace MDNN.Benchmarks
                     Dense d => $"{d.Neurons.Count} neurons, {d.Neurons[0].Weights.Length} weights per neuron",
                     RNN r => $"{r.Neurons.Count} neurons, {r.Neurons[0].Weights.Length} weights per neuron (incl. recurrent)",
                     Conv c => $"{c.Kernels.Length} filters {c.Kernels[0].Length}x{c.Kernels[0][0].Length}x{c.Kernels[0][0][0].Length}"
-                              + $", output [{string.Join(",", c.OutputShape)}]",
-                    _ => $"output [{string.Join(",", layer.OutputShape)}]",
+                              + $", output [{string.Join(",", c.OutputShape!)}]",
+                    _ => $"output [{string.Join(",", layer.OutputShape!)}]",
                 };
                 Console.WriteLine($"  {layer.Name,-8} {shape}");
             }

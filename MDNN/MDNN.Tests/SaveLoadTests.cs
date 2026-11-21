@@ -508,6 +508,7 @@
           try { model.Info(); } finally { Console.SetOut(so); }
 
           model.Layers.Add(new Dense(4, new ReLU()));
+          model.Layers.SetInputShape(new int[] { 2 });   // only a built model can be saved (it has weights)
 
           Assert.Equal("[Dense,Dense]", model.Schema);
           Assert.Contains("[Dense,Dense]", model.SaveAsJsonString());

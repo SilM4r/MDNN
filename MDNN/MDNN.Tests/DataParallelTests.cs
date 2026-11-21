@@ -436,20 +436,12 @@ public class DataParallelTests
     /// <summary>A custom layer (identity) — the README allows them, but replicas don't support them.</summary>
     private sealed class Identity : ParameterlessLayer
     {
-        private int[] shape = { 0 };
         private Tensor? last;
         public override string Name => "Identity";
-        public override int[] InputShape => shape;
-        public override int[] OutputShape => shape;
         public override Tensor? Output => last;
         public override Tensor? RawOutput => last;
         public override Tensor FeedForward(Tensor input_values) => last = input_values;
-        public override void WireShapes(int? number_of_elements = null, int[]? number_of_input = null)
-        {
-            if (number_of_input != null) shape = number_of_input;
-        }
-        public override void MaterializeParameters() { }
-        public override bool IsMaterialized => true;
+        protected override int[] ComputeOutputShape(int[] inputShape) => inputShape;
         public override Tensor Backward(Tensor gradOutput, bool preActivation = false, bool computeInputGradient = true)
             => gradOutput;
     }

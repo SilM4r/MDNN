@@ -58,6 +58,19 @@ namespace MDNN.Serialization
             Optimizer = new ExportOptimizer(model.Optimizer);
             Layers = new List<BaseExportLayer>();
 
+            // A layer that is not built yet has no weights. Previously it was saved with placeholder
+            // neurons with zero weights; now the file would have an empty layer that cannot be loaded.
+            for (int i = 0; i < model.Layers.Layers.Count; i++)
+            {
+                Layer layer = model.Layers.Layers[i];
+                if (!layer.IsBuilt)
+                {
+                    throw new InvalidOperationException(
+                        $"Layer {i + 1} ({layer.Name}) is not built yet, so it has no weights to save. " +
+                        "Run a sample through the model, or build it with model.Layers.SetInputShape(new int[] { … }).");
+                }
+            }
+
             foreach (Layer layer in model.Layers.Layers)
             {
                 if (layer is Dense)

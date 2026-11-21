@@ -198,7 +198,7 @@ public class TorchParityTests
         string padding = fx.GetProperty("padding").GetString()!;
 
         var conv = new Conv(f, k, Act(fx.GetProperty("activation").GetString()!), padding);
-        conv.Build(null, new[] { h, w, c });
+        conv.Build(new[] { h, w, c });
 
         // input [H][W][C] → double[,,]
         double[][][] inNested = D3(fx.GetProperty("input"));
@@ -259,7 +259,7 @@ public class TorchParityTests
         int c = fx.GetProperty("c").GetInt32();
 
         var pool = new MaxPool(fx.GetProperty("pool").GetInt32());
-        pool.Build(null, new[] { h, w, c });
+        pool.Build(new[] { h, w, c });
 
         double[][][] inNested = D3(fx.GetProperty("input"));
         var input = new double[h, w, c];

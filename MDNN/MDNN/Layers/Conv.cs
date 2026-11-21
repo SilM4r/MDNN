@@ -13,39 +13,39 @@ namespace MDNN.Layers
         /// <inheritdoc/>
         public override string Name => "Conv";
 
-        /// <inheritdoc/>
-        public override int[] InputShape => inputsShape;
-
-        /// <inheritdoc/>
-        public override int[] OutputShape => outputShape;
-
         /// <summary>Snapshot of the last output (after activation) with shape <c>[h,w,filters]</c>.</summary>
         // Same shape as FeedForward returns. Previously this was `new Tensor(output)` over the
         // jagged array: `double[][][]` has Rank 1, so Shape came out as [outH] instead of
         // [h,w,channels]. The data were right, the Shape was not — visible only when Conv is the
         // output layer and someone reads Shape. It was also a view into the working array, not a snapshot.
-        public override Tensor Output => Tensor.FromJagged3D(output, outputShape);
+        public override Tensor Output => Tensor.FromJagged3D(output, OutputShape!);
 
         /// <summary>Snapshot of the last output before activation, shape <c>[h,w,filters]</c>.</summary>
-        public override Tensor RawOutput => Tensor.FromJagged3D(raw_output, outputShape);
+        public override Tensor RawOutput => Tensor.FromJagged3D(raw_output, OutputShape!);
 
         /// <summary>Element-wise activation applied to each output value; layer-wide activations (e.g. Softmax) are rejected.</summary>
         public override ActivationFunction Activation
         {
             get { return activation_func; }
-            set 
+            set
             {
                 activation_func = value;
                 CheckIsActivationFuncIsNotApplyToLayer();
             }
         }
 
-        /// <summary>Kernel weights indexed <c>[filter][kernelRow][kernelCol][inputChannel]</c>.</summary>
+        /// <summary>Number of filters (output channels).</summary>
+        public int Filters => filters;
+
+        /// <summary>Size of the square kernel.</summary>
+        public int KernelSize => kernelRows;
+
+        /// <summary>Kernel weights indexed <c>[filter][kernelRow][kernelCol][inputChannel]</c>; empty until the layer is built.</summary>
         public double[][][][] Kernels  // [numFilters][kernelRows][kernelCols][inputChannels]
         {
             get { return kernels; }
         }
-        /// <summary>One bias per filter.</summary>
+        /// <summary>One bias per filter; empty until the layer is built.</summary>
         public double[] Biases
         {
             get { return biases; }
@@ -56,46 +56,58 @@ namespace MDNN.Layers
             get { return padding; }
         }
 
-        // Empty defaults: buffers are allocated during wiring (WireShapes), kernels during
-        // materialization. All constructors overwrite them; the empty array is here only so
-        // the fields are never null.
+        // ---------------------------------------------------------------- description
+        //
+        // Previously the kernel size was not stored anywhere: the constructor created placeholder
+        // kernels with ZERO input channels and the size was read back as kernels[0].Length. The
+        // description is now explicit, and the kernels exist only once the layer is built.
+        private readonly int filters;
+        private readonly int kernelRows;
+        private readonly int kernelCols;
+        private readonly string padding;
+        private ActivationFunction activation_func;
+
+        // ---------------------------------------------------------------- built state
+        //
+        // Empty until built; BuildCore / the loading constructor fill them.
         private double[][][][] kernels = Array.Empty<double[][][]>();
         internal double[][][][] dKernels = Array.Empty<double[][][]>();   // internal for gradient-check tests
         private double[] biases = Array.Empty<double>();
         internal double[] dBiases = Array.Empty<double>();                // internal for gradient-check tests
         private double[][][] dOutput = Array.Empty<double[][]>();
-        private string padding;
         private double[][][] output = Array.Empty<double[][]>();
         private double[][][] raw_output = Array.Empty<double[][]>();
         private double[][][] inputs = Array.Empty<double[][]>();
 
-        private int[] inputsShape;
-        private int[] outputShape;
-
         private int mini_batch_size;
-        private Optimizer optimizer;
 
-        // For saving the optimizer state to a file (ExportCNNLayer).
-        internal Optimizer OptimizerForSave => optimizer;
+        // null until the layer is built (an unbuilt layer has no parameters to optimize).
+        private Optimizer? optimizer;
+
+        // For saving the optimizer state to a file (ExportCNNLayer); only a built layer is saved.
+        internal Optimizer OptimizerForSave => optimizer!;
 
         internal override void ReplaceOptimizer(Optimizer prototype)
         {
-            optimizer = prototype.CreateFresh();
+            if (IsBuilt)
+            {
+                optimizer = prototype.CreateFresh();
+            }
         }
-
-        // Number of filters requested by the last WireShapes; MaterializeParameters builds accordingly.
-        private int? requestedKernelCount;
-
-        private ActivationFunction activation_func;
 
         // `optimizerPrototype` — see Dense(ExportDenseLayer, …)
         internal Conv(ExportCNNLayer layer, Optimizer? optimizerPrototype = null)
         {
             kernels = BaseExportLayer.Required(layer.Kernel, Name, nameof(layer.Kernel));
             biases = BaseExportLayer.Required(layer.Biases, Name, nameof(layer.Biases));
+            BaseExportLayer.RequireNotEmpty(kernels, Name, nameof(layer.Kernel));
             activation_func = ActivationFunction.FromName(layer.Name_of_activation_function);
             CheckIsActivationFuncIsNotApplyToLayer();
             padding = NormalizePadding(BaseExportLayer.Required(layer.Padding, Name, nameof(layer.Padding)));
+
+            filters = kernels.Length;
+            kernelRows = kernels[0].Length;
+            kernelCols = kernels[0][0].Length;
 
             optimizer = (optimizerPrototype ?? GeneralNeuralNetworkSettings.DefaultOptimizer).CreateFresh();
 
@@ -105,64 +117,20 @@ namespace MDNN.Layers
                 optimizer.ImportState(layer.OptimizerState);
             }
 
-            inputsShape = BaseExportLayer.Required(layer.InputShape, Name, nameof(layer.InputShape));
+            int[] inputShape = BaseExportLayer.Required(layer.InputShape, Name, nameof(layer.InputShape));
 
-            if (padding == "same")
-            {
-                outputShape = new int[] { inputsShape[0], inputsShape[1], kernels.Length };
-            }
-            else
-            {
-                outputShape = new int[] { inputsShape[0] - kernels[0].Length + 1, inputsShape[1] - kernels[0][0].Length + 1, kernels.Length };
-            }
-
-            inputs = new double[inputsShape[0]][][];
-            for (int i = 0; i < inputsShape[0]; i++)
-            {
-                inputs[i] = new double[inputsShape[1]][];
-                for (int j = 0; j < inputsShape[1]; j++)
-                {
-                    inputs[i][j] = new double[inputsShape[2]];
-                }
-            }
-
-            output = new double[outputShape[0]][][];
-            dOutput = new double[outputShape[0]][][];
-            raw_output = new double[outputShape[0]][][];
-            for (int i = 0; i < outputShape[0]; i++)
-            {
-                output[i] = new double[outputShape[1]][];
-                raw_output[i] = new double[outputShape[1]][];
-                dOutput[i] = new double[outputShape[1]][];
-                for (int j = 0; j < outputShape[1]; j++)
-                {
-                    output[i][j] = new double[outputShape[2]];
-                    dOutput[i][j] = new double[outputShape[2]];
-                    raw_output[i][j] = new double[outputShape[2]];
-                }
-            }
-            dBiases = new double[kernels.Count()];
-            dKernels = new double[kernels.Count()][][][];
-
-            for (int i = 0; i < kernels.Count(); i++)
-            {
-                dKernels[i] = new double[kernels[0].Count()][][];
-                for (int j = 0; j < kernels[0].Count(); j++)
-                {
-                    dKernels[i][j] = new double[kernels[0][0].Count()][];
-                    for (int k = 0; k < kernels[0][0].Count(); k++)
-                    {
-                        dKernels[i][j][k] = new double[kernels[0][0][0].Count()];
-                    }
-                }
-            }
-
-            inicializationK_B_dK_dB();
+            // The same allocation as when building — previously the loading constructor had its own
+            // copy of it, a second path that could drift from the first.
+            MarkBuiltFromFile(inputShape);
+            AllocateBuffers(InputShape!, OutputShape!);
+            dBiases = new double[filters];
+            dKernels = AllocateKernelArray(inputShape[2]);
 
             mini_batch_size = 0;
         }
 
-        /// <summary>Creates a convolution layer; the input shape is wired when the layer is added to a model.</summary>
+        /// <summary>Creates a convolution layer. This is only a description — the kernels are created
+        /// when the layer is built for its input (inside a model: on the first pass).</summary>
         /// <param name="filters">Number of filters (output channels); must be greater than 0.</param>
         /// <param name="kernelSize">Size of the square kernel; must be greater than 0.</param>
         /// <param name="activation">Element-wise activation; defaults to <c>GeneralNeuralNetworkSettings.DefaultHiddenActivation</c>.</param>
@@ -179,164 +147,194 @@ namespace MDNN.Layers
             this.activation_func = activation ?? GeneralNeuralNetworkSettings.DefaultHiddenActivation;
             CheckIsActivationFuncIsNotApplyToLayer();
 
-            inputsShape = new int[] { 0 };
-            outputShape = new int[] { 0 };
+            this.filters = filters;
+            kernelRows = kernelSize;
+            kernelCols = kernelSize;
             this.padding = NormalizePadding(padding);
-
-            // input channels = 0 (placeholder); Build fills in the real channels + kernels
-            inicializationK_B_dK_dB(filters, new int[] { kernelSize, kernelSize, 0 }, true);
-
-            optimizer = GeneralNeuralNetworkSettings.DefaultOptimizer.CreateFresh();
             mini_batch_size = 0;
+        }
 
+        // ---------------------------------------------------------------- building
+
+        /// <summary>Conv works on <c>[height, width, channels]</c>; see SpatialShape.Normalize.</summary>
+        protected override int[] NormalizeInputShape(int[] inputShape) => SpatialShape.Normalize(inputShape, Name);
+
+        /// <inheritdoc/>
+        protected override int[] ComputeOutputShape(int[] inputShape)
+        {
+            // Without padding the kernel must fit into the input — otherwise the output would
+            // have a negative or zero dimension and it would only crash on buffer allocation.
+            if (padding == "valid" && (inputShape[0] < kernelRows || inputShape[1] < kernelCols))
+            {
+                throw new ArgumentException(
+                    $"{Name}: a {kernelRows}×{kernelCols} kernel does not fit the input " +
+                    $"{SpatialShape.Describe(inputShape)} with \"valid\" padding. Use a smaller kernel, " +
+                    "or padding \"same\".");
+            }
+
+            return padding == "same"
+                ? new int[] { inputShape[0], inputShape[1], filters }
+                : new int[] { inputShape[0] - kernelRows + 1, inputShape[1] - kernelCols + 1, filters };
         }
 
         /// <inheritdoc/>
-        /// <remarks>For Conv, <paramref name="outputSize"/> sets the number of filters.</remarks>
-        public override void WireShapes(int? outputSize = null, int[]? inputShape = null)
+        protected override void BuildCore(int[] inputShape, Random random, Optimizer optimizerPrototype)
         {
-            // The input shape is not known yet (Insert/Add before SetInputShape passes the
-            // placeholder {0}). Previously it was pushed into ConvertTo2D → rows = ceil(sqrt(0)) = 0
-            // → DivideByZeroException deep inside the library. The layer stays a placeholder;
-            // SetInputShape completes it once the shape is known.
-            if (outputSize != null)
+            // The clone is made BEFORE the kernels are drawn: if cloning throws, nothing has been drawn
+            // and the layer stays unbuilt (the order of the random draws is unaffected by it).
+            Optimizer fresh = optimizerPrototype.CreateFresh();
+
+            AllocateBuffers(inputShape, ComputeOutputShape(inputShape));
+
+            int channels = inputShape[2];
+            kernels = AllocateKernelArray(channels);
+            dKernels = AllocateKernelArray(channels);
+            biases = new double[filters];
+            dBiases = new double[filters];
+
+            // He-uniform; the same loop order as before, so a seeded model gets the same kernels
+            double fanIn = kernelRows * kernelCols * channels;
+            double limit = Math.Sqrt(6.0 / fanIn);
+
+            for (int l = 0; l < filters; l++)
             {
-                requestedKernelCount = outputSize;
-            }
-
-            if (inputShape != null && inputShape.Any(d => d <= 0))
-            {
-                inputsShape = new int[] { 0 };
-                outputShape = new int[] { 0 };
-                return;
-            }
-
-            if (inputShape != null)
-            {
-                // The same normalizer FeedForward uses. Previously there were two different
-                // implementations: this one handled rank 1 and 3, the forward also rank 2 — so a
-                // model with 2D input could not be wired even though the pass would handle it.
-                inputsShape = SpatialShape.Normalize(inputShape, Name);
-
-                // Without padding the kernel must fit into the input — otherwise the output would
-                // have a negative or zero dimension and it would only crash on buffer allocation.
-                if (padding == "valid"
-                    && (inputsShape[0] < kernels[0].Length || inputsShape[1] < kernels[0][0].Length))
+                for (int i = 0; i < kernelRows; i++)
                 {
-                    throw new ArgumentException(
-                        $"{Name}: a {kernels[0].Length}×{kernels[0][0].Length} kernel does not fit the input " +
-                        $"{SpatialShape.Describe(inputsShape)} with \"valid\" padding. Use a smaller kernel, " +
-                        "or padding \"same\".");
-                }
-
-                if (padding == "same")
-                {
-                    outputShape = new int[] { inputsShape[0], inputsShape[1], kernels.Length };
-                }
-                else
-                {
-                    outputShape = new int[] { inputsShape[0] - kernels[0].Length + 1, inputsShape[1] - kernels[0][0].Length + 1, kernels.Length };
-                }
-
-                inputs = new double[inputsShape[0]][][];
-                for (int i = 0; i < inputsShape[0]; i++)
-                {
-                    inputs[i] = new double[inputsShape[1]][];
-                    for (int j = 0; j < inputsShape[1]; j++)
+                    for (int j = 0; j < kernelCols; j++)
                     {
-                        inputs[i][j] = new double[inputsShape[2]];
-                    }
-                }
-
-                output = new double[outputShape[0]][][];
-                dOutput = new double[outputShape[0]][][];
-                raw_output = new double[outputShape[0]][][];
-                for (int i = 0; i < outputShape[0]; i++)
-                {
-                    output[i] = new double[outputShape[1]][];
-                    raw_output[i] = new double[outputShape[1]][];
-                    dOutput[i] = new double[outputShape[1]][];
-                    for (int j = 0; j < outputShape[1]; j++)
-                    {
-                        output[i][j] = new double[outputShape[2]];
-                        dOutput[i][j] = new double[outputShape[2]];
-                        raw_output[i][j] = new double[outputShape[2]];
+                        for (int k = 0; k < channels; k++)
+                        {
+                            kernels[l][i][j][k] = (random.NextDouble() * 2 - 1) * limit;
+                        }
                     }
                 }
             }
 
-
+            optimizer = fresh;
+            mini_batch_size = 0;
         }
 
         /// <inheritdoc/>
-        public override bool IsMaterialized =>
-            inputsShape.Length == 3
-            && inputsShape[2] > 0
-            && kernels.Length == (requestedKernelCount ?? kernels.Length)
-            && kernels[0][0][0].Length == inputsShape[2];
-
-        /// <inheritdoc/>
-        public override void MaterializeParameters()
+        protected override void OnInvalidated()
         {
-            if (inputsShape.Length != 3 || inputsShape[2] <= 0)
+            kernels = Array.Empty<double[][][]>();
+            dKernels = Array.Empty<double[][][]>();
+            biases = Array.Empty<double>();
+            dBiases = Array.Empty<double>();
+            dOutput = Array.Empty<double[][]>();
+            output = Array.Empty<double[][]>();
+            raw_output = Array.Empty<double[][]>();
+            inputs = Array.Empty<double[][]>();
+            optimizer = null;
+            mini_batch_size = 0;
+        }
+
+        // [filters][kernelRows][kernelCols][channels], zero-filled
+        private double[][][][] AllocateKernelArray(int channels)
+        {
+            var array = new double[filters][][][];
+            for (int f = 0; f < filters; f++)
             {
-                return;   // input shape not known yet
+                array[f] = new double[kernelRows][][];
+                for (int i = 0; i < kernelRows; i++)
+                {
+                    array[f][i] = new double[kernelCols][];
+                    for (int j = 0; j < kernelCols; j++)
+                    {
+                        array[f][i][j] = new double[channels];
+                    }
+                }
+            }
+            return array;
+        }
+
+        // Input and output buffers for one sample. Used when building, when loading and by replicas.
+        private void AllocateBuffers(int[] inputShape, int[] outputShape)
+        {
+            inputs = Allocate3D(inputShape);
+            output = Allocate3D(outputShape);
+            raw_output = Allocate3D(outputShape);
+            dOutput = Allocate3D(outputShape);
+        }
+
+        private static double[][][] Allocate3D(int[] shape)
+        {
+            var array = new double[shape[0]][][];
+            for (int i = 0; i < shape[0]; i++)
+            {
+                array[i] = new double[shape[1]][];
+                for (int j = 0; j < shape[1]; j++)
+                {
+                    array[i][j] = new double[shape[2]];
+                }
+            }
+            return array;
+        }
+
+        internal override bool CanImport(BaseExportLayer saved)
+        {
+            return IsBuilt
+                   && saved is ExportCNNLayer conv
+                   && conv.Name_of_activation_function == activation_func.Name
+                   && conv.Padding != null && NormalizePadding(conv.Padding) == padding
+                   && conv.InputShape != null && SpatialShape.SameAs(conv.InputShape, InputShape!)
+                   && conv.Kernel != null && conv.Biases != null
+                   && SameKernelShape(conv.Kernel)
+                   && conv.Biases.Length == filters;
+        }
+
+        private bool SameKernelShape(double[][][][] other)
+        {
+            if (other.Length != kernels.Length) return false;
+            for (int f = 0; f < kernels.Length; f++)
+            {
+                if (other[f].Length != kernelRows) return false;
+                for (int i = 0; i < kernelRows; i++)
+                {
+                    if (other[f][i].Length != kernelCols) return false;
+                    for (int j = 0; j < kernelCols; j++)
+                    {
+                        if (other[f][i][j].Length != kernels[f][i][j].Length) return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        internal override void ImportParameters(BaseExportLayer saved, Optimizer optimizerPrototype)
+        {
+            var conv = (ExportCNNLayer)saved;
+
+            // copied INTO the existing arrays — replicas share them by reference
+            for (int f = 0; f < kernels.Length; f++)
+                for (int i = 0; i < kernelRows; i++)
+                    for (int j = 0; j < kernelCols; j++)
+                        Array.Copy(conv.Kernel![f][i][j], kernels[f][i][j], kernels[f][i][j].Length);
+            Array.Copy(conv.Biases!, biases, filters);
+
+            optimizer = optimizerPrototype.CreateFresh();
+            if (conv.OptimizerState != null)
+            {
+                optimizer.ImportState(conv.OptimizerState);
             }
 
-            int filters = requestedKernelCount ?? kernels.Length;
-
-            // Re-initialize kernels ONLY when their shape changes (number of filters or
-            // number of input channels). Otherwise even a no-op call would overwrite trained
-            // kernels with random numbers. ChangeKernel: false only zeroes
-            // dKernels/dBiases and leaves kernels+biases alone.
-            bool kernelShapeMatches = kernels.Length == filters
-                                      && kernels[0][0][0].Length == inputsShape[2];
-
-            // per-model optimizer only when the kernels were actually rebuilt — see
-            // Dense.MaterializeParameters. Cloning on every materialization discarded Adam's
-            // moments even for layers the rewiring did not affect.
-            //
-            // The clone is made BEFORE rebuilding the kernels: if cloning throws, the layer stays
-            // as it was, rather than with new kernels and the old optimizer.
-            Optimizer? fresh = Context != null && !kernelShapeMatches
-                ? Context.Optimizer.CreateFresh()
-                : null;
-
-            inicializationK_B_dK_dB(
-                filters,
-                new int[] { kernels[0].Count(), kernels[0][0].Count(), inputsShape[2] },
-                !kernelShapeMatches);
-
-            if (fresh != null)
-            {
-                optimizer = fresh;
-            }
+            // the same state as a layer freshly loaded from the file
+            AllocateBuffers(InputShape!, OutputShape!);
+            ResetGradients();
+            mini_batch_size = 0;
         }
 
         // Replica for parallel training — see Layer.CreateReplica. Kernels and biases are SHARED
         // by reference (the original's optimizer updates them in place, after the batch), so
-        // nothing is copied between batches. Owned: input and output buffers (allocated by
-        // WireShapes just as during wiring) and gradient accumulators.
+        // nothing is copied between batches. Owned: input and output buffers and gradient accumulators.
         internal override Layer CreateReplica()
         {
+            ThrowIfNotBuiltForReplica();
+
             Conv replica = (Conv)MemberwiseClone();
-            replica.WireShapes(null, inputsShape);
-
-            replica.dBiases = new double[kernels.Length];
-            replica.dKernels = new double[kernels.Length][][][];
-            for (int f = 0; f < kernels.Length; f++)
-            {
-                replica.dKernels[f] = new double[kernels[f].Length][][];
-                for (int i = 0; i < kernels[f].Length; i++)
-                {
-                    replica.dKernels[f][i] = new double[kernels[f][i].Length][];
-                    for (int j = 0; j < kernels[f][i].Length; j++)
-                    {
-                        replica.dKernels[f][i][j] = new double[kernels[f][i][j].Length];
-                    }
-                }
-            }
-
+            replica.AllocateBuffers(InputShape!, OutputShape!);
+            replica.dBiases = new double[filters];
+            replica.dKernels = AllocateKernelArray(InputShape![2]);
             replica.mini_batch_size = 0;
             return replica;
         }
@@ -374,16 +372,16 @@ namespace MDNN.Layers
         /// <inheritdoc/>
         public override Tensor FeedForward(Tensor input)
         {
-            // The shape must match the one the layer is WIRED to. Previously this was never
+            // The shape must match the one the layer is BUILT for. Previously this was never
             // compared: the copy loop below followed the incoming tensor's shape, but the
-            // convolution then ran on inputsShape/outputShape. A smaller input overwrote only
+            // convolution then ran on the built shapes. A smaller input overwrote only
             // its corner and the rest was computed from leftovers of the previous sample —
             // silently, without an exception.
             //
             // The shape is normalized only FOR THIS METHOD. Previously inputs.Reshape(...) was
             // called instead, so the layer changed the shape of the caller's tensor — after a pass
             // through the model the user held a different Shape than they had given.
-            int[] shape = SpatialShape.RequireWiredShape(input.Shape, inputsShape, Name);
+            int[] shape = SpatialShape.RequireBuiltShape(input.Shape, InputShape ?? Array.Empty<int>(), Name);
 
             // Reads straight from the flat data. Previously this was (double[,,])ToArray(),
             // which forced building a multi-dim copy via Array.CreateInstance + per-element
@@ -403,12 +401,8 @@ namespace MDNN.Layers
                 }
             }
 
-            int inputRows = inputs.Length;
-            int inputCols = inputs[0].Length;
             int inputChannels = inputs[0][0].Length;
             int numFilters = kernels.Length;
-            int kernelRows = kernels[0].Length;
-            int kernelCols = kernels[0][0].Length;
             int kernelChannels = kernels[0][0][0].Length;
 
             if (kernelChannels != inputChannels)
@@ -417,10 +411,10 @@ namespace MDNN.Layers
             }
 
             double[][][] paddedInput = PadForSame(inputs);
-            
 
-            int outH = outputShape[0];
-            int outW = outputShape[1];
+
+            int outH = OutputShape![0];
+            int outW = OutputShape[1];
 
             // For each filter (output channel)
             //
@@ -461,7 +455,7 @@ namespace MDNN.Layers
                 }
             }
 
-            return Tensor.FromJagged3D(output, outputShape);
+            return Tensor.FromJagged3D(output, OutputShape);
         }
 
         // Accumulates kernel and bias gradients from the already filled `dOutput` (called by Backward).
@@ -471,10 +465,9 @@ namespace MDNN.Layers
 
             int inChannels = inputs[0][0].Length;
 
-            // Kernel dimensions
             int numFilters = kernels.Length;
-            int kH = kernels[0].Length;
-            int kW = kernels[0][0].Length;
+            int outH = OutputShape![0];
+            int outW = OutputShape[1];
 
             // Padding – in "same" mode the input is padded exactly as in the forward pass
             double[][][] paddedInput = PadForSame(inputs);
@@ -482,24 +475,21 @@ namespace MDNN.Layers
             // 1. dBiases: for each filter, sum all values of dOutput
             for (int f = 0; f < numFilters; f++)
             {
-                for (int i = 0; i < outputShape[0]; i++)
+                for (int i = 0; i < outH; i++)
                 {
-                    for (int j = 0; j < outputShape[1]; j++)
+                    for (int j = 0; j < outW; j++)
                     {
                         dBiases[f] += dOutput[i][j][f];
                     }
                 }
             }
 
-            int outH = outputShape[0];
-            int outW = outputShape[1];
-
             // 2. dKernels: for each filter and each kernel element, multiply the matching values of paddedInput and dOutput
             for (int f = 0; f < numFilters; f++)
             {
-                for (int ki = 0; ki < kH; ki++)
+                for (int ki = 0; ki < kernelRows; ki++)
                 {
-                    for (int kj = 0; kj < kW; kj++)
+                    for (int kj = 0; kj < kernelCols; kj++)
                     {
                         for (int c = 0; c < inChannels; c++)
                         {
@@ -531,38 +521,49 @@ namespace MDNN.Layers
                 return;
             }
 
+            Optimizer opt = optimizer!;   // a gradient was accumulated, so the layer is built
+
             int numFilters = kernels.Length;
             int idx = 0;
             // all filters have the same shape; +1 = the filter's bias
-            int perFilter = kernels[0].Length * kernels[0][0].Length * kernels[0][0][0].Length + 1;
-            optimizer.EnsureCapacity(numFilters * perFilter);
+            int perFilter = kernelRows * kernelCols * kernels[0][0][0].Length + 1;
+            opt.EnsureCapacity(numFilters * perFilter);
             // L2 applies to kernels (the convolution weights), not to biases — see
             // NetworkContext.L2. It is added to the already averaged gradient.
             double weightDecay = Context?.L2 ?? 0;
 
             for (int f = 0; f < numFilters; f++)
             {
-                int kernelHeight = kernels[f].Length;
-                int kernelWidth = kernels[f][0].Length;
                 int inChannels = kernels[f][0][0].Length;
                 // Update the weights of this filter
-                for (int i = 0; i < kernelHeight; i++)
+                for (int i = 0; i < kernelRows; i++)
                 {
-                    for (int j = 0; j < kernelWidth; j++)
+                    for (int j = 0; j < kernelCols; j++)
                     {
                         for (int c = 0; c < inChannels; c++)
                         {
                             double gradient = dKernels[f][i][j][c] / mini_batch_size
                                               + weightDecay * kernels[f][i][j][c];
-                            kernels[f][i][j][c] = optimizer.Update(kernels[f][i][j][c], gradient, idx++);
+                            kernels[f][i][j][c] = opt.Update(kernels[f][i][j][c], gradient, idx++);
                         }
                     }
                 }
                 // Update the bias of this filter
-                biases[f] = optimizer.Update(biases[f], dBiases[f] / mini_batch_size, idx++);
+                biases[f] = opt.Update(biases[f], dBiases[f] / mini_batch_size, idx++);
             }
             mini_batch_size = 0;
-            inicializationK_B_dK_dB();
+            ResetGradients();
+        }
+
+        private void ResetGradients()
+        {
+            for (int f = 0; f < dKernels.Length; f++)
+            {
+                dBiases[f] = 0;
+                for (int i = 0; i < dKernels[f].Length; i++)
+                    for (int j = 0; j < dKernels[f][i].Length; j++)
+                        Array.Clear(dKernels[f][i][j]);
+            }
         }
 
         // ---------------------------------------------------------------- convention B
@@ -576,6 +577,7 @@ namespace MDNN.Layers
                     "Conv cannot have a layer-wide activation (softmax), " +
                     "so the softmax+CE fusion does not apply to it.");
 
+            int[] outputShape = OutputShape!;
             double[] gradOut = gradOutput.Data;
             int expected = outputShape[0] * outputShape[1] * outputShape[2];
 
@@ -617,10 +619,7 @@ namespace MDNN.Layers
             int W = inputs[0].Length;
             int inChannels = inputs[0][0].Length;
 
-            // Kernel dimensions
             int numFilters = kernels.Length;
-            int kH = kernels[0].Length;
-            int kW = kernels[0][0].Length;
 
             // Padding – in "same" mode the input is padded exactly as in the forward pass.
             // The un-pad below uses padTop/padLeft (not total/2) — with an even kernel the padding
@@ -661,12 +660,12 @@ namespace MDNN.Layers
                         // rows hoisted one level up — see FeedForward
                         double g = dOutput[i][j][f];
 
-                        for (int ki = 0; ki < kH; ki++)
+                        for (int ki = 0; ki < kernelRows; ki++)
                         {
                             double[][] dstRow = dInputPadded[i + ki];
                             double[][] kRow = kernel[ki];
 
-                            for (int kj = 0; kj < kW; kj++)
+                            for (int kj = 0; kj < kernelCols; kj++)
                             {
                                 double[] dst = dstRow[j + kj];
                                 double[] weights = kRow[kj];
@@ -745,8 +744,8 @@ namespace MDNN.Layers
         // convention as TensorFlow/Keras/PyTorch.
         private (int top, int bottom, int left, int right) SamePaddingAmounts()
         {
-            int totalRows = kernels[0].Length - 1;
-            int totalCols = kernels[0][0].Length - 1;
+            int totalRows = kernelRows - 1;
+            int totalCols = kernelCols - 1;
 
             int top = totalRows / 2;
             int left = totalCols / 2;
@@ -797,100 +796,6 @@ namespace MDNN.Layers
             }
 
             return padded;
-        }
-
-        private void inicializationK_B_dK_dB(int? number_of_kernels = null, int[]? finall_kernel_Shape = null, bool ChangeKernel = false)
-        {
-            int nkernels;
-            int[] kernel_Shape;
-
-            if (number_of_kernels == null)
-            {
-                nkernels = kernels.Count();
-            }
-            else
-            {
-                nkernels = (int)number_of_kernels;
-            }
-
-            if (finall_kernel_Shape == null)
-            {
-                kernel_Shape = new int[] { kernels[0].Length, kernels[0][0].Length, kernels[0][0][0].Length };
-            }
-            else
-            {
-                kernel_Shape = (int[])finall_kernel_Shape;
-            }
-
-            
-            
-
-            if (ChangeKernel)
-            {
-                dBiases = new double[nkernels];
-                biases = new double[nkernels];
-                kernels = new double[(int)nkernels][][][];
-                dKernels = new double[(int)nkernels][][][];
-
-                for (int i = 0; i < nkernels; i++)
-                {
-                    kernels[i] = new double[kernel_Shape[0]][][];
-                    dKernels[i] = new double[kernel_Shape[0]][][];
-                    for (int j = 0; j < kernel_Shape[0]; j++)
-                    {
-                        kernels[i][j] = new double[kernel_Shape[1]][];
-                        dKernels[i][j] = new double[kernel_Shape[1]][];
-                        for (int k = 0; k < kernel_Shape[1]; k++)
-                        {
-                            kernels[i][j][k] = new double[kernel_Shape[2]];
-                            dKernels[i][j][k] = new double[kernel_Shape[2]];
-                        }
-                    }
-                }
-
-                // random source from the model (reproducible via seed); a standalone layer
-                // without a model falls back to the global generator
-                Random kernelRandom = Context?.Random ?? GeneralNeuralNetworkSettings.Random;
-
-                for (int l = 0; l < nkernels; l++)
-                {
-                    biases[l] = 0;
-                    dBiases[l] = 0;
-                    for (int i = 0; i < kernel_Shape[0]; i++)
-                    {
-                        for (int j = 0; j < kernel_Shape[1]; j++)
-                        {
-                            for (int k = 0; k < kernel_Shape[2]; k++)
-                            {
-                                double fanIn = kernel_Shape[0] * kernel_Shape[1] * kernel_Shape[2];
-                                double limit = Math.Sqrt(6.0 / fanIn);
-                                kernels[l][i][j][k] = (kernelRandom.NextDouble() * 2 - 1) * limit;
-                                dKernels[l][i][j][k] = 0;
-                            }
-                        }
-                    }
-                }
-
-                
-
-            }
-            else
-            {
-                for (int l = 0; l < nkernels; l++)
-                {
-                    dBiases[l] = 0;
-                    for (int i = 0; i < kernel_Shape[0]; i++)
-                    {
-                        for (int j = 0; j < kernel_Shape[1]; j++)
-                        {
-                            for (int k = 0; k < kernel_Shape[2]; k++)
-                            {
-                                dKernels[l][i][j][k] = 0;
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 }

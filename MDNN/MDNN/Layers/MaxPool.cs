@@ -1,4 +1,5 @@
 ﻿using MDNN.Layers;
+using MDNN.Optimizers;
 using MDNN.Serialization;
 namespace MDNN.Layers
 {
@@ -9,12 +10,6 @@ namespace MDNN.Layers
     {
         /// <inheritdoc/>
         public override string Name => "MaxPool";
-
-        /// <inheritdoc/>
-        public override int[] InputShape => inputsShape;
-
-        /// <inheritdoc/>
-        public override int[] OutputShape => outputShape;
 
         /// <summary>Snapshot of the last output with shape <c>[h,w,channels]</c>, as returned by FeedForward.</summary>
         // Previously `new Tensor(output)` over the jagged array gave Shape [outH] instead of
@@ -30,7 +25,7 @@ namespace MDNN.Layers
                 }
                 else
                 {
-                    return Tensor.FromJagged3D(output, outputShape);
+                    return Tensor.FromJagged3D(output, OutputShape!);
                 }
             }
         }
@@ -44,16 +39,14 @@ namespace MDNN.Layers
             get { return poolSize; }
         }
 
+        // buffers — null until the layer is built
         private double[][][]? output;
         private double[][][]? inputs;
+        private PoolingIndex[,,]? indexes;
 
-        private PoolingIndex[,,] indexes;
+        private readonly int poolSize;
 
-        private int[] inputsShape;
-        private int[] outputShape;
-        private int poolSize;
-
-        /// <summary>Creates a max-pooling layer; the input shape is wired when the layer is added to a model.</summary>
+        /// <summary>Creates a max-pooling layer; the input shape is set when the layer is built (inside a model: on the first pass).</summary>
         /// <param name="poolSize">Window size and stride; must be greater than 0.</param>
         public MaxPool(int poolSize)
         {
@@ -63,30 +56,55 @@ namespace MDNN.Layers
                     "The pool size must be greater than 0.");
 
             this.poolSize = poolSize;
-
-            // the input/output shape is computed in Build (when attached to a model)
-            inputsShape = new int[] { 0 };
-            outputShape = new int[] { 0 };
-            indexes = new PoolingIndex[0, 0, 0];
         }
         internal MaxPool(ExportMaxPoolLayer layer)
         {
-            inputsShape = BaseExportLayer.Required(layer.InputsShape, Name, nameof(layer.InputsShape));
             poolSize = BaseExportLayer.Required(layer.PoolSize, Name, nameof(layer.PoolSize));
+            int[] inputShape = BaseExportLayer.Required(layer.InputsShape, Name, nameof(layer.InputsShape));
 
-            int outHeight = (inputsShape[0] - poolSize) / poolSize + 1;
-            int outWidth = (inputsShape[1] - poolSize) / poolSize + 1;
+            // the same allocation as when building — see Conv(ExportCNNLayer, …)
+            MarkBuiltFromFile(inputShape);
+            AllocateBuffers(InputShape!, OutputShape!);
+        }
 
-            outputShape = new int[] { outHeight, outWidth, inputsShape[2] };
-            indexes = new PoolingIndex[outputShape[0], outputShape[1], outputShape[2]];
+        // ---------------------------------------------------------------- building
 
-            inputs = new double[inputsShape[0]][][];
-            for (int i = 0; i < inputsShape[0]; i++)
+        /// <summary>MaxPool works on <c>[height, width, channels]</c>; see SpatialShape.Normalize.</summary>
+        protected override int[] NormalizeInputShape(int[] inputShape) => SpatialShape.Normalize(inputShape, Name);
+
+        /// <inheritdoc/>
+        protected override int[] ComputeOutputShape(int[] inputShape)
+        {
+            // Output dimensions for valid pooling (no padding)
+            int outHeight = (inputShape[0] - poolSize) / poolSize + 1;
+            int outWidth = (inputShape[1] - poolSize) / poolSize + 1;
+
+            return new int[] { outHeight, outWidth, inputShape[2] };
+        }
+
+        /// <inheritdoc/>
+        protected override void BuildCore(int[] inputShape, Random random, Optimizer optimizerPrototype)
+        {
+            AllocateBuffers(inputShape, ComputeOutputShape(inputShape));
+        }
+
+        /// <inheritdoc/>
+        protected override void OnInvalidated()
+        {
+            inputs = null;
+            output = null;
+            indexes = null;
+        }
+
+        private void AllocateBuffers(int[] inputShape, int[] outputShape)
+        {
+            inputs = new double[inputShape[0]][][];
+            for (int i = 0; i < inputShape[0]; i++)
             {
-                inputs[i] = new double[inputsShape[1]][];
-                for (int j = 0; j < inputsShape[1]; j++)
+                inputs[i] = new double[inputShape[1]][];
+                for (int j = 0; j < inputShape[1]; j++)
                 {
-                    inputs[i][j] = new double[inputsShape[2]];
+                    inputs[i][j] = new double[inputShape[2]];
                 }
             }
 
@@ -101,6 +119,20 @@ namespace MDNN.Layers
                     output[i][j] = new double[outputShape[2]];
                 }
             }
+        }
+
+        // There are no parameters; the saved layer only has to describe the same pooling.
+        internal override bool CanImport(BaseExportLayer saved)
+        {
+            return IsBuilt
+                   && saved is ExportMaxPoolLayer pool
+                   && pool.PoolSize == poolSize
+                   && pool.InputsShape != null && SpatialShape.SameAs(pool.InputsShape, InputShape!);
+        }
+
+        internal override void ImportParameters(BaseExportLayer saved, Optimizer optimizerPrototype)
+        {
+            AllocateBuffers(InputShape!, OutputShape!);   // the same state as a freshly loaded layer
         }
 
         // ---------------------------------------------------------------- convention B
@@ -167,20 +199,17 @@ namespace MDNN.Layers
         /// <inheritdoc/>
         public override Tensor FeedForward(Tensor input)
         {
-            // Same guard as in Conv: the shape must match the wired one. Previously a smaller input
-            // overwrote only a corner of the buffer and the rest kept the previous sample — MaxPool
-            // then returned the previous image's maximum from a window of zeros. Rank ≥ 4 used to
-            // fail with a NotSupportedException() without any message.
+            // Same guard as in Conv: the shape must match the built one (it also says when the
+            // layer is not built at all). Previously a smaller input overwrote only a corner of the
+            // buffer and the rest kept the previous sample — MaxPool then returned the previous
+            // image's maximum from a window of zeros. Rank ≥ 4 used to fail with a
+            // NotSupportedException() without any message.
             // The shape is local to this method; the caller's tensor stays untouched — see Conv.FeedForward.
-            int[] shape = SpatialShape.RequireWiredShape(input.Shape, inputsShape, Name);
+            int[] shape = SpatialShape.RequireBuiltShape(input.Shape, InputShape ?? Array.Empty<int>(), Name);
 
-            // Buffers are created during wiring (WireShapes). Without it the forward pass would
-            // throw NullReferenceException; this way it says what is missing.
-            if (inputs == null || output == null)
-            {
-                throw new InvalidOperationException(
-                    "MaxPool: the layer is not wired into a model yet — the input shape is unknown.");
-            }
+            double[][][] inputs = this.inputs!;
+            double[][][] output = this.output!;
+            PoolingIndex[,,] indexes = this.indexes!;
 
             // flat path instead of (double[,,])ToArray() — see Conv.FeedForward
             double[] inputValues = input.Data;
@@ -201,9 +230,8 @@ namespace MDNN.Layers
             int inputWidth = inputs[0].Length;
             int channels = inputs[0][0].Length;
 
-            // Output dimensions for valid pooling (no padding)
-            int outHeight = (inputHeight - poolSize) / poolSize + 1;
-            int outWidth = (inputWidth - poolSize) / poolSize + 1;
+            int outHeight = OutputShape![0];
+            int outWidth = OutputShape[1];
 
             // For each channel and each pooling region, find the maximum value
             for (int c = 0; c < channels; c++)
@@ -231,8 +259,8 @@ namespace MDNN.Layers
                                         maxRow = curRow;
                                         maxCol = curCol;
                                     }
-                                        
-                                    
+
+
                                 }
                             }
                         }
@@ -241,79 +269,18 @@ namespace MDNN.Layers
                     }
                 }
             }
-            return Tensor.FromJagged3D(output, outputShape);
-        }
-
-        /// <inheritdoc/>
-        /// <remarks>For MaxPool, <paramref name="outputSize"/> sets the pool size.</remarks>
-        public override void WireShapes(int? outputSize = null, int[]? inputShape = null)
-        {
-            // Same safeguard as in Conv: the input shape is not known yet (placeholder from Insert/Add).
-            // Without it, (0 - poolSize)/poolSize + 1 → negative dimension → crash on allocation.
-            if (inputShape != null && inputShape.Any(d => d <= 0))
-            {
-                inputsShape = new int[] { 0 };
-                outputShape = new int[] { 0 };
-                return;
-            }
-
-            if (outputSize != null)
-            {
-                poolSize = (int)outputSize;
-
-                int outHeight = (inputsShape[0] - poolSize) / poolSize + 1;
-                int outWidth = (inputsShape[1] - poolSize) / poolSize + 1;
-
-                outputShape = new int[] { outHeight, outWidth, inputsShape[2] };
-            }
-
-            if (inputShape != null)
-            {
-                // the same normalizer as in FeedForward — see SpatialShape
-                inputsShape = SpatialShape.Normalize(inputShape, Name);
-
-                int outHeight = (inputsShape[0] - poolSize) / poolSize + 1;
-                int outWidth = (inputsShape[1] - poolSize) / poolSize + 1;
-
-                outputShape = new int[] { outHeight, outWidth, inputsShape[2] };
-
-                inputs = new double[inputsShape[0]][][];
-                for (int i = 0; i < inputsShape[0]; i++)
-                {
-                    inputs[i] = new double[inputsShape[1]][];
-                    for (int j = 0; j < inputsShape[1]; j++)
-                    {
-                        inputs[i][j] = new double[inputsShape[2]];
-                    }
-                }
-            }
-
-            indexes = new PoolingIndex[outputShape[0], outputShape[1], outputShape[2]];
-
-            output = new double[outputShape[0]][][];
-            for (int i = 0; i < outputShape[0]; i++)
-            {
-                output[i] = new double[outputShape[1]][];
-                for (int j = 0; j < outputShape[1]; j++)
-                {
-                    output[i][j] = new double[outputShape[2]];
-                }
-            }
+            return Tensor.FromJagged3D(output, OutputShape);
         }
 
         // Replica for parallel training — see Layer.CreateReplica. There are no parameters, so
-        // own buffers are enough; WireShapes allocates them just as during wiring.
+        // own buffers are enough.
         internal override Layer CreateReplica()
         {
+            ThrowIfNotBuiltForReplica();
+
             MaxPool replica = (MaxPool)MemberwiseClone();
-            replica.WireShapes(null, inputsShape);
+            replica.AllocateBuffers(InputShape!, OutputShape!);
             return replica;
         }
-
-        /// <summary>Does nothing — MaxPool has no trainable parameters to materialize or lose.</summary>
-        public override void MaterializeParameters() { }
-
-        /// <summary>Always true — MaxPool has no parameters.</summary>
-        public override bool IsMaterialized => true;
     }
 }

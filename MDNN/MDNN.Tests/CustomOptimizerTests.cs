@@ -120,7 +120,7 @@ public class CustomOptimizerTests
         Assert.Throws<InvalidOperationException>(() => model.GetResults(X));
         // Previously the second call succeeded here and the model trained with the global SGD(0.0001).
         Assert.Throws<InvalidOperationException>(() => model.Train.Fit(X, T));
-        Assert.False(model.Layers.Layers[0].IsMaterialized);   // the placeholder neurons from the constructor remain
+        Assert.False(model.Layers.Layers[0].IsBuilt);   // the placeholder neurons from the constructor remain
     }
 
     [Fact]

@@ -261,13 +261,8 @@ namespace MDNN
         /// <returns>The model output for <paramref name="inputs"/>.</returns>
         public Tensor Fit(Tensor inputs, Tensor targets)
         {
-            if (_model.Layers.Layers[0].InputShape[0] <= 0)
-            {
-                _model.Context.InputShape = inputs.Shape;
-                _model.Layers.SetInputShape();
-            }
-
-            CheckLayersAreNotEmpty();
+            // An unbuilt model is built by GetResults (LayerManager.EnsureBuilt) on this first
+            // sample. Fit used to have its own copy of that check, one of five.
 
             // Training mode only for this pass. It controls dropout: inside Fit neurons are
             // dropped, a standalone GetResults (prediction, valid loss) runs without it —
@@ -383,20 +378,9 @@ namespace MDNN
         /// <returns>The number of correct predictions and the total number evaluated.</returns>
         public (int Correct, int Total) Evaluate(Tensor inputs, Tensor targets, bool showInConsole = true)
         {
-            if (_model.Layers.Layers[0].InputShape[0] == 0)
-            {
-                if (_model.Context.SequenceTrain)
-                {
-                    _model.Context.InputShape = inputs.GetSubTensor([0,0]).Shape;
-                }
-
-                else
-                {
-                    _model.Context.InputShape = inputs.GetSubTensor([0]).Shape;
-                }
-
-                _model.Layers.SetInputShape();
-            }
+            // Built (and checked) BEFORE predicting: with Workers > 1 the replicas are copies of the
+            // built layers.
+            _model.Layers.EnsureBuilt(SampleShape(inputs));
             CheckLayersAreNotEmpty();
 
             int score = 0;
@@ -577,8 +561,10 @@ namespace MDNN
             ResolveReportInterval(epochs);
 
 
-            _model.Context.InputShape = [inputs[0].Length];
-            _model.Layers.SetInputShape();
+            // Previously this re-wired the model on every call — and when the data got wider, it
+            // silently gave the first layer new random weights. Now different data are an error
+            // (see LayerManager.Rebuild / RebuildIncompatible).
+            _model.Layers.EnsureBuilt(new int[] { inputs[0].Length });
 
             CheckLayersAreNotEmpty();
 
@@ -671,7 +657,6 @@ namespace MDNN
                         "[sequence, step, height, width, channels].");
                 }
 
-                _model.Context.InputShape = inputs.GetSubTensor([0, 0]).Shape;
             }
 
             else
@@ -693,15 +678,11 @@ namespace MDNN
                         "[sample, height, width, channels].");
                 }
 
-                _model.Context.InputShape = inputs.GetSubTensor([0]).Shape;
             }
 
-            
-
-            if (_model.Layers.Layers[0].InputShape[0] == 0)
-            {
-                _model.Layers.SetInputShape();
-            }
+            // An unbuilt model is built here, a built one only checked against the data (see
+            // LayerManager.PrepareFor for why the difference).
+            _model.Layers.PrepareFor(SampleShape(inputs));
 
             CheckLayersAreNotEmpty();
 
@@ -769,7 +750,7 @@ namespace MDNN
                 throw new InvalidOperationException("Only a model with layers can be trained. Add at least one layer with model.Layers.Add().");
             }
 
-            if (_model.Layers.Layers[0].InputShape[0] <= 0)
+            if (_model.Context.InputShape == null)
             {
                 throw new InvalidOperationException("The input layer must have at least one input. Set it with model.Layers.SetInputShape(new int[] { 1 }), or run a sample through the model first.");
             }
@@ -944,7 +925,32 @@ namespace MDNN
         // replicas with stale references to the weights. The cost is negligible next to an epoch.
         private ReplicaPool? CreateReplicaPool()
         {
-            return _workers > 1 ? new ReplicaPool(_model, _workers) : null;
+            if (_workers == 1)
+            {
+                return null;
+            }
+
+            // Replicas are copies of BUILT layers. A layer added to a built model is otherwise
+            // built only by the first forward pass — on the original that never comes when the
+            // replicas do the work.
+            EnsureBuiltForReplicas();
+            return new ReplicaPool(_model, _workers);
+        }
+
+        private void EnsureBuiltForReplicas()
+        {
+            if (_model.Layers.NeedsBuild && _model.Context.InputShape != null)
+            {
+                _model.Layers.EnsureBuilt(_model.Context.InputShape);
+            }
+        }
+
+        // Shape of one sample of `data`: without the sample dimension, in sequence mode also
+        // without the step dimension.
+        private int[] SampleShape(Tensor data)
+        {
+            int skip = _model.Context.SequenceTrain ? 2 : 1;
+            return data.Shape[skip..];
         }
 
         // One batch: samples order[start..end) and one optimizer step.
@@ -1192,6 +1198,7 @@ namespace MDNN
             }
 
             _ = inputs.Data;   // lazy flattening while still sequential — see RunOneEpoch
+            EnsureBuiltForReplicas();
             return new ReplicaPool(_model, _workers, training: false);
         }
 

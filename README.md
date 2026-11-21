@@ -127,9 +127,17 @@ Besides `Add()`, the `Layers` API includes:
 - `RemoveAt()` — remove a layer at a given position (the last remaining layer cannot be removed)
 - `SetOutputActivation()` — set a new output activation function
 - `Clear(outputLayer)` — remove all layers and set a new output layer
+- `SetInputShape(shape)` — build the model now for the given input shape, instead of on the first pass
+- `Rebuild()` — throw away the weights of all layers; the model is built again for the next data, whatever their shape
+- `RebuildIncompatible()` — let the next data have a different shape: only the layers that no longer fit get new weights, the others keep theirs
 
 `model.Layers.Layers` is a read-only list of the layers in order; the methods above are the
-only way to change it, because they also rewire the shapes of the chain.
+only way to change it, because they also decide which built layers no longer fit (see
+[Building the model](#building-the-model)).
+
+A built model only takes data of the shape it was built for. Data of a different shape — say
+the input got wider — is an error, not a silent re-initialization of the first layer; call
+`Rebuild()` or `RebuildIncompatible()` first if that is what you want.
 
 Supported layers:
 
@@ -140,7 +148,7 @@ Supported layers:
 
 If a layer constructor is called without an activation function, ReLU is used (`GeneralNeuralNetworkSettings.DefaultHiddenActivation`) — for the output layer too, so pass the activation explicitly there (for example `Linear` for regression or `Softmax` for classification).
 
-You can also define a custom layer by inheriting one of the abstract classes `Layer`, `NeuronLayer`, or `ParameterlessLayer` and implementing their abstract members.
+You can also define a custom layer by inheriting one of the abstract classes `Layer`, `NeuronLayer`, or `ParameterlessLayer` and implementing their abstract members. Building is split into `ComputeOutputShape(inputShape)` — a pure function that says what the layer outputs for a given input (and throws if it cannot take it) — and `BuildCore(inputShape, random, optimizer)`, which creates the parameters; a `ParameterlessLayer` only needs the first one.
 
 Available activation functions: `Linear`, `ReLU`, `LeakyReLU`, `Sigmoid`, `Tanh`, `Softmax`.
 
@@ -484,7 +492,7 @@ Each model owns a `NetworkContext` (`model.Context`) that holds its runtime conf
 | `L2` | L2 weight decay coefficient, `0` = off |
 | `Dropout` | default dropout rate for hidden layers, `0` = off |
 | `IsTraining` | is a training pass running? Switched on by `Fit()` for the duration of its forward pass; this is what turns dropout on and off |
-| `InputShape` | shape of the model's input, inferred on the first pass |
+| `InputShape` | shape of the input the model is built for, `null` until it is built; read-only (see [Building the model](#building-the-model)) |
 | `SequenceTrain` | sequential (time-series) training mode |
 
 `GeneralNeuralNetworkSettings` holds only process-wide fallbacks, used where no model is involved: the default activation of a layer constructed without one (`DefaultHiddenActivation`), the optimizer of a standalone layer (`DefaultOptimizer`) and the shared random generator of models without a seed (`Random`).
@@ -550,11 +558,30 @@ The state is read-only from outside (`Output`, `RawOutput`, `Inputs`, `Activatio
 `Optimizer`); only the library writes to it, so it cannot be changed out of step with training
 by accident. `Weights` returns the weight array itself.
 
-### Lazy shape inference
+### Building the model
 
-Layers are constructed without knowing their input size — you only specify the number of neurons (or kernels). On the first forward pass the model records the input shape into `Context.InputShape` and wires the chain in two steps: `WireShapes()` on every layer, left to right, derives each layer's input shape from the previous layer's output shape; then `MaterializeParameters()` allocates and initializes the parameters (neurons, kernels) in one left-to-right pass. This is why a layer's weights do not exist until the model first sees data. You can wire the model in advance with `model.Layers.SetInputShape(new[] { … })`.
+A layer you construct is only a **description** — `new Dense(64, new ReLU())` knows it will have
+64 neurons (`NeuronCount`), but it has no weights yet (`IsBuilt` is false, `Neurons` is empty,
+`InputShape` is `null`), because it does not know its input. The model **builds** the layers
+once the shape of the data is known: on the first pass, or earlier via
+`model.Layers.SetInputShape(new[] { … })`. Building has two steps:
 
-Because parameters are drawn in architecture order, two models with the same seed and the same architecture get the same weights no matter whether they were assembled with `Add()` or `Insert()`.
+1. The whole chain is **planned**: for every layer, left to right, `ComputeOutputShape()` derives
+   its output shape from its input shape, without changing anything. A layer that cannot take its
+   input (a kernel that does not fit, an unsupported rank) throws here — before anything is drawn,
+   so the model never ends up half built.
+2. The layers are **built** in one left-to-right pass: buffers are allocated and the parameters
+   randomly initialized. `Context.InputShape` then holds the shape the model is built for.
+
+Because parameters are drawn in architecture order, two models with the same seed and the same
+architecture get the same weights no matter whether they were assembled with `Add()` or `Insert()`.
+
+Changing the structure of a built model (`Add`, `Insert`, `RemoveAt`) turns the layers whose input
+the change shifts back into descriptions — typically the layer right after the inserted or removed
+one; they are built again on the next pass, the others keep their weights. A loaded model is built
+straight away; restoring the best model at the end of `TrainLoop` (and `LoadWeightsInPlace` with a
+file of the same architecture) copies the parameters into the existing layers, so references you
+hold to them stay valid.
 
 ### Forward pass
 

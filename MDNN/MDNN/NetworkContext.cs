@@ -112,9 +112,17 @@ namespace MDNN
         /// </summary>
         public bool SequenceTrain { get; set; } = false;
         /// <summary>
-        /// Shape of a single input sample. <c>{ 0 }</c> means not known yet (inferred from the first input).
+        /// Shape of the input sample the model is built for; <c>null</c> = not built yet.
+        /// For information only — the library sets it when it builds the model (on the first pass
+        /// of data, or via <c>model.Layers.SetInputShape(...)</c>).
         /// </summary>
-        public int[] InputShape { get; set; } = new int[] { 0 };
+        /// <remarks>
+        /// Previously it could be set from outside, which changed nothing in the already built layers —
+        /// the model then reported one shape and worked with another. Use
+        /// <c>model.Layers.SetInputShape(...)</c> to build the model in advance, and
+        /// <c>model.Layers.Rebuild()</c> / <c>RebuildIncompatible()</c> to change the shape of a built one.
+        /// </remarks>
+        public int[]? InputShape { get; internal set; }
 
         // ---------------------------------------------------------------- regularization
 

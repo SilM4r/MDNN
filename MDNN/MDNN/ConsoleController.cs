@@ -8,13 +8,15 @@ namespace MDNN
     /// </summary>
     public static class ConsoleController
     {
+        private static string DescribeShape(int[]? shape) => shape == null ? "unknown" : string.Join(", ", shape);
+
         /// <summary>Prints the model summary: inputs, outputs, loss, optimizer and a table of layers.</summary>
         public static void ShowModelInfo(NeuralNetwork model)
         {
             if (model.Layers.Layers.Count != 0)
             {
-                Console.WriteLine($"Number of input : {string.Join(", ", model.Layers.Layers[0].InputShape) }");
-                Console.WriteLine($"Number of output: {string.Join(", ", model.Layers.Layers[model.Layers.Layers.Count() - 1].OutputShape)}");
+                Console.WriteLine($"Number of input : {DescribeShape(model.Context.InputShape)}");
+                Console.WriteLine($"Number of output: {DescribeShape(model.Layers.Layers[model.Layers.Layers.Count() - 1].OutputShape)}");
                 Console.WriteLine($"Number of hidden layers: {model.Layers.Layers.Count() - 1}");
                 Console.WriteLine($"Schema layers: {model.Schema}");
             }
@@ -47,61 +49,61 @@ namespace MDNN
                 switch (layer)
                 {
                     case Dense dense:
-                        if (dense.InputShape[0] == 0)
+                        if (!dense.IsBuilt)
                         {
                             shapeString = "unknown";
                             isEmptyInput = true;
                         }
                         else
                         {
-                            shapeString = dense.InputShape[0].ToString();
+                            shapeString = dense.InputShape![0].ToString();
                         }
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
-                        Console.WriteLine($"| {numberOfLayer}. Name: {dense.Name} | Number of neurons: {dense.Neurons.Count} | Number of inputs: {shapeString} | Activation func: {dense.Activation.Name} |");
+                        Console.WriteLine($"| {numberOfLayer}. Name: {dense.Name} | Number of neurons: {dense.NeuronCount} | Number of inputs: {shapeString} | Activation func: {dense.Activation.Name} |");
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
                         break;
                     case RNN rnn:
-                        if (rnn.InputShape[0] == 0)
+                        if (!rnn.IsBuilt)
                         {
                             shapeString = "unknown";
                             isEmptyInput = true;
                         }
                         else
                         {
-                            shapeString = rnn.InputShape[0].ToString();
+                            shapeString = rnn.InputShape![0].ToString();
                         }
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
                         // The recurrence is diagonal: each neuron gets ONE extra input, its own
                         // previous output — not the whole layer (see README, RTRL).
-                        Console.WriteLine($"| {numberOfLayer}. Name: {rnn.Name} | Number of neurons: {rnn.Neurons.Count} | Number of inputs: {shapeString} (+ 1 recurrent input per neuron) | Activation func: {rnn.Activation.Name} |");
+                        Console.WriteLine($"| {numberOfLayer}. Name: {rnn.Name} | Number of neurons: {rnn.NeuronCount} | Number of inputs: {shapeString} (+ 1 recurrent input per neuron) | Activation func: {rnn.Activation.Name} |");
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
                         break;
                     case Conv conv:
-                        if (conv.OutputShape.Length == 1)
+                        if (!conv.IsBuilt)
                         {
                             shapeString = "unknown";
                             isEmptyInput = true;
                         }
                         else
                         {
-                            shapeString = $"[{conv.OutputShape[0]},{conv.OutputShape[1]},{conv.OutputShape[2]}]";
+                            shapeString = $"[{string.Join(",", conv.OutputShape!)}]";
                         }
 
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
-                        Console.WriteLine($"| {numberOfLayer}. Name: {conv.Name} | Number of kernels: {conv.Kernels.Count()} | Kernel size:{conv.Kernels[0].Count()}*{conv.Kernels[0][0].Count()} | Output shape: {shapeString} | Activation func: {conv.Activation.Name} |");
+                        Console.WriteLine($"| {numberOfLayer}. Name: {conv.Name} | Number of kernels: {conv.Filters} | Kernel size:{conv.KernelSize}*{conv.KernelSize} | Output shape: {shapeString} | Activation func: {conv.Activation.Name} |");
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
                         break;
                     case MaxPool pool:
 
 
-                        if (pool.OutputShape.Length == 1)
+                        if (!pool.IsBuilt)
                         {
                             shapeString = "unknown";
                             isEmptyInput = true;
                         }
                         else
                         {
-                            shapeString = $"[{pool.OutputShape[0]},{pool.OutputShape[1]},{pool.OutputShape[2]}]";
+                            shapeString = $"[{string.Join(",", pool.OutputShape!)}]";
                         }
 
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
@@ -146,13 +148,14 @@ namespace MDNN
             {
                 switch (layer)
                 {
+                    // counted from the actual parameters, so an unbuilt layer contributes 0
                     case Dense dense:
-                        total += dense.Neurons.Count * dense.InputShape[0] + dense.Neurons.Count;
+                        total += dense.Neurons.Sum(n => n.Weights.Length + 1);
                         break;
                     case RNN rnn:
-                        total += rnn.Neurons.Count * (rnn.InputShape[0] + 1) + rnn.Neurons.Count;
+                        total += rnn.Neurons.Sum(n => n.Weights.Length + 1);
                         break;
-                    case Conv conv:
+                    case Conv conv when conv.IsBuilt:
                         total += conv.Kernels.Length
                                  * (conv.Kernels[0].Count() * conv.Kernels[0][0].Count() * conv.Kernels[0][0][0].Count())
                                  + conv.Biases.Length;
