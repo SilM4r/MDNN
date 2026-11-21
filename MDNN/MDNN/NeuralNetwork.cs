@@ -87,9 +87,16 @@ namespace MDNN
             Note = loadModel.Note;
         }
         /// <summary>
-        /// Creates a model ending with <paramref name="outputLayer"/>; more layers are added via <see cref="Layers"/>.
+        /// Creates a model without layers yet: hidden layers are added via <see cref="Layers"/>, and the
+        /// output layer is created from the data — its size from the targets, its activation from the loss
+        /// (see <see cref="Dense.FromTargets"/>).
         /// </summary>
-        /// <param name="outputLayer">The output layer.</param>
+        /// <example>
+        /// <code>
+        /// var model = new NeuralNetwork(new Adam(0.001), new CrossEntropy(), seed: 42);
+        /// model.Layers.Add(new Dense(64, new ReLU()));
+        /// </code>
+        /// </example>
         /// <param name="optimizer">Optimizer; defaults to SGD.</param>
         /// <param name="loss">Loss function; defaults to MSE.</param>
         /// <param name="seed">
@@ -97,32 +104,56 @@ namespace MDNN
         /// everything random the model does. Two models with the same seed, architecture and data give
         /// bit-identical results. Without a seed the shared global generator is used.
         /// </param>
-        public NeuralNetwork(Layer outputLayer, Optimizer? optimizer = null, Loss? loss = null, int? seed = null)
-            : this(new[] { outputLayer ?? throw new ArgumentNullException(nameof(outputLayer)) }, optimizer, loss, seed)
+        public NeuralNetwork(Optimizer? optimizer = null, Loss? loss = null, int? seed = null)
+            : this(Array.Empty<Layer>(), optimizer, loss, seed)
         {
         }
 
         /// <summary>
-        /// Creates a model from a list of layers, in order from input to output; the last one is the output layer.
+        /// Creates a model with the given output layer; hidden layers are added via <see cref="Layers"/>.
+        /// </summary>
+        /// <param name="outputLayer">The output layer.</param>
+        /// <param name="optimizer">Optimizer; defaults to SGD.</param>
+        /// <param name="loss">Loss function; defaults to MSE.</param>
+        /// <param name="seed">Seed for reproducibility — see <see cref="NeuralNetwork(Optimizer?, Loss?, int?)"/>.</param>
+        public NeuralNetwork(Layer outputLayer, Optimizer? optimizer = null, Loss? loss = null, int? seed = null)
+            : this(Array.Empty<Layer>(), optimizer, loss, seed,
+                   outputLayer ?? throw new ArgumentNullException(nameof(outputLayer)))
+        {
+        }
+
+        /// <summary>
+        /// Creates a model with the given HIDDEN layers, in order from input to output. The output layer is
+        /// <paramref name="outputLayer"/>, or — when not given — created from the data (its size from the
+        /// targets, its activation from the loss; see <see cref="Dense.FromTargets"/>).
         /// </summary>
         /// <example>
         /// <code>
-        /// var model = new NeuralNetwork(
-        ///     [new Dense(64, new ReLU()), new Dense(10, new Softmax())],
-        ///     new Adam(0.001), new CrossEntropy(), seed: 42);
+        /// // the output layer from the data
+        /// var model = new NeuralNetwork([new Dense(64, new ReLU())], new Adam(0.001), new CrossEntropy(), seed: 42);
+        ///
+        /// // the output layer given
+        /// var model = new NeuralNetwork([new Dense(64, new ReLU())], new Adam(0.001), new CrossEntropy(), seed: 42,
+        ///                               outputLayer: new Dense(10, new Softmax()));
         /// </code>
         /// </example>
         /// <remarks>
-        /// The same model as the output layer in the constructor plus <c>Layers.Add</c> for the hidden ones —
-        /// with the same seed it gets bit-for-bit the same weights. More layers can still be added via <see cref="Layers"/>.
+        /// The list holds ONLY hidden layers, whether or not <paramref name="outputLayer"/> is given — one meaning
+        /// for one parameter. (Were the last layer of the list the output layer whenever no output layer is given,
+        /// adding <c>outputLayer:</c> to an existing call would silently turn the old output layer into a hidden one.)
+        /// To give the whole architecture in one list, with the output layer last, use <c>model.Layers.ReplaceAll</c>.
         /// </remarks>
-        /// <param name="layers">The layers, the last one is the output layer. Each instance may appear only once.</param>
+        /// <param name="hiddenLayers">The hidden layers; may be empty. Each instance may appear only once.</param>
         /// <param name="optimizer">Optimizer; defaults to SGD.</param>
         /// <param name="loss">Loss function; defaults to MSE.</param>
-        /// <param name="seed">Seed for reproducibility — see the other constructor.</param>
-        /// <exception cref="ArgumentException">The list is empty, contains null, or a layer instance twice or from another model.</exception>
-        public NeuralNetwork(IEnumerable<Layer> layers, Optimizer? optimizer = null, Loss? loss = null, int? seed = null)
+        /// <param name="seed">Seed for reproducibility — see <see cref="NeuralNetwork(Optimizer?, Loss?, int?)"/>.</param>
+        /// <param name="outputLayer">The output layer; <c>null</c> = created from the data.</param>
+        /// <exception cref="ArgumentException">The list contains null, or a layer instance twice or from another model.</exception>
+        public NeuralNetwork(IEnumerable<Layer> hiddenLayers, Optimizer? optimizer = null, Loss? loss = null,
+                             int? seed = null, Layer? outputLayer = null)
         {
+            ArgumentNullException.ThrowIfNull(hiddenLayers);
+
             if (optimizer != null)
             {
                 context.Optimizer = optimizer;
@@ -138,7 +169,7 @@ namespace MDNN
                 context.Seed = seed;
             }
 
-            layerManager = new LayerManager(layers, context);
+            layerManager = new LayerManager(hiddenLayers.Append(outputLayer ?? Dense.FromTargets()), context);
 
             train = new Train(this);
             Note = "";

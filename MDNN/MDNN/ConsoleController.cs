@@ -8,6 +8,10 @@ namespace MDNN
     /// </summary>
     public static class ConsoleController
     {
+        // An output layer sized by the targets has no activation until it is built, if it takes it from the loss.
+        private static string DenseActivationName(Dense dense) =>
+            dense.ActivationFromLoss && dense.NeuronCount == 0 ? "from the loss" : dense.Activation.Name;
+
         private static string DescribeShape(int[]? shape) => shape == null ? "unknown" : string.Join(", ", shape);
 
         /// <summary>Prints the model summary: inputs, outputs, loss, optimizer and a table of layers.</summary>
@@ -59,7 +63,7 @@ namespace MDNN
                             shapeString = dense.InputShape![0].ToString();
                         }
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
-                        Console.WriteLine($"| {numberOfLayer}. Name: {dense.Name} | Number of neurons: {dense.NeuronCount} | Number of inputs: {shapeString} | Activation func: {dense.Activation.Name} |");
+                        Console.WriteLine($"| {numberOfLayer}. Name: {dense.Name} | Number of neurons: {(dense.NeuronCount > 0 ? dense.NeuronCount.ToString() : "from the targets")} | Number of inputs: {shapeString} | Activation func: {DenseActivationName(dense)} |");
                         Console.WriteLine("--------------------------------------------------------------------------------------------------------------------");
                         break;
                     case RNN rnn:

@@ -23,10 +23,17 @@ namespace MDNN.Layers
         /// <inheritdoc/>
         public override ActivationFunction Activation
         {
-            get { return activation_func; }
+            get
+            {
+                return activation_func ?? throw new InvalidOperationException(
+                    "The activation of this output layer is chosen from the loss when the layer is built " +
+                    "(CrossEntropy → Softmax, MSE → Linear) — it is not known yet.");
+            }
             set
             {
+                ArgumentNullException.ThrowIfNull(value);
                 activation_func = value;
+                ActivationFromLoss = false;   // set explicitly — no longer chosen from the loss
                 foreach (Neuron neuron in neurons)
                 {
                     neuron.Activation = activation_func;
@@ -42,7 +49,9 @@ namespace MDNN.Layers
         private double[] output;
         private double[] raw_output;
         private List<Neuron> neurons;
-        private ActivationFunction activation_func;
+
+        // null only for Dense.FromTargets() without an activation, until it is chosen from the loss
+        private ActivationFunction? activation_func;
 
         // ---------------------------------------------------------------- dropout
 
@@ -84,7 +93,7 @@ namespace MDNN.Layers
             get
             {
                 if (dropout != null) return dropout.Value;
-                if (IsOutputLayer || activation_func.AppliesToLayer) return 0.0;
+                if (IsOutputLayer || activation_func!.AppliesToLayer) return 0.0;
                 return Context?.Dropout ?? 0.0;
             }
         }
@@ -119,6 +128,84 @@ namespace MDNN.Layers
             output = new double[neuronCount];
             raw_output = new double[neuronCount];
         }
+        // ---------------------------------------------------------------- size from the targets
+        //
+        // The output layer a model gets by default. The input of a model needs no layer — the first
+        // layer adapts to the shape of the data — and the output can follow the data the same way:
+        // its size is the size of one target, and its activation follows from the loss
+        // (CrossEntropy needs Softmax, MSE a Linear output). The layer stays an ordinary Dense; it only
+        // learns its size later, when the model first sees targets (Fit, TrainLoop, Evaluate).
+
+        /// <summary>
+        /// An output layer whose number of neurons comes from the targets (the size of one target) — the
+        /// output layer a model gets when none is given. The activation is chosen from the loss
+        /// (<c>CrossEntropy</c> → <c>Softmax</c>, <c>MSE</c> → <c>Linear</c>) unless given here.
+        /// </summary>
+        /// <remarks>
+        /// Can only be the output layer. Until the model has seen targets the size is not known, so a
+        /// model with such an output cannot predict before it is trained.
+        /// Use it to go back to the automatic output: <c>model.Layers.ReplaceOutput(Dense.FromTargets())</c>.
+        /// </remarks>
+        /// <param name="activation">The activation; <c>null</c> = chosen from the loss.</param>
+        public static Dense FromTargets(ActivationFunction? activation = null) => new Dense(activation, sizeFromTargets: true);
+
+        private Dense(ActivationFunction? activation, bool sizeFromTargets)
+        {
+            SizeFromTargets = sizeFromTargets;
+            activation_func = activation;
+            ActivationFromLoss = activation == null;
+            NeuronCount = 0;   // learned from the targets (ResolveFromTargets)
+            neurons = new List<Neuron>();
+            output = Array.Empty<double>();
+            raw_output = Array.Empty<double>();
+        }
+
+        /// <summary>True if the number of neurons comes from the targets (<see cref="FromTargets"/>).</summary>
+        public bool SizeFromTargets { get; private set; }
+
+        /// <summary>True if the activation is chosen from the loss (<see cref="FromTargets"/> without an activation).</summary>
+        public bool ActivationFromLoss { get; private set; }
+
+        // The model has seen targets: the layer gets its size (and, if it has none, its activation).
+        internal void ResolveFromTargets(int targetCount, MDNN.Losses.Loss loss)
+        {
+            if (targetCount <= 0)
+            {
+                throw new ArgumentException($"A target must have at least one value, got {targetCount}.");
+            }
+
+            ActivationFunction activation = activation_func ?? ActivationForLoss(loss);
+
+            activation_func = activation;
+            NeuronCount = targetCount;
+            output = new double[targetCount];
+            raw_output = new double[targetCount];
+        }
+
+        // Rebuild(): the next targets decide the size (and the activation, if it came from the loss) again.
+        internal void ForgetTargetSize()
+        {
+            if (!SizeFromTargets) return;
+
+            NeuronCount = 0;
+            output = Array.Empty<double>();
+            raw_output = Array.Empty<double>();
+            if (ActivationFromLoss) activation_func = null;
+        }
+
+        // Which activation the output needs for this loss. A custom loss does not say, and a silent
+        // guess (e.g. Linear) would be exactly the kind of substitution the library avoids elsewhere.
+        private static ActivationFunction ActivationForLoss(MDNN.Losses.Loss loss)
+        {
+            if (loss.RequiresSoftmax) return new Softmax();
+            if (loss is MDNN.Losses.MSE) return new Linear();
+
+            throw new InvalidOperationException(
+                $"The output layer takes its activation from the loss, but for loss '{loss.Name}' it cannot tell " +
+                "which one. Give it: model.Layers.ReplaceOutput(Dense.FromTargets(new Sigmoid())), or pass the " +
+                "output layer to the constructor: outputLayer: new Dense(n, …).");
+        }
+
         // `optimizerPrototype` = optimizer of the model being loaded; each neuron gets its own clone
         // (with the state from the file). null = global default, see Neuron.
         internal Dense(ExportDenseLayer layer, Optimizer? optimizerPrototype = null)
@@ -145,6 +232,11 @@ namespace MDNN.Layers
             }
 
             inputCount = neurons[0].Weights.Length;
+
+            // older files lack these keys → false = an ordinary fixed-size layer
+            SizeFromTargets = layer.SizeFromTargets;
+            ActivationFromLoss = layer.ActivationFromLoss;
+
             MarkBuiltFromFile(new int[] { inputCount });
         }
 
@@ -164,7 +256,16 @@ namespace MDNN.Layers
         }
 
         /// <inheritdoc/>
-        protected override int[] ComputeOutputShape(int[] inputShape) => new int[] { NeuronCount };
+        protected override int[] ComputeOutputShape(int[] inputShape)
+        {
+            if (NeuronCount == 0)
+            {
+                throw new InvalidOperationException(
+                    "The size of this output layer comes from the targets, which are not known yet.");
+            }
+
+            return new int[] { NeuronCount };
+        }
 
         /// <inheritdoc/>
         protected override void BuildCore(int[] inputShape, Random random, Optimizer optimizerPrototype)
@@ -178,7 +279,7 @@ namespace MDNN.Layers
             // draws as before, so a seeded model gets bit-for-bit the same weights.
             for (int i = 0; i < NeuronCount; i++)
             {
-                built.Add(new Neuron(inputShape[0], activation_func, random));
+                built.Add(new Neuron(inputShape[0], activation_func!, random));
             }
 
             // Per-model optimizer: each neuron gets ITS OWN clone (the optimizer state is per parameter).
@@ -206,7 +307,7 @@ namespace MDNN.Layers
         {
             return IsBuilt
                    && saved is ExportDenseLayer dense
-                   && dense.Name_of_activation_function == activation_func.Name
+                   && dense.Name_of_activation_function == activation_func?.Name
                    && dense.Neurons != null
                    && dense.Neurons.Count == NeuronCount
                    && dense.Neurons.All(n => n.Weights.Length == inputCount);
@@ -298,7 +399,7 @@ namespace MDNN.Layers
                 raw_output[i] = neurons[i].RawOutput;
             }
 
-            if (activation_func.AppliesToLayer)
+            if (activation_func!.AppliesToLayer)
             {
                 LayerActivationFunction? layerActivationFunc = activation_func as LayerActivationFunction;
 
@@ -348,7 +449,7 @@ namespace MDNN.Layers
             // softmax makes no sense anyway (it drops the prediction), hence an error rather than
             // silent nonsense. Global dropout never reaches a softmax layer (EffectiveDropout);
             // only an explicitly set rate gets here.
-            if (activation_func.AppliesToLayer)
+            if (activation_func!.AppliesToLayer)
             {
                 throw new NotSupportedException(
                     $"Dropout cannot be used on a layer with a layer-wide activation ({activation_func.Name}). " +
@@ -452,7 +553,7 @@ namespace MDNN.Layers
         // multiplication by Derivative() would use only the Jacobian's diagonal, which is wrong.
         private double[] ApplyActivationBackward(double[] gradFromAbove)
         {
-            if (activation_func.AppliesToLayer)
+            if (activation_func!.AppliesToLayer)
             {
                 LayerActivationFunction? layerActivationFunc = activation_func as LayerActivationFunction;
 

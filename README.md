@@ -90,14 +90,39 @@ Full, runnable examples for each task type — classification, regression, seque
 The model is created through the `NeuralNetwork` class, which is the central object for working with the network:
 
 ```csharp
+// the output layer is created from the data; hidden layers added afterwards
+NeuralNetwork model = new NeuralNetwork(optimizer, loss, seed: 42);
+
+// hidden layers in the constructor; the output layer from the data, or given
+NeuralNetwork model = new NeuralNetwork([new Dense(64, new ReLU())], optimizer, loss, seed: 42);
+NeuralNetwork model = new NeuralNetwork([new Dense(64, new ReLU())], optimizer, loss, seed: 42,
+                                        outputLayer: new Dense(10, new Softmax()));
+
+// the output layer given, hidden layers added afterwards
 NeuralNetwork model = new NeuralNetwork(outputLayer, optimizer, loss);
 ```
 
-Constructor parameters:
+Constructor parameters (all optional):
 
-- `outputLayer` (required) — a `Layer` representing the output layer; or, in the other constructor, `layers` — all layers in order, the last one being the output layer (see [Adding layers](#adding-layers)).
-- `optimizer` (optional) — an `Optimizer`. Defaults to `SGD(0.0001)`.
-- `loss` (optional) — a loss function. Defaults to `MSE()`.
+- `hiddenLayers` — the hidden layers, in order from input to output. The list holds only hidden layers, whether or not an output layer is given.
+- `outputLayer` — the output layer. When not given, the model creates it from the data (see [The output layer from the data](#the-output-layer-from-the-data)).
+- `optimizer` — an `Optimizer`. Defaults to `SGD(0.0001)`.
+- `loss` — a loss function. Defaults to `MSE()`.
+- `seed` — makes the model reproducible (see [Reproducibility](#reproducibility)).
+
+### The output layer from the data
+
+The input needs no layer of its own — the first layer adapts to the shape of the data — and the
+output can follow the data the same way. A model created without an output layer gets
+`Dense.FromTargets()`: an ordinary `Dense` whose **number of neurons is the size of one target**
+(targets `[n, 10]` → 10 neurons) and whose **activation follows from the loss** — `CrossEntropy`
+→ `Softmax`, `MSE` → `Linear`. With a custom loss the activation cannot be inferred, so it has
+to be given: `Dense.FromTargets(new Sigmoid())`, or set later with `model.Layers.Output.Activation`.
+
+- The size is known once the model sees targets (`Fit`, `TrainLoop`, `Evaluate`); until then the model cannot predict.
+- Targets of another size on a trained model are an error, like a different input; after `RebuildIncompatible()` the output layer is rebuilt for the new size and the hidden layers keep their weights.
+- Back to the automatic output after giving a fixed one: `model.Layers.ReplaceOutput(Dense.FromTargets())`.
+- For an output `Conv` or `RNN` give the output layer yourself.
 
 Supported optimizers: `SGD(learningRate)`, `Adam(learningRate, beta1, beta2)`, `Momentum(learningRate, momentum)`.
 Supported loss functions: `MSE`, `CrossEntropy`.
@@ -121,17 +146,15 @@ model.Layers.Add(new Dense(64, new ReLU()));    // hidden layer, 64 neurons, ReL
 model.Layers.Add(new Dense(32, new Sigmoid())); // hidden layer, 32 neurons, sigmoid
 ```
 
-Or give the model all its layers at once, in order from input to output — the last one is the
-output layer:
+Or give the model its hidden layers at once, in order from input to output:
 
 ```csharp
 NeuralNetwork model = new NeuralNetwork(
     [
         new Dense(64, new ReLU()),
         new Dense(32, new Sigmoid()),
-        new Dense(10, new Softmax()),
     ],
-    new Adam(0.001), new CrossEntropy(), seed: 42);
+    new Adam(0.001), new CrossEntropy(), seed: 42);   // + outputLayer: … for a fixed output layer
 ```
 
 Both give the same model — with the same seed bit-for-bit the same weights — and more layers can

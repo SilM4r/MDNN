@@ -90,14 +90,39 @@ Kompletní spustitelné příklady pro každý typ úlohy — klasifikace, regre
 Model se vytváří přes třídu `NeuralNetwork`, která je centrálním objektem pro práci se sítí:
 
 ```csharp
+// výstupní vrstva se vytvoří z dat; skryté vrstvy se přidají potom
+NeuralNetwork model = new NeuralNetwork(optimizer, loss, seed: 42);
+
+// skryté vrstvy v konstruktoru; výstupní z dat, nebo zadaná
+NeuralNetwork model = new NeuralNetwork([new Dense(64, new ReLU())], optimizer, loss, seed: 42);
+NeuralNetwork model = new NeuralNetwork([new Dense(64, new ReLU())], optimizer, loss, seed: 42,
+                                        outputLayer: new Dense(10, new Softmax()));
+
+// zadaná výstupní vrstva, skryté se přidají potom
 NeuralNetwork model = new NeuralNetwork(outputLayer, optimizer, loss);
 ```
 
-Parametry konstruktoru:
+Parametry konstruktoru (všechny volitelné):
 
-- `outputLayer` (povinný) – objekt `Layer` představující výstupní vrstvu; nebo ve druhém konstruktoru `layers` – všechny vrstvy v pořadí, poslední je výstupní (viz [Přidávání vrstev](#přidávání-vrstev)).
-- `optimizer` (volitelný) – objekt `Optimizer`. Výchozí hodnota je `SGD(0.0001)`.
-- `loss` (volitelný) – ztrátová funkce. Výchozí hodnota je `MSE()`.
+- `hiddenLayers` – skryté vrstvy v pořadí od vstupu k výstupu. Seznam obsahuje jen skryté vrstvy, ať je výstupní zadaná, nebo ne.
+- `outputLayer` – výstupní vrstva. Když není zadaná, model ji vytvoří z dat (viz [Výstupní vrstva z dat](#výstupní-vrstva-z-dat)).
+- `optimizer` – objekt `Optimizer`. Výchozí hodnota je `SGD(0.0001)`.
+- `loss` – ztrátová funkce. Výchozí hodnota je `MSE()`.
+- `seed` – reprodukovatelnost modelu (viz [Reprodukovatelnost](#reprodukovatelnost)).
+
+### Výstupní vrstva z dat
+
+Vstup vlastní vrstvu nepotřebuje — první vrstva se přizpůsobí tvaru dat — a výstup se může datům
+přizpůsobit stejně. Model vytvořený bez výstupní vrstvy dostane `Dense.FromTargets()`: obyčejný
+`Dense`, jehož **počet neuronů je velikost jednoho cíle** (cíle `[n, 10]` → 10 neuronů) a jehož
+**aktivace vyplývá z loss** — `CrossEntropy` → `Softmax`, `MSE` → `Linear`. U vlastní loss aktivaci
+odvodit nejde, je potřeba ji zadat: `Dense.FromTargets(new Sigmoid())`, nebo později přes
+`model.Layers.Output.Activation`.
+
+- Velikost je známá, jakmile model uvidí cíle (`Fit`, `TrainLoop`, `Evaluate`); do té doby model neumí predikovat.
+- Cíle jiné velikosti na natrénovaném modelu jsou chyba, stejně jako jiný vstup; po `RebuildIncompatible()` se výstupní vrstva postaví pro novou velikost a skryté si nechají váhy.
+- Návrat k automatickému výstupu po zadání pevného: `model.Layers.ReplaceOutput(Dense.FromTargets())`.
+- Pro výstupní `Conv` nebo `RNN` zadejte výstupní vrstvu sami.
 
 Podporované optimizéry: `SGD(learningRate)`, `Adam(learningRate, beta1, beta2)`, `Momentum(learningRate, momentum)`.
 Podporované ztrátové funkce: `MSE`, `CrossEntropy`.
@@ -121,17 +146,15 @@ model.Layers.Add(new Dense(64, new ReLU()));    // skrytá vrstva, 64 neuronů, 
 model.Layers.Add(new Dense(32, new Sigmoid())); // skrytá vrstva, 32 neuronů, sigmoid
 ```
 
-Nebo modelu předejte všechny vrstvy najednou, v pořadí od vstupu k výstupu — poslední je
-výstupní vrstva:
+Nebo modelu předejte skryté vrstvy najednou, v pořadí od vstupu k výstupu:
 
 ```csharp
 NeuralNetwork model = new NeuralNetwork(
     [
         new Dense(64, new ReLU()),
         new Dense(32, new Sigmoid()),
-        new Dense(10, new Softmax()),
     ],
-    new Adam(0.001), new CrossEntropy(), seed: 42);
+    new Adam(0.001), new CrossEntropy(), seed: 42);   // + outputLayer: … pro pevnou výstupní vrstvu
 ```
 
 Obojí dá stejný model — se stejným seedem bit po bitu stejné váhy — a i do modelu ze seznamu jde

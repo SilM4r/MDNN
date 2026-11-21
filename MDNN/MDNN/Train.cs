@@ -261,8 +261,13 @@ namespace MDNN
         /// <returns>The model output for <paramref name="inputs"/>.</returns>
         public Tensor Fit(Tensor inputs, Tensor targets)
         {
-            // An unbuilt model is built by GetResults (LayerManager.EnsureBuilt) on this first
-            // sample. Fit used to have its own copy of that check, one of five.
+            // An unbuilt model is built here, on this first sample — with the TARGET too, so an output
+            // layer sized by the targets gets its size (GetResults alone has no targets). The same single
+            // place as everywhere, LayerManager.EnsureBuilt; a built model skips it.
+            if (_model.Layers.NeedsBuild)
+            {
+                _model.Layers.EnsureBuilt(inputs.Shape, targets.Shape);
+            }
 
             // Training mode only for this pass. It controls dropout: inside Fit neurons are
             // dropped, a standalone GetResults (prediction, valid loss) runs without it —
@@ -383,7 +388,7 @@ namespace MDNN
 
             // Built (and checked) BEFORE predicting: with Workers > 1 the replicas are copies of the
             // built layers.
-            _model.Layers.EnsureBuilt(SampleShape(inputs));
+            _model.Layers.EnsureBuilt(SampleShape(inputs), SampleShape(targets));
             CheckLayersAreNotEmpty();
 
             int score = 0;
@@ -569,7 +574,7 @@ namespace MDNN
             // Previously this re-wired the model on every call — and when the data got wider, it
             // silently gave the first layer new random weights. Now different data are an error
             // (see LayerManager.Rebuild / RebuildIncompatible).
-            _model.Layers.EnsureBuilt(new int[] { inputs[0].Length });
+            _model.Layers.EnsureBuilt(new int[] { inputs[0].Length }, new int[] { targets[0].Length });
 
             CheckLayersAreNotEmpty();
 
@@ -645,7 +650,7 @@ namespace MDNN
 
             // An unbuilt model is built here, a built one only checked against the data (see
             // LayerManager.PrepareFor for why the difference).
-            _model.Layers.PrepareFor(SampleShape(inputs));
+            _model.Layers.PrepareFor(SampleShape(inputs), SampleShape(targets));
 
             CheckLayersAreNotEmpty();
 

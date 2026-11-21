@@ -55,6 +55,14 @@ namespace MDNN.Serialization
 
         public List<ExportNeuron>? Neurons { get; set; }
 
+        // An output layer whose size comes from the targets (Dense.FromTargets). Written only when true,
+        // so files of ordinary layers stay as they were; a missing key reads as false.
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public bool SizeFromTargets { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public bool ActivationFromLoss { get; set; }
+
         [JsonConstructor]
         public ExportDenseLayer()
         {
@@ -67,6 +75,8 @@ namespace MDNN.Serialization
 
             Name_of_activation_function = layer.Activation.Name;
             DropoutRate = layer.DropoutRate;
+            SizeFromTargets = layer.SizeFromTargets;
+            ActivationFromLoss = layer.ActivationFromLoss;
 
             Neurons = new List<ExportNeuron>();
 

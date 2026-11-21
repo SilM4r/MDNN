@@ -69,6 +69,7 @@ namespace MDNN
             this.context = context;
             List<Layer> incoming = RequireUsableLayers(layers, nameof(layers));
 
+            RequireSizedByTargetsOnlyAsOutput(incoming);
             foreach (Layer layer in incoming) layer.Context = context;
             context.OptimizerChanged = ReplaceOptimizer;
             layersList = incoming;
@@ -205,7 +206,8 @@ namespace MDNN
             int[] shape = inputShape ?? context.InputShape ?? throw new InvalidOperationException(
                 "The input shape is not known yet. Pass it: model.Layers.SetInputShape(new int[] { … }).");
 
-            EnsureBuilt(shape);
+            // Builds what it can: an output layer whose size comes from the targets waits for them.
+            EnsureBuilt(shape, targetShape: null, requireOutput: false);
         }
 
         /// <summary>
@@ -224,12 +226,15 @@ namespace MDNN
                 layer.Invalidate();
             }
 
+            // an output layer sized by the targets takes its size from the next targets again
+            AutomaticOutput?.ForgetTargetSize();
+
             context.InputShape = null;
             rebuildIncompatibleOnNextPass = false;
 
             if (inputShape != null)
             {
-                EnsureBuilt(inputShape);
+                EnsureBuilt(inputShape, targetShape: null, requireOutput: false);
             }
         }
 
@@ -249,7 +254,7 @@ namespace MDNN
 
             if (inputShape != null)
             {
-                EnsureBuilt(inputShape);
+                EnsureBuilt(inputShape, targetShape: null, requireOutput: false);
             }
         }
 
@@ -257,13 +262,23 @@ namespace MDNN
         // whatever is missing. Previously five places did their own version of it (GetResults, Fit,
         // Evaluate, TrainLoop, SimpleTrainLoop), each inferring the shape a little differently, and
         // SimpleTrainLoop silently re-randomized the first layer when the data got wider.
-        internal void EnsureBuilt(int[] sampleShape)
+        //
+        // `targetShape` = shape of one target, when the caller has targets (Fit, TrainLoop, Evaluate);
+        // an output layer sized by the targets gets its size from it. `requireOutput` = false builds
+        // what can be built without targets (SetInputShape, Rebuild with a shape) and leaves such an
+        // output layer for later; true (a forward pass) needs the whole model.
+        internal void EnsureBuilt(int[] sampleShape, int[]? targetShape = null, bool requireOutput = true)
         {
             RequirePositive(sampleShape);
 
+            if (targetShape != null)
+            {
+                PrepareOutputFor(targetShape);
+            }
+
             if (rebuildIncompatibleOnNextPass)
             {
-                BuildChain(sampleShape, invalidateIncompatible: true);
+                BuildChain(sampleShape, invalidateIncompatible: true, requireOutput);
                 rebuildIncompatibleOnNextPass = false;
                 return;
             }
@@ -276,7 +291,7 @@ namespace MDNN
             // "without input" and training refused to start.
             if (NeedsBuild)
             {
-                BuildChain(sampleShape, invalidateIncompatible: false);
+                BuildChain(sampleShape, invalidateIncompatible: false, requireOutput);
             }
         }
 
@@ -284,18 +299,69 @@ namespace MDNN
         // that has never been built. A built model that got new layers (Add/Insert) builds them on
         // its first pass, exactly as before — building them here would move their random draws in
         // front of the epoch shuffle and change the result of a seeded run.
-        internal void PrepareFor(int[] sampleShape)
+        internal void PrepareFor(int[] sampleShape, int[] targetShape)
         {
             if (context.InputShape == null || rebuildIncompatibleOnNextPass)
             {
-                EnsureBuilt(sampleShape);
+                EnsureBuilt(sampleShape, targetShape);
             }
             else
             {
                 RequirePositive(sampleShape);
+                PrepareOutputFor(targetShape);
                 CheckInput(sampleShape);
             }
         }
+
+        // ---------------------------------------------------------------- output sized by the targets
+
+        // The output layer when its size comes from the targets (Dense.FromTargets — the default), else null.
+        private Dense? AutomaticOutput => Output is Dense { SizeFromTargets: true } dense ? dense : null;
+
+        // Is it still waiting for the targets?
+        private bool OutputWaitsForTargets => AutomaticOutput is { NeuronCount: 0 };
+
+        // The model got targets of this shape. An output layer sized by the targets gets its size from
+        // them; once it has one, targets of another size are an error — the same rule as for the input
+        // (a model trained on 10 classes does not silently become one for 12). RebuildIncompatible()
+        // allows it: the output layer is rebuilt for the new size, the hidden layers keep their weights.
+        // A fixed output layer is not checked here — the backward pass reports a target of the wrong size.
+        private void PrepareOutputFor(int[] targetShape)
+        {
+            Dense? output = AutomaticOutput;
+            if (output == null)
+            {
+                return;
+            }
+
+            int count = Dense.Flatten(targetShape);
+            if (count == output.NeuronCount)
+            {
+                return;
+            }
+
+            if (output.NeuronCount == 0)
+            {
+                output.ResolveFromTargets(count, context.Loss);
+                return;
+            }
+
+            if (!rebuildIncompatibleOnNextPass)
+            {
+                throw new ArgumentException(
+                    $"The output layer is built for {output.NeuronCount} values per sample (the size of the targets " +
+                    $"it was trained on), but the targets have {count}. {Layer.ShapeChangeHint}");
+            }
+
+            output.Invalidate();
+            output.ForgetTargetSize();
+            output.ResolveFromTargets(count, context.Loss);
+        }
+
+        private const string OutputWaitsForTargetsMessage =
+            "The output layer takes its size from the targets, and the model has not seen any yet — so it cannot " +
+            "predict before it is trained. Train it first (Fit, TrainLoop), or give it an output layer of a fixed " +
+            "size: model.Layers.ReplaceOutput(new Dense(n, …)).";
 
         // A model that is (or was) built for some input takes only data that fit it.
         private void CheckInput(int[] sampleShape)
@@ -330,8 +396,16 @@ namespace MDNN
         // First the whole chain is PLANNED — every layer's input shape computed without changing
         // anything. A layer that cannot take its input (e.g. a kernel that does not fit) throws
         // there, before anything is drawn, so the model never ends up half built.
-        private void BuildChain(int[] modelInput, bool invalidateIncompatible)
+        private void BuildChain(int[] modelInput, bool invalidateIncompatible, bool requireOutput)
         {
+            // An output layer that still waits for the targets is left for later — unless the caller
+            // needs the whole model (a forward pass), which then cannot run.
+            bool outputWaits = OutputWaitsForTargets;
+            if (outputWaits && requireOutput)
+            {
+                throw new InvalidOperationException(OutputWaitsForTargetsMessage);
+            }
+
             List<int[]> plan = Plan(layersList, modelInput);
 
             List<int> incompatible = IncompatibleLayers(layersList, plan);
@@ -353,7 +427,8 @@ namespace MDNN
             // One pass left to right: the draw order is a function of the architecture, not of the
             // build history — two identical networks with the same seed come out the same whether
             // they were assembled with Add() or Hidden.Insert().
-            for (int i = 0; i < layersList.Count; i++)
+            int toBuild = outputWaits ? layersList.Count - 1 : layersList.Count;
+            for (int i = 0; i < toBuild; i++)
             {
                 if (!layersList[i].IsBuilt)
                 {
@@ -370,11 +445,20 @@ namespace MDNN
             var inputs = new List<int[]>(layers.Count);
             int[] shape = modelInput;
 
-            foreach (Layer layer in layers)
+            for (int i = 0; i < layers.Count; i++)
             {
+                Layer layer = layers[i];
                 int[] normalized = layer.NormalizeForPlan(shape);
                 inputs.Add(normalized);
-                shape = layer.OutputShapeFor(normalized);
+
+                // The output shape of the LAST layer feeds no other layer. It is still computed — that
+                // validates the layer before anything is built — except for an output layer whose size
+                // is not known until the targets come.
+                bool lastWaitingForTargets = i == layers.Count - 1 && layer is Dense { SizeFromTargets: true, NeuronCount: 0 };
+                if (!lastWaitingForTargets)
+                {
+                    shape = layer.OutputShapeFor(normalized);
+                }
             }
 
             return inputs;
@@ -419,6 +503,7 @@ namespace MDNN
         {
             var candidate = new List<Layer>(layersList);
             change(candidate);
+            RequireSizedByTargetsOnlyAsOutput(candidate);
 
             List<int> stale = context.InputShape != null
                 ? IncompatibleLayers(candidate, Plan(candidate, context.InputShape))
@@ -496,6 +581,20 @@ namespace MDNN
                 throw new ArgumentException(
                     $"This {layer.Name} instance already belongs to another model. Create a new layer, or remove it " +
                     "from the other model first — two models would overwrite each other's state in it.", parameterName);
+            }
+        }
+
+        // Dense.FromTargets() gets its size from the targets — which only the OUTPUT layer is compared to.
+        private static void RequireSizedByTargetsOnlyAsOutput(List<Layer> chain)
+        {
+            for (int i = 0; i < chain.Count - 1; i++)
+            {
+                if (chain[i] is Dense { SizeFromTargets: true })
+                {
+                    throw new ArgumentException(
+                        $"Layer {i + 1} is Dense.FromTargets(), which can only be the output layer — its size comes from " +
+                        "the targets. Use new Dense(n, …) for a hidden layer.");
+                }
             }
         }
 

@@ -9,8 +9,9 @@
         /// Empty until the layer is built.</summary>
         abstract public List<Neuron> Neurons { get; }
 
-        /// <summary>Number of neurons the layer has (or will have once it is built) — the size of its output.</summary>
-        public int NeuronCount { get; protected init; }
+        /// <summary>Number of neurons the layer has (or will have once it is built) — the size of its output.
+        /// 0 only for an output layer whose size comes from the targets and is not known yet (<see cref="Dense.FromTargets"/>).</summary>
+        public int NeuronCount { get; protected set; }
 
         // Shared by Dense and RNN: the replica shares weights by reference, so only the bias is copied.
         internal override void SyncReplica(Layer replica)

@@ -7,7 +7,7 @@ using MDNN.Optimizers;
 namespace MDNN.Tests;
 
 /// <summary>
-/// A model can be given its layers as a list (last = output layer), and its architecture can be
+/// A model can be given its hidden layers as a list (the output layer separately, or from the data), and its architecture can be
 /// replaced as a whole with <c>Layers.ReplaceAll</c>. Every layer instance may be in one model, at one
 /// position — the same instance twice shares the state of one pass and the gradients come out wrong
 /// (measured: the opposite sign).
@@ -36,8 +36,8 @@ public class LayerListTests : GradientCheckTestBase
     public void A_model_from_a_list_is_the_same_as_one_assembled_with_Add()
     {
         var fromList = new NeuralNetwork(
-            [new Dense(5, new ReLU()), new Dense(4, new Tanh()), new Dense(1, new Linear())],
-            new Adam(0.01), new MSE(), seed: 8);
+            [new Dense(5, new ReLU()), new Dense(4, new Tanh())],
+            new Adam(0.01), new MSE(), seed: 8, outputLayer: new Dense(1, new Linear()));
 
         var withAdd = new NeuralNetwork(new Dense(1, new Linear()), new Adam(0.01), new MSE(), seed: 8);
         withAdd.Layers.Add(new Dense(5, new ReLU()));
@@ -50,12 +50,12 @@ public class LayerListTests : GradientCheckTestBase
     }
 
     [Fact]
-    public void The_last_layer_of_the_list_is_the_output_layer()
+    public void The_list_holds_the_hidden_layers_and_outputLayer_the_output_layer()
     {
         var hidden = new Dense(5, new ReLU());
         var output = new Dense(2, new Softmax());
 
-        var model = new NeuralNetwork(new Layer[] { hidden, output }, new SGD(0.1), new CrossEntropy());
+        var model = new NeuralNetwork(new Layer[] { hidden }, new SGD(0.1), new CrossEntropy(), outputLayer: output);
 
         Assert.Same(hidden, model.Layers.Layers[0]);
         Assert.Same(output, model.Layers.Layers[1]);
@@ -67,7 +67,7 @@ public class LayerListTests : GradientCheckTestBase
     [Fact]
     public void More_layers_can_still_be_added_to_a_model_from_a_list()
     {
-        var model = new NeuralNetwork([new Dense(5, new ReLU()), new Dense(1, new Linear())], seed: 1);
+        var model = new NeuralNetwork([new Dense(5, new ReLU())], seed: 1, outputLayer: new Dense(1, new Linear()));
 
         model.Layers.Add(new Dense(3, new Tanh()));   // just before the output layer
 
@@ -78,8 +78,10 @@ public class LayerListTests : GradientCheckTestBase
     public void An_invalid_list_is_rejected()
     {
         Assert.Throws<ArgumentNullException>(() => new NeuralNetwork((IEnumerable<Layer>)null!));
-        Assert.Throws<ArgumentException>(() => new NeuralNetwork(Array.Empty<Layer>()));
         Assert.Throws<ArgumentException>(() => new NeuralNetwork(new Layer[] { new Dense(2), null! }));
+
+        // an empty list of HIDDEN layers is fine: the model is just its output layer
+        Assert.Single(new NeuralNetwork(Array.Empty<Layer>()).Layers.Layers);
     }
 
     // ------------------------------------------------------------ one instance, one place
@@ -90,7 +92,7 @@ public class LayerListTests : GradientCheckTestBase
         var shared = new Dense(3, new Tanh());
 
         var ex = Assert.Throws<ArgumentException>(() =>
-            new NeuralNetwork([shared, shared, new Dense(1, new Linear())]));
+            new NeuralNetwork([shared, shared]));
         Assert.Contains("already in the model", ex.Message);
     }
 
@@ -113,12 +115,12 @@ public class LayerListTests : GradientCheckTestBase
     public void A_layer_of_another_model_is_rejected()
     {
         var shared = new Dense(3, new Tanh());
-        var first = new NeuralNetwork([shared, new Dense(1, new Linear())]);
+        var first = new NeuralNetwork([shared]);
         var second = new NeuralNetwork(new Dense(1, new Linear()));
 
         var ex = Assert.Throws<ArgumentException>(() => second.Layers.Add(shared));
         Assert.Contains("another model", ex.Message);
-        Assert.Throws<ArgumentException>(() => new NeuralNetwork([shared, new Dense(1, new Linear())]));
+        Assert.Throws<ArgumentException>(() => new NeuralNetwork([shared]));
         Assert.Same(first.Context, shared.Context);
     }
 
@@ -126,7 +128,7 @@ public class LayerListTests : GradientCheckTestBase
     public void A_removed_layer_can_go_into_another_model()
     {
         var moved = new Dense(3, new Tanh());
-        var first = new NeuralNetwork([moved, new Dense(1, new Linear())]);
+        var first = new NeuralNetwork([moved]);
         var second = new NeuralNetwork(new Dense(1, new Linear()));
 
         first.Layers.Hidden.RemoveAt(0);
@@ -141,7 +143,7 @@ public class LayerListTests : GradientCheckTestBase
     [Fact]
     public void ReplaceAll_gives_the_model_exactly_the_new_layers_and_keeps_its_settings()
     {
-        var model = new NeuralNetwork([new Dense(5, new ReLU()), new Dense(1, new Linear())], new Adam(0.01), new MSE(), seed: 3);
+        var model = new NeuralNetwork([new Dense(5, new ReLU())], new Adam(0.01), new MSE(), seed: 3, outputLayer: new Dense(1, new Linear()));
         TrainFewSteps(model);
         Optimizer optimizer = model.Context.Optimizer;
         Layer oldOutput = model.Layers.Layers[1];
@@ -164,7 +166,7 @@ public class LayerListTests : GradientCheckTestBase
     public void ReplaceAll_may_reuse_a_layer_of_the_model_and_it_keeps_its_weights()
     {
         var first = new Dense(5, new ReLU());
-        var model = new NeuralNetwork([first, new Dense(1, new Linear())], new Adam(0.01), new MSE(), seed: 3);
+        var model = new NeuralNetwork([first], new Adam(0.01), new MSE(), seed: 3, outputLayer: new Dense(1, new Linear()));
         TrainFewSteps(model);
         double[] before = first.Neurons.SelectMany(n => n.Weights).ToArray();
 
@@ -177,7 +179,7 @@ public class LayerListTests : GradientCheckTestBase
     [Fact]
     public void ReplaceAll_rejects_an_invalid_list_and_leaves_the_model_as_it_was()
     {
-        var model = new NeuralNetwork([new Dense(5, new ReLU()), new Dense(1, new Linear())], seed: 3);
+        var model = new NeuralNetwork([new Dense(5, new ReLU())], seed: 3, outputLayer: new Dense(1, new Linear()));
         var layers = model.Layers.Layers.ToArray();
         var shared = new Dense(2);
 
@@ -195,7 +197,7 @@ public class LayerListTests : GradientCheckTestBase
         first = new Dense(5, new ReLU());
         second = new Dense(4, new Tanh());
         output = new Dense(1, new Linear());
-        return new NeuralNetwork([first, second, output], new Adam(0.01), new MSE(), seed: 3);
+        return new NeuralNetwork([first, second], new Adam(0.01), new MSE(), seed: 3, outputLayer: output);
     }
 
     [Fact]
@@ -228,7 +230,7 @@ public class LayerListTests : GradientCheckTestBase
     [Fact]
     public void Hidden_RemoveAt_cannot_remove_the_output_layer()
     {
-        var model = new NeuralNetwork([new Dense(5, new ReLU()), new Dense(1, new Linear())]);
+        var model = new NeuralNetwork([new Dense(5, new ReLU())], outputLayer: new Dense(1, new Linear()));
         Layer output = model.Layers.Output;
 
         // previously RemoveAt(last) removed the output layer and the hidden one took its place
