@@ -17,7 +17,7 @@ namespace MDNN
             {
                 Console.WriteLine($"Number of input : {DescribeShape(model.Context.InputShape)}");
                 Console.WriteLine($"Number of output: {DescribeShape(model.Layers.Layers[model.Layers.Layers.Count() - 1].OutputShape)}");
-                Console.WriteLine($"Number of hidden layers: {model.Layers.Layers.Count() - 1}");
+                Console.WriteLine($"Number of hidden layers: {model.Layers.Hidden.Count}");
                 Console.WriteLine($"Schema layers: {model.Schema}");
             }
 

@@ -262,7 +262,7 @@ public class BuildLifecycleTests : GradientCheckTestBase
         Layer firstBefore = model.Layers.Layers[0];
         double[] outputBefore = WeightsOf(model.Layers.Layers[1]);
 
-        model.Layers.Insert(0, new Dense(7, new ReLU()));   // the old first layer now gets 7 inputs
+        model.Layers.Hidden.Insert(0, new Dense(7, new ReLU()));   // the old first layer now gets 7 inputs
         Assert.False(firstBefore.IsBuilt);
         model.GetResults(new Tensor(new double[3]));
 
@@ -506,7 +506,7 @@ public class BuildLifecycleTests : GradientCheckTestBase
         var model = new NeuralNetwork(new Dense(2, new Linear()), seed: 1);
         model.GetResults(new Tensor(new double[8]));
 
-        model.Layers.Clear(new Dense(3, new Linear()));
+        model.Layers.ReplaceAll([new Dense(3, new Linear())]);
         Assert.Null(model.Context.InputShape);   // nothing built is left, so nothing to protect
 
         // previously (this branch): "The model is built for input 8"; on main: 8 weights × 4 inputs

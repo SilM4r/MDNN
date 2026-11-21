@@ -137,26 +137,45 @@ NeuralNetwork model = new NeuralNetwork(
 Obojí dá stejný model — se stejným seedem bit po bitu stejné váhy — a i do modelu ze seznamu jde
 další vrstvy přidávat.
 
-Kromě `Add()` nabízí `Layers` také:
+API `Layers` je rozdělené na **skryté vrstvy** a **výstupní vrstvu**, takže z každého volání je
+jasné, kterou z nich mění (vstup vlastní vrstvu nepotřebuje — první vrstva se přizpůsobí tvaru
+dat):
 
-- `Insert()` – vloží vrstvu na danou pozici
-- `RemoveAt()` – odebere vrstvu na dané pozici (poslední zbývající vrstvu odebrat nejde)
-- `SetOutputActivation()` – nastaví novou výstupní aktivační funkci
-- `Replace([...])` – vymění celou architekturu za dané vrstvy (poslední je výstupní); optimizér, loss, seed i datasety zůstanou
-- `Clear(outputLayer)` – odebere všechny vrstvy a nastaví novou výstupní vrstvu (totéž co `Replace([outputLayer])`)
+```csharp
+// skryté vrstvy — pozice počítají jen skryté vrstvy, výstupní se nikdy nedotknou
+model.Layers.Hidden                         // skryté vrstvy (Count, [i], foreach)
+model.Layers.Hidden.Add(vrstva)             // za skryté vrstvy, těsně před výstupní
+model.Layers.Hidden.Insert(pozice, vrstva)  // 0 … Hidden.Count
+model.Layers.Hidden.RemoveAt(pozice)        // jen skrytá vrstva
+model.Layers.Hidden.Clear()                 // všechny skryté; výstupní zůstane
+model.Layers.Hidden.Replace([...])          // nové skryté vrstvy; výstupní zůstane
+
+// výstupní vrstva
+model.Layers.Output                         // výstupní vrstva
+model.Layers.ReplaceOutput(vrstva)          // jediný způsob, jak ji vyměnit
+
+// celá architektura
+model.Layers.Layers                         // všechny vrstvy v pořadí (jen ke čtení)
+model.Layers.ReplaceAll([...])              // vše najednou, poslední je výstupní
+
+model.Layers.Add(vrstva)                    // zkratka pro Hidden.Add
+```
+
+Optimizér, loss, seed i datasety zůstanou, ať vyměníte cokoli. Vrstvy, kterým se nezmění vstup,
+si nechají váhy (viz [Stavba modelu](#stavba-modelu)). Aktivace výstupní vrstvy se nastavuje
+přímo na ní: `model.Layers.Output.Activation = new Softmax();`.
+
+Stavba modelu předem a přestavba:
+
 - `SetInputShape(shape)` – postaví model hned pro daný tvar vstupu, ne až při prvním průchodu
 - `Rebuild()` – zahodí váhy všech vrstev; model se postaví znovu pro další data, ať mají jakýkoli tvar
 - `RebuildIncompatible()` – další data smějí mít jiný tvar: nové váhy dostanou jen vrstvy, na které už nesedí, ostatní si své nechají
 
-`model.Layers.Layers` je seznam vrstev v pořadí, jen ke čtení; měnit ho jde jen metodami výš,
-protože ty zároveň rozhodnou, které postavené vrstvy už nesedí (viz
-[Stavba modelu](#stavba-modelu)).
-
 Každá instance vrstvy může být v jednom modelu na jednom místě. Vrstva drží stav jednoho
 průchodu (své výstupy, vstupy neuronů, masku dropoutu, nasčítané gradienty), takže tatáž instance
 na dvou pozicích — nebo ve dvou modelech — by ho sdílela a gradienty by tiše vycházely špatně.
-Přidat ji znovu je proto chyba; vytvořte novou vrstvu. Vrstva odebraná z modelu (`RemoveAt`,
-`Replace`) se od něj odpojí a jde použít jinde.
+Přidat ji znovu je proto chyba; vytvořte novou vrstvu. Vrstva odebraná z modelu (`Hidden.RemoveAt`,
+`Hidden.Clear`, `ReplaceOutput`, …) se od něj odpojí a jde použít jinde.
 
 Postavený model bere jen data tvaru, pro který byl postaven. Data jiného tvaru — třeba širší
 vstup — jsou chyba, ne tichá nová inicializace první vrstvy; pokud ji opravdu chcete, zavolejte
@@ -589,9 +608,10 @@ dva kroky:
    inicializují parametry. `Context.InputShape` pak drží tvar, pro který je model postavený.
 
 Protože se parametry losují v pořadí architektury, dva modely se stejným seedem a stejnou
-architekturou dostanou stejné váhy bez ohledu na to, jestli vznikly přes `Add()` nebo `Insert()`.
+architekturou dostanou stejné váhy bez ohledu na to, jestli vznikly ze seznamu, přes `Add()` nebo
+přes `Hidden.Insert()`.
 
-Změna struktury postaveného modelu (`Add`, `Insert`, `RemoveAt`) vrátí na popis ty vrstvy,
+Změna struktury postaveného modelu (přidání, odebrání nebo výměna vrstev) vrátí na popis ty vrstvy,
 kterým se tím posune vstup — typicky vrstvu hned za vloženou nebo odebranou; postaví se znovu
 při dalším průchodu, ostatní si váhy nechají. Načtený model je postavený hned; obnova nejlepšího
 modelu na konci `TrainLoop` (i `LoadWeightsInPlace` se souborem stejné architektury) nahraje

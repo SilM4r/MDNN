@@ -137,26 +137,45 @@ NeuralNetwork model = new NeuralNetwork(
 Both give the same model — with the same seed bit-for-bit the same weights — and more layers can
 still be added to a model created from a list.
 
-Besides `Add()`, the `Layers` API includes:
+The `Layers` API is split into the **hidden layers** and the **output layer**, so it is clear
+from every call which of the two it changes (the input needs no layer of its own — the first
+layer adapts to the shape of the data):
 
-- `Insert()` — insert a layer at a given position
-- `RemoveAt()` — remove a layer at a given position (the last remaining layer cannot be removed)
-- `SetOutputActivation()` — set a new output activation function
-- `Replace([...])` — replace the whole architecture with the given layers (the last one is the output layer); optimizer, loss, seed and datasets stay
-- `Clear(outputLayer)` — remove all layers and set a new output layer (the same as `Replace([outputLayer])`)
+```csharp
+// hidden layers — positions count only the hidden layers, the output layer is never touched
+model.Layers.Hidden                         // the hidden layers (Count, [i], foreach)
+model.Layers.Hidden.Add(layer)              // after the hidden layers, just before the output layer
+model.Layers.Hidden.Insert(position, layer) // 0 … Hidden.Count
+model.Layers.Hidden.RemoveAt(position)      // a hidden layer only
+model.Layers.Hidden.Clear()                 // all hidden layers; the output layer stays
+model.Layers.Hidden.Replace([...])          // new hidden layers; the output layer stays
+
+// the output layer
+model.Layers.Output                         // the output layer
+model.Layers.ReplaceOutput(layer)           // the only way to change it
+
+// the whole architecture
+model.Layers.Layers                         // all layers in order (read-only)
+model.Layers.ReplaceAll([...])              // everything at once, the last one is the output layer
+
+model.Layers.Add(layer)                     // shortcut for Hidden.Add
+```
+
+Optimizer, loss, seed and datasets stay whatever you replace. Layers whose input does not change
+keep their weights (see [Building the model](#building-the-model)). The activation of the output
+layer is set on the layer itself: `model.Layers.Output.Activation = new Softmax();`.
+
+Building the model in advance and rebuilding it:
+
 - `SetInputShape(shape)` — build the model now for the given input shape, instead of on the first pass
 - `Rebuild()` — throw away the weights of all layers; the model is built again for the next data, whatever their shape
 - `RebuildIncompatible()` — let the next data have a different shape: only the layers that no longer fit get new weights, the others keep theirs
-
-`model.Layers.Layers` is a read-only list of the layers in order; the methods above are the
-only way to change it, because they also decide which built layers no longer fit (see
-[Building the model](#building-the-model)).
 
 Each layer instance can be in one model, at one position. A layer keeps the state of one pass
 (its outputs, the inputs of its neurons, the dropout mask, the accumulated gradients), so the same
 instance at two positions — or in two models — would share it and the gradients would silently come
 out wrong. Adding it again is therefore an error; create a new layer instead. A layer removed from a
-model (`RemoveAt`, `Replace`) is detached from it and can go into another one.
+model (`Hidden.RemoveAt`, `Hidden.Clear`, `ReplaceOutput`, …) is detached from it and can go into another one.
 
 A built model only takes data of the shape it was built for. Data of a different shape — say
 the input got wider — is an error, not a silent re-initialization of the first layer; call
@@ -597,11 +616,12 @@ once the shape of the data is known: on the first pass, or earlier via
    randomly initialized. `Context.InputShape` then holds the shape the model is built for.
 
 Because parameters are drawn in architecture order, two models with the same seed and the same
-architecture get the same weights no matter whether they were assembled with `Add()` or `Insert()`.
+architecture get the same weights no matter whether they were assembled from a list, with `Add()`
+or with `Hidden.Insert()`.
 
-Changing the structure of a built model (`Add`, `Insert`, `RemoveAt`) turns the layers whose input
-the change shifts back into descriptions — typically the layer right after the inserted or removed
-one; they are built again on the next pass, the others keep their weights. A loaded model is built
+Changing the structure of a built model (adding, removing or replacing layers) turns the layers
+whose input the change shifts back into descriptions — typically the layer right after the inserted
+or removed one; they are built again on the next pass, the others keep their weights. A loaded model is built
 straight away; restoring the best model at the end of `TrainLoop` (and `LoadWeightsInPlace` with a
 file of the same architecture) copies the parameters into the existing layers, so references you
 hold to them stay valid.

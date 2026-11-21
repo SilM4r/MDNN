@@ -262,7 +262,7 @@
           {
               var m = new NeuralNetwork(new Dense(2, new Linear()), new SGD(0.01), new MSE(), seed: 42);
               m.Layers.Add(new Dense(4, new ReLU()));
-              m.Layers.Insert(0, new Dense(3, new ReLU()));
+              m.Layers.Hidden.Insert(0, new Dense(3, new ReLU()));
               m.GetResults(new Tensor(new double[] { 1, 1 }));
               return m;
           }

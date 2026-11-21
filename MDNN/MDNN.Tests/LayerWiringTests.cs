@@ -18,7 +18,7 @@
       {
           var model = new NeuralNetwork(new Dense(2, new Linear()), new SGD(0.01), new MSE());
 
-          var ex = Record.Exception(() => model.Layers.Insert(0, new Conv(2, 2, new ReLU(), "valid")));
+          var ex = Record.Exception(() => model.Layers.Hidden.Insert(0, new Conv(2, 2, new ReLU(), "valid")));
 
           // Either it succeeds, or it must be a CLEAR exception, not a DivideByZeroException
           // from deep inside ConvertTo2D.

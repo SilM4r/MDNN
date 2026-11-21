@@ -8,7 +8,7 @@ namespace MDNN.Tests;
 
 /// <summary>
 /// A model can be given its layers as a list (last = output layer), and its architecture can be
-/// replaced as a whole with <c>Layers.Replace</c>. Every layer instance may be in one model, at one
+/// replaced as a whole with <c>Layers.ReplaceAll</c>. Every layer instance may be in one model, at one
 /// position — the same instance twice shares the state of one pass and the gradients come out wrong
 /// (measured: the opposite sign).
 /// </summary>
@@ -103,7 +103,7 @@ public class LayerListTests : GradientCheckTestBase
 
         // previously allowed: two positions sharing weights and buffers → gradient with the wrong sign
         Assert.Throws<ArgumentException>(() => model.Layers.Add(shared));
-        Assert.Throws<ArgumentException>(() => model.Layers.Insert(0, shared));
+        Assert.Throws<ArgumentException>(() => model.Layers.Hidden.Insert(0, shared));
         Assert.Throws<ArgumentException>(() => model.Layers.Add(model.Layers.Layers[1]));   // the output layer too
 
         Assert.Equal(2, model.Layers.Layers.Count);   // the model did not change
@@ -129,7 +129,7 @@ public class LayerListTests : GradientCheckTestBase
         var first = new NeuralNetwork([moved, new Dense(1, new Linear())]);
         var second = new NeuralNetwork(new Dense(1, new Linear()));
 
-        first.Layers.RemoveAt(0);
+        first.Layers.Hidden.RemoveAt(0);
         Assert.Null(moved.Context);   // detached
 
         second.Layers.Add(moved);
@@ -139,7 +139,7 @@ public class LayerListTests : GradientCheckTestBase
     // ------------------------------------------------------------ Replace
 
     [Fact]
-    public void Replace_gives_the_model_exactly_the_new_layers_and_keeps_its_settings()
+    public void ReplaceAll_gives_the_model_exactly_the_new_layers_and_keeps_its_settings()
     {
         var model = new NeuralNetwork([new Dense(5, new ReLU()), new Dense(1, new Linear())], new Adam(0.01), new MSE(), seed: 3);
         TrainFewSteps(model);
@@ -148,7 +148,7 @@ public class LayerListTests : GradientCheckTestBase
 
         var hidden = new Dense(7, new Tanh());
         var output = new Dense(2, new Linear());
-        model.Layers.Replace([hidden, output]);
+        model.Layers.ReplaceAll([hidden, output]);
 
         Assert.Equal(new Layer[] { hidden, output }, model.Layers.Layers);
         Assert.True(output.IsOutputLayer);
@@ -161,42 +161,152 @@ public class LayerListTests : GradientCheckTestBase
     }
 
     [Fact]
-    public void Replace_may_reuse_a_layer_of_the_model_and_it_keeps_its_weights()
+    public void ReplaceAll_may_reuse_a_layer_of_the_model_and_it_keeps_its_weights()
     {
         var first = new Dense(5, new ReLU());
         var model = new NeuralNetwork([first, new Dense(1, new Linear())], new Adam(0.01), new MSE(), seed: 3);
         TrainFewSteps(model);
         double[] before = first.Neurons.SelectMany(n => n.Weights).ToArray();
 
-        model.Layers.Replace([first, new Dense(2, new Tanh()), new Dense(1, new Linear())]);
+        model.Layers.ReplaceAll([first, new Dense(2, new Tanh()), new Dense(1, new Linear())]);
 
         Assert.True(first.IsBuilt);   // its input (3) did not change
         Assert.Equal(before, first.Neurons.SelectMany(n => n.Weights).ToArray());
     }
 
     [Fact]
-    public void Replace_rejects_an_invalid_list_and_leaves_the_model_as_it_was()
+    public void ReplaceAll_rejects_an_invalid_list_and_leaves_the_model_as_it_was()
     {
         var model = new NeuralNetwork([new Dense(5, new ReLU()), new Dense(1, new Linear())], seed: 3);
         var layers = model.Layers.Layers.ToArray();
         var shared = new Dense(2);
 
-        Assert.Throws<ArgumentException>(() => model.Layers.Replace([shared, shared]));
-        Assert.Throws<ArgumentException>(() => model.Layers.Replace(Array.Empty<Layer>()));
+        Assert.Throws<ArgumentException>(() => model.Layers.ReplaceAll([shared, shared]));
+        Assert.Throws<ArgumentException>(() => model.Layers.ReplaceAll(Array.Empty<Layer>()));
 
         Assert.Equal(layers, model.Layers.Layers);
         Assert.All(layers, l => Assert.Same(model.Context, l.Context));
     }
 
-    [Fact]
-    public void Clear_with_an_output_layer_is_Replace_with_one_layer()
-    {
-        var model = new NeuralNetwork([new Dense(5, new ReLU()), new Dense(1, new Linear())], seed: 3);
-        var output = new Dense(2, new Linear());
+    // ------------------------------------------------------------ hidden layers vs the output layer
 
-        model.Layers.Clear(output);
+    private static NeuralNetwork ThreeLayers(out Dense first, out Dense second, out Dense output)
+    {
+        first = new Dense(5, new ReLU());
+        second = new Dense(4, new Tanh());
+        output = new Dense(1, new Linear());
+        return new NeuralNetwork([first, second, output], new Adam(0.01), new MSE(), seed: 3);
+    }
+
+    [Fact]
+    public void Hidden_and_Output_split_the_model()
+    {
+        var model = ThreeLayers(out var first, out var second, out var output);
+
+        Assert.Equal(new Layer[] { first, second }, model.Layers.Hidden);
+        Assert.Equal(2, model.Layers.Hidden.Count);
+        Assert.Same(second, model.Layers.Hidden[1]);
+        Assert.Same(output, model.Layers.Output);
+        Assert.Equal(new Layer[] { first, second, output }, model.Layers.Layers);
+        Assert.Throws<ArgumentOutOfRangeException>(() => model.Layers.Hidden[2]);   // not the output layer
+    }
+
+    [Fact]
+    public void Hidden_Insert_at_the_end_goes_before_the_output_layer_never_after()
+    {
+        var model = ThreeLayers(out _, out _, out var output);
+        var added = new Dense(3, new ReLU());
+
+        // previously Insert(Count, x) on the whole chain made x the new output layer
+        model.Layers.Hidden.Insert(model.Layers.Hidden.Count, added);
+
+        Assert.Same(added, model.Layers.Hidden[2]);
+        Assert.Same(output, model.Layers.Output);
+        Assert.Throws<ArgumentOutOfRangeException>(() => model.Layers.Hidden.Insert(4, new Dense(2)));
+    }
+
+    [Fact]
+    public void Hidden_RemoveAt_cannot_remove_the_output_layer()
+    {
+        var model = new NeuralNetwork([new Dense(5, new ReLU()), new Dense(1, new Linear())]);
+        Layer output = model.Layers.Output;
+
+        // previously RemoveAt(last) removed the output layer and the hidden one took its place
+        Assert.Throws<ArgumentOutOfRangeException>(() => model.Layers.Hidden.RemoveAt(1));
+
+        model.Layers.Hidden.RemoveAt(0);
+        Assert.Empty(model.Layers.Hidden);
+        Assert.Throws<ArgumentOutOfRangeException>(() => model.Layers.Hidden.RemoveAt(0));
+        Assert.Same(output, model.Layers.Output);
+    }
+
+    [Fact]
+    public void Hidden_Clear_keeps_the_output_layer()
+    {
+        var model = ThreeLayers(out var first, out _, out var output);
+
+        model.Layers.Hidden.Clear();
 
         Assert.Equal(new Layer[] { output }, model.Layers.Layers);
         Assert.True(output.IsOutputLayer);
+        Assert.Null(first.Context);   // detached
+    }
+
+    [Fact]
+    public void Hidden_Replace_keeps_the_output_layer()
+    {
+        var model = ThreeLayers(out _, out _, out var output);
+        var hidden = new Dense(7, new Tanh());
+
+        model.Layers.Hidden.Replace([hidden]);
+
+        Assert.Equal(new Layer[] { hidden, output }, model.Layers.Layers);
+        Assert.Throws<ArgumentException>(() => model.Layers.Hidden.Replace([output]));   // the output layer is not hidden
+    }
+
+    [Fact]
+    public void ReplaceOutput_swaps_only_the_output_layer_and_the_hidden_ones_keep_their_weights()
+    {
+        var model = ThreeLayers(out var first, out var second, out var oldOutput);
+        TrainFewSteps(model);
+        double[] hiddenBefore = Parameters(model).Take(5 * 4 + 4 * 6).ToArray();   // first (5×(3+1)) + second (4×(5+1))
+
+        var newOutput = new Dense(2, new Linear());
+        model.Layers.ReplaceOutput(newOutput);
+
+        Assert.Same(newOutput, model.Layers.Output);
+        Assert.True(newOutput.IsOutputLayer);
+        Assert.False(second.IsOutputLayer);
+        Assert.Null(oldOutput.Context);   // detached
+        Assert.True(first.IsBuilt);
+        Assert.True(second.IsBuilt);
+
+        var y = model.GetResults(new Tensor(new double[] { 1, 2, 3 }));
+        Assert.Equal(2, y.Data.Length);
+        Assert.Equal(hiddenBefore, Parameters(model).Take(hiddenBefore.Length).ToArray());
+    }
+
+    [Fact]
+    public void ReplaceOutput_rejects_a_hidden_layer_and_ignores_the_current_output_layer()
+    {
+        var model = ThreeLayers(out var first, out _, out var output);
+
+        Assert.Throws<ArgumentException>(() => model.Layers.ReplaceOutput(first));
+        model.Layers.ReplaceOutput(output);   // no-op
+
+        Assert.Equal(3, model.Layers.Layers.Count);
+        Assert.Same(output, model.Layers.Output);
+    }
+
+    [Fact]
+    public void Layers_Add_is_a_shortcut_for_Hidden_Add()
+    {
+        var model = ThreeLayers(out _, out _, out var output);
+        var added = new Dense(3, new ReLU());
+
+        model.Layers.Add(added);
+
+        Assert.Same(added, model.Layers.Hidden[^1]);
+        Assert.Same(output, model.Layers.Output);
     }
 }

@@ -18,12 +18,27 @@ namespace MDNN
     {
         private List<Layer> layersList = new List<Layer>();
 
-        // Read-only view: layers are added and removed only through Add/Insert/RemoveAt/Clear,
-        // which also decide which built layers no longer fit.
+        // Read-only view: layers are added and removed only through Hidden, ReplaceOutput and
+        // ReplaceAll, which also decide which built layers no longer fit.
         /// <summary>
-        /// The layers in order, from input to output (read-only; use Add/Insert/RemoveAt to change).
+        /// All layers in order, from input to output (read-only; change them via <see cref="Hidden"/>,
+        /// <see cref="ReplaceOutput"/> or <see cref="ReplaceAll"/>).
         /// </summary>
         public IReadOnlyList<Layer> Layers => layersList;
+
+        // The model is split into its hidden layers and the output layer, and each part has its own
+        // API — so it is clear from the call alone which of the two it touches. (The input needs no
+        // layer of its own: the first layer adapts to the shape of the data.)
+        /// <summary>
+        /// The hidden layers (all except the output layer), with their own Add/Insert/RemoveAt/Clear/Replace.
+        /// </summary>
+        public HiddenLayers Hidden => hidden ??= new HiddenLayers(this);
+        private HiddenLayers? hidden;
+
+        /// <summary>
+        /// The output layer (always the last one). Replace it with <see cref="ReplaceOutput"/>.
+        /// </summary>
+        public Layer Output => layersList[^1];
 
         private NetworkContext context;
 
@@ -294,7 +309,7 @@ namespace MDNN
             Layer first = layersList[0];
 
             // The first layer decides: Dense takes [28,28] and [784] alike, Conv compares [h,w,c].
-            // When the first layer is new (Insert(0, …) into a built model), it has no shape yet,
+            // When the first layer is new (Hidden.Insert(0, …) into a built model), it has no shape yet,
             // so at least the size of a sample must stay the same.
             bool fits = first.IsBuilt
                 ? first.Accepts(sampleShape)
@@ -337,7 +352,7 @@ namespace MDNN
 
             // One pass left to right: the draw order is a function of the architecture, not of the
             // build history — two identical networks with the same seed come out the same whether
-            // they were assembled with Add() or Insert().
+            // they were assembled with Add() or Hidden.Insert().
             for (int i = 0; i < layersList.Count; i++)
             {
                 if (!layersList[i].IsBuilt)
@@ -379,8 +394,8 @@ namespace MDNN
             return result;
         }
 
-        // Which layer is the output layer. Must be recomputed on EVERY chain change — after Insert
-        // or RemoveAt a different layer may become last, and a layer keeping a stale flag would get
+        // Which layer is the output layer. Must be recomputed on EVERY chain change — after
+        // ReplaceOutput or ReplaceAll a different layer is last, and a layer keeping a stale flag would get
         // the global dropout (see Layer.IsOutputLayer).
         private void MarkLayerRoles()
         {
@@ -431,7 +446,7 @@ namespace MDNN
                 layersList[i].Invalidate();
             }
 
-            // No built layer left (Replace, or a change that shifted every layer's input): there are
+            // No built layer left (ReplaceAll, or a change that shifted every layer's input): there are
             // no weights to protect, so the model forgets the input it was built for and takes any
             // shape again. Otherwise it would reject data of a new size, claiming to be "built" for
             // the old one.
@@ -484,8 +499,8 @@ namespace MDNN
             }
         }
 
-        // A list of layers for the constructor or Replace: not empty, no null, every instance usable once.
-        private List<Layer> RequireUsableLayers(IEnumerable<Layer> layers, string parameterName)
+        // A list of layers: no null, every instance usable once; empty only where allowed (hidden layers).
+        private List<Layer> RequireUsableLayers(IEnumerable<Layer> layers, string parameterName, bool allowEmpty = false)
         {
             ArgumentNullException.ThrowIfNull(layers, parameterName);
 
@@ -501,7 +516,7 @@ namespace MDNN
                 result.Add(layer);
             }
 
-            if (result.Count == 0)
+            if (result.Count == 0 && !allowEmpty)
             {
                 throw new ArgumentException(
                     "The list of layers is empty — a model needs at least its output layer.", parameterName);
@@ -510,56 +525,63 @@ namespace MDNN
             return result;
         }
 
-        /// <summary>
-        /// Adds a hidden layer just before the output layer.
-        /// </summary>
-        /// <exception cref="ArgumentException">The layer instance is already in this or another model.</exception>
-        public void Add(Layer layer)
-        {
-            ArgumentNullException.ThrowIfNull(layer);
-            RequireUsableLayer(layer, layersList, nameof(layer));
-            ChangeStructure(list => list.Insert(list.Count - 1, layer), [layer]);
-        }
-        /// <summary>
-        /// Inserts a layer at <paramref name="position"/> (0 = first layer).
-        /// </summary>
-        /// <exception cref="ArgumentException">The layer instance is already in this or another model.</exception>
-        public void Insert(int position, Layer layer)
-        {
-            ArgumentNullException.ThrowIfNull(layer);
+        // ---------------------------------------------------------------- hidden layers (via Hidden)
 
-            if (position < 0 || position > layersList.Count())
-            {
-                throw new ArgumentOutOfRangeException(nameof(position), position, "Position must be in the range 0 ≤ position ≤ Layers.Count.");
-            }
+        // Positions are positions among the hidden layers; HiddenLayers has checked their range.
+        // The hidden layers are the start of the chain, so a hidden position is also the chain position.
 
-            RequireUsableLayer(layer, layersList, nameof(layer));
+        internal void InsertHidden(int position, Layer layer)
+        {
+            RequireUsableLayer(layer, layersList, "layer");
             ChangeStructure(list => list.Insert(position, layer), [layer]);
         }
-        /// <summary>
-        /// Removes the layer at <paramref name="position"/>. The only remaining layer cannot be removed.
-        /// </summary>
-        public void RemoveAt(int position)
+
+        internal void RemoveHidden(int position)
         {
-            if (position < 0 || position >= layersList.Count())
-            {
-                throw new ArgumentOutOfRangeException(nameof(position), position, "Position must be in the range 0 ≤ position < Layers.Count.");
-            }
-
-            // A model always has an output layer; to replace it use Replace([...]).
-            if (layersList.Count == 1)
-            {
-                throw new InvalidOperationException("The only layer of the model cannot be removed. Use Replace([...]) to replace it.");
-            }
-
             ChangeStructure(list => list.RemoveAt(position), []);
         }
-        /// <summary>
-        /// Sets the activation function of the output layer.
-        /// </summary>
-        public void SetOutputActivation(ActivationFunction activation)
+
+        internal void ReplaceHidden(IEnumerable<Layer> layers)
         {
-            layersList[layersList.Count() - 1].Activation = activation;
+            List<Layer> incoming = RequireUsableLayers(layers, nameof(layers), allowEmpty: true);
+
+            if (incoming.Any(layer => ReferenceEquals(layer, Output)))
+            {
+                throw new ArgumentException(
+                    "The output layer cannot also be a hidden layer — the same instance at two positions would " +
+                    "share its weights and buffers.", nameof(layers));
+            }
+
+            Layer output = Output;
+            ChangeStructure(list => { list.Clear(); list.AddRange(incoming); list.Add(output); }, incoming);
+        }
+
+        // ---------------------------------------------------------------- public API
+
+        /// <summary>
+        /// Adds a hidden layer just before the output layer — a shortcut for <c>Hidden.Add(layer)</c>.
+        /// </summary>
+        /// <exception cref="ArgumentException">The layer instance is already in this or another model.</exception>
+        public void Add(Layer layer) => Hidden.Add(layer);
+
+        /// <summary>
+        /// Replaces the output layer. The only way to change it — the methods of <see cref="Hidden"/>
+        /// never touch it.
+        /// </summary>
+        /// <remarks>
+        /// The hidden layers keep their weights; the new output layer is built on the next pass and the
+        /// old one is detached from the model (it can be used elsewhere). Passing the current output
+        /// layer does nothing.
+        /// </remarks>
+        /// <exception cref="ArgumentException">The layer is one of the hidden layers, or belongs to another model.</exception>
+        public void ReplaceOutput(Layer outputLayer)
+        {
+            ArgumentNullException.ThrowIfNull(outputLayer);
+
+            // The current output layer passes the check (it is not among the hidden layers) and is
+            // put back in its place — a no-op without a special case.
+            RequireUsableLayer(outputLayer, Hidden.ToList(), nameof(outputLayer));
+            ChangeStructure(list => list[^1] = outputLayer, [outputLayer]);
         }
 
         /// <summary>
@@ -569,23 +591,24 @@ namespace MDNN
         /// <remarks>
         /// Optimizer, loss, seed, datasets and training settings stay. A layer of the current model may be
         /// reused in the new list (it keeps its weights if its input does not change); layers left out are
-        /// detached from the model and can be used elsewhere.
+        /// detached from the model and can be used elsewhere. To replace only one part, use
+        /// <c>Hidden.Replace</c> or <see cref="ReplaceOutput"/>.
         /// </remarks>
         /// <exception cref="ArgumentException">The list is empty, contains null, or a layer instance twice
         /// or from another model.</exception>
-        public void Replace(IEnumerable<Layer> layers)
+        public void ReplaceAll(IEnumerable<Layer> layers)
         {
             List<Layer> incoming = RequireUsableLayers(layers, nameof(layers));
             ChangeStructure(list => { list.Clear(); list.AddRange(incoming); }, incoming);
         }
+
         /// <summary>
-        /// Removes all layers and starts over with <paramref name="outputLayer"/> as the only layer.
-        /// The same as <c>Replace([outputLayer])</c>.
+        /// Sets the activation function of the output layer.
         /// </summary>
-        public void Clear(Layer outputLayer)
+        [Obsolete("Set it on the output layer: model.Layers.Output.Activation = …")]
+        public void SetOutputActivation(ActivationFunction activation)
         {
-            ArgumentNullException.ThrowIfNull(outputLayer);
-            Replace([outputLayer]);
+            Output.Activation = activation;
         }
     }
 }

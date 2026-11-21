@@ -105,7 +105,7 @@ public class OptimizerStateTests
 
         Optimizer untouched = OptimizerOf(model, 0);
 
-        model.Layers.RemoveAt(1);
+        model.Layers.Hidden.RemoveAt(1);
         model.GetResults(X);
 
         Assert.Same(untouched, OptimizerOf(model, 0));

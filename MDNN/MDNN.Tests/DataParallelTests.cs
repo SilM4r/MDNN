@@ -451,7 +451,7 @@ public class DataParallelTests
     {
         var (x, y) = Regression();
         var model = Mlp(new SGD(0.1));
-        model.Layers.Insert(0, new Identity());
+        model.Layers.Hidden.Insert(0, new Identity());
 
         model.Train.SimpleTrainLoop(x, y, 1, 4);   // works sequentially
         model.Train.Workers = 2;
