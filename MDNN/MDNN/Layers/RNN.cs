@@ -172,8 +172,10 @@ namespace MDNN.Layers
         {
             neurons = new List<Neuron>();
             inputCount = 0;
-            sW = Array.Empty<double[]>();
-            sB = Array.Empty<double>();
+
+            // Including the hidden state: `output` is h(t-1) of the next step, and after a rebuild
+            // it would still hold the last output of the DISCARDED weights.
+            ClearSequenceState();
         }
 
         internal override bool CanImport(BaseExportLayer saved)
@@ -186,16 +188,29 @@ namespace MDNN.Layers
                    && rnn.Neurons.All(n => n.Weights.Length == inputCount + 1);
         }
 
-        internal override void ImportParameters(BaseExportLayer saved, Optimizer optimizerPrototype)
+        internal override Action PrepareImport(BaseExportLayer saved, Optimizer optimizerPrototype)
         {
             var rnn = (ExportRnnLayer)saved;
+            List<ExportNeuron> savedNeurons = rnn.Neurons!;
 
-            for (int i = 0; i < neurons.Count; i++)
+            // what can fail — nothing is written yet (see Layer.PrepareImport)
+            Optimizer[] optimizers = savedNeurons.Select(n => Neuron.PrepareOptimizer(n, optimizerPrototype)).ToArray();
+
+            return () =>
             {
-                neurons[i].ImportFrom(rnn.Neurons![i], optimizerPrototype);
-            }
+                for (int i = 0; i < neurons.Count; i++)
+                {
+                    neurons[i].ImportFrom(savedNeurons[i], optimizers[i]);
+                }
 
-            // the same state as a layer freshly loaded from the file: no hidden state, no sensitivities
+                ClearSequenceState();
+            };
+        }
+
+        // The same state as a layer freshly loaded from the file or freshly built: no hidden state
+        // h(t-1), no RTRL sensitivities.
+        private void ClearSequenceState()
+        {
             output = new double[NeuronCount];
             Array.Clear(raw_output);
             sW = Array.Empty<double[]>();

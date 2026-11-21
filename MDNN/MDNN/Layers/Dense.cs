@@ -198,6 +198,8 @@ namespace MDNN.Layers
             neurons = new List<Neuron>();
             inputCount = 0;
             dropoutMask = null;
+            Array.Clear(output);
+            Array.Clear(raw_output);
         }
 
         internal override bool CanImport(BaseExportLayer saved)
@@ -210,21 +212,28 @@ namespace MDNN.Layers
                    && dense.Neurons.All(n => n.Weights.Length == inputCount);
         }
 
-        internal override void ImportParameters(BaseExportLayer saved, Optimizer optimizerPrototype)
+        internal override Action PrepareImport(BaseExportLayer saved, Optimizer optimizerPrototype)
         {
             var dense = (ExportDenseLayer)saved;
+            List<ExportNeuron> savedNeurons = dense.Neurons!;
 
+            // what can fail — nothing is written yet
             if (dense.DropoutRate != null) ValidateDropout(dense.DropoutRate.Value);
-            dropout = dense.DropoutRate;
+            Optimizer[] optimizers = savedNeurons.Select(n => Neuron.PrepareOptimizer(n, optimizerPrototype)).ToArray();
 
-            for (int i = 0; i < neurons.Count; i++)
+            return () =>
             {
-                neurons[i].ImportFrom(dense.Neurons![i], optimizerPrototype);
-            }
+                dropout = dense.DropoutRate;
 
-            Array.Clear(output);
-            Array.Clear(raw_output);
-            dropoutMask = null;
+                for (int i = 0; i < neurons.Count; i++)
+                {
+                    neurons[i].ImportFrom(savedNeurons[i], optimizers[i]);
+                }
+
+                Array.Clear(output);
+                Array.Clear(raw_output);
+                dropoutMask = null;
+            };
         }
 
         // Will this layer draw a dropout mask during training? Replicas use this to decide

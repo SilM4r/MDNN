@@ -87,6 +87,10 @@ namespace MDNN.Layers
         {
             ArgumentNullException.ThrowIfNull(inputShape);
 
+            // Checked here, not only in LayerManager: a standalone Build([0]) used to give a "built"
+            // Dense with zero weights per neuron.
+            RequirePositiveShape(inputShape);
+
             int[] normalized = NormalizeInputShape(inputShape);
 
             if (IsBuilt)
@@ -173,6 +177,15 @@ namespace MDNN.Layers
             IsBuilt = true;
         }
 
+        internal static void RequirePositiveShape(int[] shape)
+        {
+            if (shape.Length == 0 || shape.Any(size => size <= 0))
+            {
+                throw new ArgumentException(
+                    $"The number of inputs to the first layer must be greater than zero (got shape [{string.Join(", ", shape)}]).");
+            }
+        }
+
         // For the error message of a layer that gets a sample of a different shape than it is built for.
         internal const string ShapeChangeHint =
             "The input shape must not change once the model is built. To use the model with differently " +
@@ -190,8 +203,15 @@ namespace MDNN.Layers
         // Does the saved layer have exactly this layer's architecture? Must not change anything.
         internal virtual bool CanImport(BaseExportLayer saved) => false;
 
-        // Copies the saved parameters (and optimizer state) into this already built layer.
-        internal virtual void ImportParameters(BaseExportLayer saved, Optimizer optimizerPrototype)
+        // Loading in two steps, so that a damaged file cannot leave the model half loaded:
+        //
+        //   PrepareImport  — everything that can FAIL (validating the dropout rate, loading the
+        //                    optimizer state into fresh optimizer instances); changes nothing
+        //   the returned action — only copies the prepared values into the layer; cannot fail
+        //
+        // The model prepares ALL layers first and only then runs the actions. Previously a broken
+        // optimizer state in the third layer threw after the first two already had the file's weights.
+        internal virtual Action PrepareImport(BaseExportLayer saved, Optimizer optimizerPrototype)
         {
             throw new NotSupportedException($"Layer {GetType().Name} cannot load parameters.");
         }

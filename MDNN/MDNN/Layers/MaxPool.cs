@@ -61,6 +61,9 @@ namespace MDNN.Layers
         {
             poolSize = BaseExportLayer.Required(layer.PoolSize, Name, nameof(layer.PoolSize));
             int[] inputShape = BaseExportLayer.Required(layer.InputsShape, Name, nameof(layer.InputsShape));
+            BaseExportLayer.RequireShape(inputShape, 3, Name, nameof(layer.InputsShape));
+            if (poolSize <= 0)
+                throw new ModelFileCorruptedException($"Layer {Name} in the model file has PoolSize {poolSize}.");
 
             // the same allocation as when building — see Conv(ExportCNNLayer, …)
             MarkBuiltFromFile(inputShape);
@@ -130,9 +133,9 @@ namespace MDNN.Layers
                    && pool.InputsShape != null && SpatialShape.SameAs(pool.InputsShape, InputShape!);
         }
 
-        internal override void ImportParameters(BaseExportLayer saved, Optimizer optimizerPrototype)
+        internal override Action PrepareImport(BaseExportLayer saved, Optimizer optimizerPrototype)
         {
-            AllocateBuffers(InputShape!, OutputShape!);   // the same state as a freshly loaded layer
+            return () => AllocateBuffers(InputShape!, OutputShape!);   // the same state as a freshly loaded layer
         }
 
         // ---------------------------------------------------------------- convention B

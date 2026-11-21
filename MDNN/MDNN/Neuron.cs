@@ -114,12 +114,22 @@ namespace MDNN
         // Loading into an EXISTING neuron (restoring the best snapshot, LoadWeightsInPlace): the
         // same result as the constructor above, but the neuron object stays — and so does its
         // weight array, which replicas for parallel training and the user may hold a reference to.
-        internal void ImportFrom(ExportNeuron saved, Optimizer optimizerPrototype)
+        //
+        // Two steps — see Layer.PrepareImport. PrepareOptimizer does what can fail (a damaged
+        // optimizer state in the file) without touching the neuron; ImportFrom then only copies.
+        internal static Optimizer PrepareOptimizer(ExportNeuron saved, Optimizer optimizerPrototype)
         {
-            if (saved.Weights.Length != weights.Length)
-                throw new ArgumentException(
-                    $"The saved neuron has {saved.Weights.Length} weights, this one {weights.Length}.");
+            Optimizer optimizer = optimizerPrototype.CreateFresh();
+            if (saved.OptimizerState != null)
+            {
+                optimizer.ImportState(saved.OptimizerState);
+            }
+            return optimizer;
+        }
 
+        // `preparedOptimizer` comes from PrepareOptimizer; the weight count was checked by the layer (CanImport).
+        internal void ImportFrom(ExportNeuron saved, Optimizer preparedOptimizer)
+        {
             Array.Copy(saved.Weights, weights, weights.Length);
             bias = saved.Bias;
 
@@ -129,11 +139,7 @@ namespace MDNN
             mini_batch_size = 0;
             ResetGradients();
 
-            Optimizer = optimizerPrototype.CreateFresh();
-            if (saved.OptimizerState != null)
-            {
-                Optimizer.ImportState(saved.OptimizerState);
-            }
+            Optimizer = preparedOptimizer;
         }
 
         // Sets specific weights and bias from outside. Needed for the parity tests against

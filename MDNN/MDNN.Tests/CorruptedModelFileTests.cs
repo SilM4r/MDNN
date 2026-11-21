@@ -64,6 +64,31 @@ public class CorruptedModelFileTests
         AssertCorrupted(model, section);
     }
 
+    // Previously only the presence of the fields was checked: "Kernel": [[]] crashed with
+    // IndexOutOfRange in the Conv constructor, and kernels with a different channel count than the
+    // input loaded fine and failed deep in forward or update.
+    [Theory]
+    [InlineData("empty kernel")]
+    [InlineData("channels")]
+    [InlineData("biases")]
+    [InlineData("input rank")]
+    public void Malformed_conv_kernels_are_reported(string damage)
+    {
+        JsonNode model = SavedModel();
+        JsonNode conv = model["Layers"]![0]!;
+
+        switch (damage)
+        {
+            case "empty kernel": conv["Kernel"] = new JsonArray(new JsonArray()); break;
+            case "channels": conv["InputShape"] = new JsonArray(6, 6, 3); break;
+            case "biases": conv["Biases"] = new JsonArray(0.0); break;
+            case "input rank": conv["InputShape"] = new JsonArray(6, 6); break;
+        }
+
+        var target = new NeuralNetwork(new Dense(1, new Linear()), new SGD(0.1), new MSE(), seed: 1);
+        Assert.Throws<ModelFileCorruptedException>(() => target.LoadWeightsFromString(model.ToJsonString()));
+    }
+
     [Fact]
     public void Null_layer_entry_is_reported()
     {

@@ -37,7 +37,7 @@ namespace MDNN
         {
             get
             {
-                if (rebuildIncompatibleOnNextPass) return true;
+                if (rebuildIncompatibleOnNextPass || context.InputShape == null) return true;
 
                 for (int i = 0; i < layersList.Count; i++)
                 {
@@ -130,9 +130,9 @@ namespace MDNN
         }
 
         // Loads saved parameters INTO the existing layers when the file describes exactly this
-        // architecture (layer by layer: type, sizes, activation). All layers are checked first and
-        // only then written, so a mismatch leaves the model untouched. false = the architecture
-        // differs and the caller has to build new layers from the file.
+        // architecture (layer by layer: type, sizes, activation). All layers are checked and
+        // prepared first and only then written, so a mismatch or a damaged file leaves the model
+        // untouched. false = the architecture differs and the caller has to build new layers from the file.
         internal bool TryImportParameters(List<BaseExportLayer> saved, MDNN.Optimizers.Optimizer optimizer)
         {
             if (saved.Count != layersList.Count)
@@ -148,11 +148,22 @@ namespace MDNN
                 }
             }
 
+            // everything that can fail, for ALL layers, before anything is written — see Layer.PrepareImport
+            var commits = new List<Action>(saved.Count);
             for (int i = 0; i < saved.Count; i++)
             {
-                layersList[i].ImportParameters(saved[i], optimizer);
+                commits.Add(layersList[i].PrepareImport(saved[i], optimizer));
             }
 
+            foreach (Action commit in commits)
+            {
+                commit();
+            }
+
+            // The loaded weights are the model's state now. A pending RebuildIncompatible() would
+            // otherwise throw them away on the next differently shaped sample — loading through new
+            // layers (the other branch in ApplyLoaded) clears it too.
+            rebuildIncompatibleOnNextPass = false;
             return true;
         }
 
@@ -240,6 +251,10 @@ namespace MDNN
 
             CheckInput(sampleShape);
 
+            // Also when every layer is built but the model has never recorded its input — the
+            // layers were built on their own (Build) before going into the model. BuildChain then
+            // only checks them against the plan and records the shape; previously the model stayed
+            // "without input" and training refused to start.
             if (NeedsBuild)
             {
                 BuildChain(sampleShape, invalidateIncompatible: false);
@@ -289,13 +304,7 @@ namespace MDNN
             }
         }
 
-        private static void RequirePositive(int[] shape)
-        {
-            if (shape.Length == 0 || shape.Any(size => size <= 0))
-            {
-                throw new ArgumentException("The number of inputs to the first layer must be greater than zero.");
-            }
-        }
+        private static void RequirePositive(int[] shape) => Layer.RequirePositiveShape(shape);
 
         // Builds the unbuilt layers for `modelInput`, left to right.
         //
@@ -406,6 +415,16 @@ namespace MDNN
             foreach (int i in stale)
             {
                 layersList[i].Invalidate();
+            }
+
+            // No built layer left (Clear, or a change that shifted every layer's input): there are
+            // no weights to protect, so the model forgets the input it was built for and takes any
+            // shape again. Otherwise it would reject data of a new size, claiming to be "built" for
+            // the old one.
+            if (!layersList.Any(layer => layer.IsBuilt))
+            {
+                context.InputShape = null;
+                rebuildIncompatibleOnNextPass = false;
             }
 
             MarkLayerRoles();

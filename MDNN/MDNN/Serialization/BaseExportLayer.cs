@@ -24,6 +24,16 @@ namespace MDNN.Serialization
             => value ?? throw new ModelFileCorruptedException(
                 $"Layer {layerType} in the model file is missing the field '{field}'.");
 
+        // A shape from the file must have the expected rank and positive sizes — otherwise the layer
+        // would crash with IndexOutOfRange while computing its output shape.
+        internal static void RequireShape(int[] shape, int rank, string layerType, string field)
+        {
+            if (shape.Length != rank || shape.Any(size => size <= 0))
+                throw new ModelFileCorruptedException(
+                    $"Layer {layerType} in the model file has an invalid '{field}' [{string.Join(", ", shape)}] — " +
+                    $"expected {rank} positive sizes.");
+        }
+
         // An empty list of neurons/kernels: previously it crashed with IndexOutOfRange on neurons[0].
         internal static void RequireNotEmpty(System.Collections.ICollection value, string layerType, string field)
         {

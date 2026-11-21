@@ -3,6 +3,7 @@ using MDNN.Activations;
 using MDNN.Layers;
 using MDNN.Losses;
 using MDNN.Optimizers;
+using System.Text.Json.Nodes;
 
 namespace MDNN.Tests;
 
@@ -395,6 +396,165 @@ public class BuildLifecycleTests : GradientCheckTestBase
         Assert.True(added.IsBuilt);
         Assert.Equal(4, added.Neurons[0].Weights.Length);
         Assert.Equal(6, ((Dense)model.Layers.Layers[2]).Neurons[0].Weights.Length);
+    }
+
+    // ------------------------------------------------------------ self-CR fixes
+
+    [Fact]
+    public void A_model_of_layers_built_beforehand_can_be_trained()
+    {
+        // previously: every layer was built, so nothing recorded the model's input and training
+        // refused to start ("The input layer must have at least one input")
+        var output = new Dense(1, new Linear());
+        output.Build(new[] { 3 });
+        var model = Quiet(new NeuralNetwork(output, new SGD(0.1), new MSE(), seed: 1));
+
+        model.Train.Fit(new Tensor(new double[] { 1, 2, 3 }), new Tensor(new double[] { 1 }));
+        model.Train.UpdateParams();
+
+        Assert.Equal(new[] { 3 }, model.Context.InputShape);
+    }
+
+    [Fact]
+    public void A_layer_built_beforehand_for_another_shape_is_reported()
+    {
+        var model = new NeuralNetwork(new Dense(1, new Linear()), seed: 1);
+        var hidden = new Dense(4, new ReLU());
+        hidden.Build(new[] { 5 });
+        model.Layers.Add(hidden);
+
+        var ex = Assert.Throws<ArgumentException>(() => model.GetResults(new Tensor(new double[3])));
+        Assert.Contains("built for input 5", ex.Message);
+    }
+
+    // The model file without its envelope (old format v0, no checksum), so it can be damaged on purpose.
+    private static JsonNode FileOf(NeuralNetwork model) =>
+        JsonNode.Parse(model.SaveAsJsonString())!["Model"]!.DeepClone();
+
+    private static NeuralNetwork TrainedWithAdam()
+    {
+        var model = Quiet(new NeuralNetwork(new Dense(1, new Linear()), new Adam(0.01), new MSE(), seed: 1));
+        model.Layers.Add(new Dense(3, new ReLU()));
+        for (int i = 0; i < 3; i++)
+        {
+            model.Train.Fit(new Tensor(new double[] { 1, 2, 3 }), new Tensor(new double[] { 1 }));
+            model.Train.UpdateParams();
+        }
+        return model;
+    }
+
+    [Theory]
+    [InlineData("optimizer state")]
+    [InlineData("dropout")]
+    public void A_damaged_file_leaves_the_model_untouched(string damage)
+    {
+        var model = TrainedWithAdam();
+        JsonNode file = FileOf(model);
+        file["Layers"]![0]!["Neurons"]![0]!["Weights"]![0] = 123.0;   // would show a partial load
+        if (damage == "optimizer state")
+            file["Layers"]![1]!["Neurons"]![0]!["OptimizerState"]!["m"] = new JsonArray(1.0);   // wrong length
+        else
+            file["Layers"]![1]!["DropoutRate"] = 1.5;
+
+        double[] before = WeightsOf(model.Layers.Layers[0]);
+        Optimizer optimizerBefore = model.Context.Optimizer;
+
+        Assert.ThrowsAny<ArgumentException>(() => model.LoadWeightsFromString(file.ToJsonString()));
+
+        // previously: the first layer already had the file's weights when the second one threw
+        Assert.Equal(before, WeightsOf(model.Layers.Layers[0]));
+        Assert.Same(optimizerBefore, model.Context.Optimizer);
+    }
+
+    [Fact]
+    public void After_a_failed_load_a_new_optimizer_still_reaches_the_layers()
+    {
+        var model = TrainedWithAdam();
+        JsonNode file = FileOf(model);
+        file["Layers"]![1]!["Neurons"]![0]!["OptimizerState"]!["m"] = new JsonArray(1.0);
+        Assert.ThrowsAny<ArgumentException>(() => model.LoadWeightsFromString(file.ToJsonString()));
+
+        model.Context.Optimizer = new SGD(0.5);
+
+        // previously: the change-notification stayed disconnected and the neurons kept their Adam
+        Assert.All(((Dense)model.Layers.Layers[0]).Neurons, n => Assert.IsType<SGD>(n.Optimizer));
+    }
+
+    [Fact]
+    public void A_failed_load_of_another_architecture_leaves_the_model_untouched()
+    {
+        var model = TrainedWithAdam();
+        var other = new NeuralNetwork(new Dense(2, new Linear()), new SGD(0.1), new MSE(), seed: 2);
+        other.GetResults(new Tensor(new double[4]));
+        JsonNode file = FileOf(other);
+        file["Layers"]![0]!["Name_of_activation_function"] = "NoSuchActivation";
+
+        Layer first = model.Layers.Layers[0];
+        Optimizer optimizerBefore = model.Context.Optimizer;
+
+        Assert.ThrowsAny<ArgumentException>(() => model.LoadWeightsFromString(file.ToJsonString()));
+
+        Assert.Same(first, model.Layers.Layers[0]);
+        Assert.Same(optimizerBefore, model.Context.Optimizer);   // previously: the file's SGD
+        model.Context.Optimizer = new Momentum(0.1, 0.9);
+        Assert.All(((Dense)first).Neurons, n => Assert.IsType<Momentum>(n.Optimizer));
+    }
+
+    [Fact]
+    public void After_Clear_the_model_takes_data_of_any_shape_again()
+    {
+        var model = new NeuralNetwork(new Dense(2, new Linear()), seed: 1);
+        model.GetResults(new Tensor(new double[8]));
+
+        model.Layers.Clear(new Dense(3, new Linear()));
+        Assert.Null(model.Context.InputShape);   // nothing built is left, so nothing to protect
+
+        // previously (this branch): "The model is built for input 8"; on main: 8 weights × 4 inputs
+        model.GetResults(new Tensor(new double[4]));
+        Assert.Equal(4, ((Dense)model.Layers.Layers[0]).Neurons[0].Weights.Length);
+    }
+
+    [Fact]
+    public void Loading_weights_cancels_a_pending_RebuildIncompatible()
+    {
+        var model = TrainedMlp(3);
+        string file = model.SaveAsJsonString();
+
+        model.Layers.RebuildIncompatible();
+        model.LoadWeightsFromString(file);
+
+        // previously: the pending rebuild threw the just-loaded weights away on the next sample
+        Assert.Throws<ArgumentException>(() => model.GetResults(new Tensor(new double[5])));
+    }
+
+    [Fact]
+    public void A_rebuilt_RNN_starts_from_an_empty_hidden_state()
+    {
+        var model = new NeuralNetwork(new Dense(1, new Linear()), seed: 1);
+        model.Layers.Add(new RNN(3, new Tanh()));
+        var x = new Tensor(new double[] { 0.5, -0.3 });
+        for (int i = 0; i < 5; i++) model.GetResults(x);   // builds up a hidden state
+
+        model.Layers.Rebuild(new[] { 2 });
+        double[] first = model.GetResults(x).Data;
+        model.ResetSequence();
+        double[] fromEmptyState = model.GetResults(x).Data;
+
+        // previously: the first step after the rebuild used h(t-1) of the DISCARDED weights
+        Assert.Equal(fromEmptyState, first);
+    }
+
+    [Fact]
+    public void Building_for_a_zero_size_is_rejected()
+    {
+        var dense = new Dense(4);
+        var conv = new Conv(2, 3, new ReLU(), "same");
+
+        // previously: a "built" Dense with zero weights per neuron
+        Assert.Throws<ArgumentException>(() => dense.Build(new[] { 0 }));
+        Assert.Throws<ArgumentException>(() => conv.Build(new[] { 0, 0, 1 }));
+        Assert.False(dense.IsBuilt);
+        Assert.False(conv.IsBuilt);
     }
 
     // ------------------------------------------------------------ helpers

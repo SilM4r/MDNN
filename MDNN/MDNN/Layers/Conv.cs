@@ -100,7 +100,9 @@ namespace MDNN.Layers
         {
             kernels = BaseExportLayer.Required(layer.Kernel, Name, nameof(layer.Kernel));
             biases = BaseExportLayer.Required(layer.Biases, Name, nameof(layer.Biases));
-            BaseExportLayer.RequireNotEmpty(kernels, Name, nameof(layer.Kernel));
+            int[] inputShape = BaseExportLayer.Required(layer.InputShape, Name, nameof(layer.InputShape));
+            BaseExportLayer.RequireShape(inputShape, 3, Name, nameof(layer.InputShape));
+            ValidateSavedKernels(kernels, biases, inputShape[2]);
             activation_func = ActivationFunction.FromName(layer.Name_of_activation_function);
             CheckIsActivationFuncIsNotApplyToLayer();
             padding = NormalizePadding(BaseExportLayer.Required(layer.Padding, Name, nameof(layer.Padding)));
@@ -117,8 +119,6 @@ namespace MDNN.Layers
                 optimizer.ImportState(layer.OptimizerState);
             }
 
-            int[] inputShape = BaseExportLayer.Required(layer.InputShape, Name, nameof(layer.InputShape));
-
             // The same allocation as when building — previously the loading constructor had its own
             // copy of it, a second path that could drift from the first.
             MarkBuiltFromFile(inputShape);
@@ -127,6 +127,46 @@ namespace MDNN.Layers
             dKernels = AllocateKernelArray(inputShape[2]);
 
             mini_batch_size = 0;
+        }
+
+        // The kernels from a file must be a regular [filters][rows][cols][channels] block whose channel
+        // count matches the input, with one bias per filter. Previously only their presence was
+        // checked: "Kernel": [[]] crashed with IndexOutOfRange in this constructor, and a file whose
+        // kernel channels differed from InputShape loaded fine and failed deep in forward or update.
+        private void ValidateSavedKernels(double[][][][] saved, double[] savedBiases, int channels)
+        {
+            string Problem()
+            {
+                if (saved.Length == 0) return "no filters";
+                int rows = saved[0]?.Length ?? 0;
+                int cols = rows > 0 ? saved[0][0]?.Length ?? 0 : 0;
+                if (rows == 0 || cols == 0) return "an empty kernel";
+
+                foreach (double[][][]? filter in saved)
+                {
+                    if (filter == null || filter.Length != rows) return "filters of different sizes";
+                    foreach (double[][]? row in filter)
+                    {
+                        if (row == null || row.Length != cols) return "filters of different sizes";
+                        foreach (double[]? pixel in row)
+                        {
+                            if (pixel == null || pixel.Length != channels)
+                                return $"kernels with a different channel count than the input ({channels})";
+                        }
+                    }
+                }
+
+                if (savedBiases.Length != saved.Length)
+                    return $"{savedBiases.Length} biases for {saved.Length} filters";
+
+                return "";
+            }
+
+            string problem = Problem();
+            if (problem != "")
+            {
+                throw new ModelFileCorruptedException($"Layer {Name} in the model file has {problem}.");
+            }
         }
 
         /// <summary>Creates a convolution layer. This is only a description — the kernels are created
@@ -301,27 +341,33 @@ namespace MDNN.Layers
             return true;
         }
 
-        internal override void ImportParameters(BaseExportLayer saved, Optimizer optimizerPrototype)
+        internal override Action PrepareImport(BaseExportLayer saved, Optimizer optimizerPrototype)
         {
             var conv = (ExportCNNLayer)saved;
 
-            // copied INTO the existing arrays — replicas share them by reference
-            for (int f = 0; f < kernels.Length; f++)
-                for (int i = 0; i < kernelRows; i++)
-                    for (int j = 0; j < kernelCols; j++)
-                        Array.Copy(conv.Kernel![f][i][j], kernels[f][i][j], kernels[f][i][j].Length);
-            Array.Copy(conv.Biases!, biases, filters);
-
-            optimizer = optimizerPrototype.CreateFresh();
+            // what can fail — nothing is written yet (see Layer.PrepareImport)
+            Optimizer prepared = optimizerPrototype.CreateFresh();
             if (conv.OptimizerState != null)
             {
-                optimizer.ImportState(conv.OptimizerState);
+                prepared.ImportState(conv.OptimizerState);
             }
 
-            // the same state as a layer freshly loaded from the file
-            AllocateBuffers(InputShape!, OutputShape!);
-            ResetGradients();
-            mini_batch_size = 0;
+            return () =>
+            {
+                // copied INTO the existing arrays — replicas share them by reference
+                for (int f = 0; f < kernels.Length; f++)
+                    for (int i = 0; i < kernelRows; i++)
+                        for (int j = 0; j < kernelCols; j++)
+                            Array.Copy(conv.Kernel![f][i][j], kernels[f][i][j], kernels[f][i][j].Length);
+                Array.Copy(conv.Biases!, biases, filters);
+
+                optimizer = prepared;
+
+                // the same state as a layer freshly loaded from the file
+                AllocateBuffers(InputShape!, OutputShape!);
+                ResetGradients();
+                mini_batch_size = 0;
+            };
         }
 
         // Replica for parallel training — see Layer.CreateReplica. Kernels and biases are SHARED

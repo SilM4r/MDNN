@@ -229,35 +229,56 @@ namespace MDNN
 
         private void ApplyLoaded(NetworkSaveLoadManager loaded)
         {
-            // The layers get their parameters from the file right away (together with a fresh clone
-            // of the optimizer) — no point propagating the optimizer change into them first.
-            context.OptimizerChanged = null;
-
             // A custom optimizer/loss that cannot be constructed by name is taken from the model's
             // context. Without this, TrainLoop with a custom optimizer or loss crashed at the end when
             // restoring the best model from the snapshot.
-            context.Optimizer = Optimizer.ResolveForLoad(loaded.Optimizer, context.Optimizer, ownWins: false);
-            context.Loss = Loss.ResolveForLoad(loaded.Loss_functions, context.Loss, ownWins: false);
-
-            // The file describes the same architecture (always so for the best-model snapshot of
-            // TrainLoop) → the parameters are copied INTO the existing layers. Previously new layer
-            // objects were built from the file: a reference the user held to a layer then pointed
-            // outside the model (with the weights of the last epoch, not the best one), and a model
-            // with a custom activation crashed at the very end of training — the file only has its
-            // name, which cannot be turned back into an instance.
             //
-            // A different architecture (LoadWeightsInPlace with another model's file) still gets new
-            // layers, as before.
-            if (layerManager.TryImportParameters(loaded.Layers, context.Optimizer))
+            // Resolved into locals and written to the context only once the layers are loaded:
+            // previously the context got the file's optimizer first, so a file that then failed to
+            // load left the model reporting an optimizer its layers did not have.
+            Optimizer optimizer = Optimizer.ResolveForLoad(loaded.Optimizer, context.Optimizer, ownWins: false);
+            Loss loss = Loss.ResolveForLoad(loaded.Loss_functions, context.Loss, ownWins: false);
+            Optimizer previousOptimizer = context.Optimizer;
+
+            // The layers get their parameters from the file (together with a fresh clone of the
+            // optimizer) — the optimizer change must not be propagated into them on top of that.
+            context.OptimizerChanged = null;
+
+            try
             {
+                // The file describes the same architecture (always so for the best-model snapshot of
+                // TrainLoop) → the parameters are copied INTO the existing layers. Previously new layer
+                // objects were built from the file: a reference the user held to a layer then pointed
+                // outside the model (with the weights of the last epoch, not the best one), and a model
+                // with a custom activation crashed at the very end of training — the file only has its
+                // name, which cannot be turned back into an instance.
+                //
+                // A different architecture (LoadWeightsInPlace with another model's file) still gets new
+                // layers, as before. Either way a damaged file throws before the model changes.
+                if (!layerManager.TryImportParameters(loaded.Layers, optimizer))
+                {
+                    context.Optimizer = optimizer;   // the loading constructor clones it into the new layers
+                    try
+                    {
+                        layerManager = new LayerManager(loaded.Layers, context);
+                    }
+                    catch
+                    {
+                        context.Optimizer = previousOptimizer;
+                        throw;
+                    }
+                }
+
+                context.Optimizer = optimizer;
+                context.Loss = loss;
+                Note = loaded.Note;
+            }
+            finally
+            {
+                // Whatever happened, a later change of Context.Optimizer must reach the layers again.
+                // Previously a file that failed to load left the hook disconnected for good.
                 layerManager.ReconnectOptimizerChanges();
             }
-            else
-            {
-                layerManager = new LayerManager(loaded.Layers, context);
-            }
-
-            Note = loaded.Note;
         }
         /// <summary>
         /// Prints a summary of the model (layers, shapes, parameters) to the console.
