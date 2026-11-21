@@ -95,7 +95,7 @@ NeuralNetwork model = new NeuralNetwork(outputLayer, optimizer, loss);
 
 Constructor parameters:
 
-- `outputLayer` (required) — a `Layer` representing the output layer.
+- `outputLayer` (required) — a `Layer` representing the output layer; or, in the other constructor, `layers` — all layers in order, the last one being the output layer (see [Adding layers](#adding-layers)).
 - `optimizer` (optional) — an `Optimizer`. Defaults to `SGD(0.0001)`.
 - `loss` (optional) — a loss function. Defaults to `MSE()`.
 
@@ -121,12 +121,29 @@ model.Layers.Add(new Dense(64, new ReLU()));    // hidden layer, 64 neurons, ReL
 model.Layers.Add(new Dense(32, new Sigmoid())); // hidden layer, 32 neurons, sigmoid
 ```
 
+Or give the model all its layers at once, in order from input to output — the last one is the
+output layer:
+
+```csharp
+NeuralNetwork model = new NeuralNetwork(
+    [
+        new Dense(64, new ReLU()),
+        new Dense(32, new Sigmoid()),
+        new Dense(10, new Softmax()),
+    ],
+    new Adam(0.001), new CrossEntropy(), seed: 42);
+```
+
+Both give the same model — with the same seed bit-for-bit the same weights — and more layers can
+still be added to a model created from a list.
+
 Besides `Add()`, the `Layers` API includes:
 
 - `Insert()` — insert a layer at a given position
 - `RemoveAt()` — remove a layer at a given position (the last remaining layer cannot be removed)
 - `SetOutputActivation()` — set a new output activation function
-- `Clear(outputLayer)` — remove all layers and set a new output layer
+- `Replace([...])` — replace the whole architecture with the given layers (the last one is the output layer); optimizer, loss, seed and datasets stay
+- `Clear(outputLayer)` — remove all layers and set a new output layer (the same as `Replace([outputLayer])`)
 - `SetInputShape(shape)` — build the model now for the given input shape, instead of on the first pass
 - `Rebuild()` — throw away the weights of all layers; the model is built again for the next data, whatever their shape
 - `RebuildIncompatible()` — let the next data have a different shape: only the layers that no longer fit get new weights, the others keep theirs
@@ -134,6 +151,12 @@ Besides `Add()`, the `Layers` API includes:
 `model.Layers.Layers` is a read-only list of the layers in order; the methods above are the
 only way to change it, because they also decide which built layers no longer fit (see
 [Building the model](#building-the-model)).
+
+Each layer instance can be in one model, at one position. A layer keeps the state of one pass
+(its outputs, the inputs of its neurons, the dropout mask, the accumulated gradients), so the same
+instance at two positions — or in two models — would share it and the gradients would silently come
+out wrong. Adding it again is therefore an error; create a new layer instead. A layer removed from a
+model (`RemoveAt`, `Replace`) is detached from it and can go into another one.
 
 A built model only takes data of the shape it was built for. Data of a different shape — say
 the input got wider — is an error, not a silent re-initialization of the first layer; call

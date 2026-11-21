@@ -98,6 +98,30 @@ namespace MDNN
         /// bit-identical results. Without a seed the shared global generator is used.
         /// </param>
         public NeuralNetwork(Layer outputLayer, Optimizer? optimizer = null, Loss? loss = null, int? seed = null)
+            : this(new[] { outputLayer ?? throw new ArgumentNullException(nameof(outputLayer)) }, optimizer, loss, seed)
+        {
+        }
+
+        /// <summary>
+        /// Creates a model from a list of layers, in order from input to output; the last one is the output layer.
+        /// </summary>
+        /// <example>
+        /// <code>
+        /// var model = new NeuralNetwork(
+        ///     [new Dense(64, new ReLU()), new Dense(10, new Softmax())],
+        ///     new Adam(0.001), new CrossEntropy(), seed: 42);
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// The same model as the output layer in the constructor plus <c>Layers.Add</c> for the hidden ones —
+        /// with the same seed it gets bit-for-bit the same weights. More layers can still be added via <see cref="Layers"/>.
+        /// </remarks>
+        /// <param name="layers">The layers, the last one is the output layer. Each instance may appear only once.</param>
+        /// <param name="optimizer">Optimizer; defaults to SGD.</param>
+        /// <param name="loss">Loss function; defaults to MSE.</param>
+        /// <param name="seed">Seed for reproducibility — see the other constructor.</param>
+        /// <exception cref="ArgumentException">The list is empty, contains null, or a layer instance twice or from another model.</exception>
+        public NeuralNetwork(IEnumerable<Layer> layers, Optimizer? optimizer = null, Loss? loss = null, int? seed = null)
         {
             if (optimizer != null)
             {
@@ -114,7 +138,7 @@ namespace MDNN
                 context.Seed = seed;
             }
 
-            layerManager = new LayerManager(outputLayer, context);
+            layerManager = new LayerManager(layers, context);
 
             train = new Train(this);
             Note = "";
@@ -260,7 +284,11 @@ namespace MDNN
                     context.Optimizer = optimizer;   // the loading constructor clones it into the new layers
                     try
                     {
+                        LayerManager replaced = layerManager;
                         layerManager = new LayerManager(loaded.Layers, context);
+
+                        // the old layers no longer belong to this model — they can go into another one
+                        foreach (Layer old in replaced.Layers) old.Context = null;
                     }
                     catch
                     {

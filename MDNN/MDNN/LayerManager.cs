@@ -47,12 +47,16 @@ namespace MDNN
             }
         }
 
-        internal LayerManager(Layer outputLayer, NetworkContext context)
+        // `layers` in order from input to output, the last one is the output layer. The model's
+        // constructors use this both for a single output layer and for a whole list.
+        internal LayerManager(IEnumerable<Layer> layers, NetworkContext context)
         {
             this.context = context;
+            List<Layer> incoming = RequireUsableLayers(layers, nameof(layers));
+
+            foreach (Layer layer in incoming) layer.Context = context;
             context.OptimizerChanged = ReplaceOptimizer;
-            outputLayer.Context = context;
-            layersList = new List<Layer> { outputLayer };
+            layersList = incoming;
             MarkLayerRoles();
         }
         internal LayerManager(List<BaseExportLayer> exportLayers, NetworkContext context)
@@ -396,7 +400,7 @@ namespace MDNN
         // right after an inserted or removed one) go back to being descriptions and are built again
         // on the next pass. That is the user's decision — they changed the structure — unlike data of
         // a different shape, which is an error (see EnsureBuilt).
-        private void ChangeStructure(Action<List<Layer>> change, Layer? added)
+        private void ChangeStructure(Action<List<Layer>> change, IReadOnlyCollection<Layer> added)
         {
             var candidate = new List<Layer>(layersList);
             change(candidate);
@@ -405,9 +409,19 @@ namespace MDNN
                 ? IncompatibleLayers(candidate, Plan(candidate, context.InputShape))
                 : new List<int>();
 
-            if (added != null)
+            foreach (Layer layer in added)
             {
-                added.Context = context;
+                layer.Context = context;
+            }
+
+            // Layers that left the model are detached from it, so they can be put into another
+            // model (see RequireUsableLayer) — a layer keeps its weights, it just no longer belongs here.
+            foreach (Layer layer in layersList)
+            {
+                if (!candidate.Contains(layer))
+                {
+                    layer.Context = null;
+                }
             }
 
             layersList = candidate;
@@ -417,7 +431,7 @@ namespace MDNN
                 layersList[i].Invalidate();
             }
 
-            // No built layer left (Clear, or a change that shifted every layer's input): there are
+            // No built layer left (Replace, or a change that shifted every layer's input): there are
             // no weights to protect, so the model forgets the input it was built for and takes any
             // shape again. Otherwise it would reject data of a new size, claiming to be "built" for
             // the old one.
@@ -430,17 +444,86 @@ namespace MDNN
             MarkLayerRoles();
         }
 
+        // ---------------------------------------------------------------- one layer instance, one place
+        //
+        // A layer keeps the state of ONE pass (its outputs, the inputs in its neurons, the dropout
+        // mask, the accumulated gradients). The same instance at two positions — or in two models —
+        // shares all of it: the second pass overwrites what the first one left for the backward
+        // pass. Measured with the same Dense at two positions: the gradient of its weight came out
+        // −0.0063 instead of 0.0736 — the wrong SIGN, so the model would silently learn in the
+        // wrong direction. Sharing weights between positions is a real technique (tied weights),
+        // but it needs its own support; until then an error beats a silently wrong gradient.
+
+        // `chain` = the layers the new one would join (the model's list, or the part of a new list
+        // checked so far). A layer of THIS model that is not in `chain` is fine — Replace may reuse it.
+        private void RequireUsableLayer(Layer layer, IReadOnlyList<Layer> chain, string parameterName)
+        {
+            int existing = -1;
+            for (int i = 0; i < chain.Count; i++)
+            {
+                if (ReferenceEquals(chain[i], layer))
+                {
+                    existing = i;
+                    break;
+                }
+            }
+
+            if (existing >= 0)
+            {
+                throw new ArgumentException(
+                    $"This {layer.Name} instance is already in the model (layer {existing + 1}). Create a new layer " +
+                    "instead — the same instance at two positions would share its weights and buffers, and the " +
+                    "gradients would silently come out wrong.", parameterName);
+            }
+
+            if (layer.Context != null && !ReferenceEquals(layer.Context, context))
+            {
+                throw new ArgumentException(
+                    $"This {layer.Name} instance already belongs to another model. Create a new layer, or remove it " +
+                    "from the other model first — two models would overwrite each other's state in it.", parameterName);
+            }
+        }
+
+        // A list of layers for the constructor or Replace: not empty, no null, every instance usable once.
+        private List<Layer> RequireUsableLayers(IEnumerable<Layer> layers, string parameterName)
+        {
+            ArgumentNullException.ThrowIfNull(layers, parameterName);
+
+            var result = new List<Layer>();
+            foreach (Layer? layer in layers)
+            {
+                if (layer == null)
+                {
+                    throw new ArgumentException($"Layer {result.Count + 1} in the list is null.", parameterName);
+                }
+
+                RequireUsableLayer(layer, result, parameterName);
+                result.Add(layer);
+            }
+
+            if (result.Count == 0)
+            {
+                throw new ArgumentException(
+                    "The list of layers is empty — a model needs at least its output layer.", parameterName);
+            }
+
+            return result;
+        }
+
         /// <summary>
         /// Adds a hidden layer just before the output layer.
         /// </summary>
+        /// <exception cref="ArgumentException">The layer instance is already in this or another model.</exception>
         public void Add(Layer layer)
         {
             ArgumentNullException.ThrowIfNull(layer);
-            ChangeStructure(list => list.Insert(list.Count - 1, layer), layer);
+            RequireUsableLayer(layer, layersList, nameof(layer));
+            ChangeStructure(list => list.Insert(list.Count - 1, layer), [layer]);
         }
         /// <summary>
         /// Inserts a layer at <paramref name="position"/> (0 = first layer).
         /// </summary>
+        /// <exception cref="ArgumentException">The layer instance is already in this or another model.</exception>
         public void Insert(int position, Layer layer)
         {
             ArgumentNullException.ThrowIfNull(layer);
@@ -450,7 +533,8 @@ namespace MDNN
                 throw new ArgumentOutOfRangeException(nameof(position), position, "Position must be in the range 0 ≤ position ≤ Layers.Count.");
             }
 
-            ChangeStructure(list => list.Insert(position, layer), layer);
+            RequireUsableLayer(layer, layersList, nameof(layer));
+            ChangeStructure(list => list.Insert(position, layer), [layer]);
         }
         /// <summary>
         /// Removes the layer at <paramref name="position"/>. The only remaining layer cannot be removed.
@@ -462,13 +546,13 @@ namespace MDNN
                 throw new ArgumentOutOfRangeException(nameof(position), position, "Position must be in the range 0 ≤ position < Layers.Count.");
             }
 
-            // A model always has an output layer; to replace it use Clear(outputLayer).
+            // A model always has an output layer; to replace it use Replace([...]).
             if (layersList.Count == 1)
             {
-                throw new InvalidOperationException("The only layer of the model cannot be removed. Use Clear(outputLayer) to replace it.");
+                throw new InvalidOperationException("The only layer of the model cannot be removed. Use Replace([...]) to replace it.");
             }
 
-            ChangeStructure(list => list.RemoveAt(position), null);
+            ChangeStructure(list => list.RemoveAt(position), []);
         }
         /// <summary>
         /// Sets the activation function of the output layer.
@@ -477,13 +561,31 @@ namespace MDNN
         {
             layersList[layersList.Count() - 1].Activation = activation;
         }
+
+        /// <summary>
+        /// Replaces the whole architecture: the model gets exactly <paramref name="layers"/>, in order from
+        /// input to output; the last one is the output layer.
+        /// </summary>
+        /// <remarks>
+        /// Optimizer, loss, seed, datasets and training settings stay. A layer of the current model may be
+        /// reused in the new list (it keeps its weights if its input does not change); layers left out are
+        /// detached from the model and can be used elsewhere.
+        /// </remarks>
+        /// <exception cref="ArgumentException">The list is empty, contains null, or a layer instance twice
+        /// or from another model.</exception>
+        public void Replace(IEnumerable<Layer> layers)
+        {
+            List<Layer> incoming = RequireUsableLayers(layers, nameof(layers));
+            ChangeStructure(list => { list.Clear(); list.AddRange(incoming); }, incoming);
+        }
         /// <summary>
         /// Removes all layers and starts over with <paramref name="outputLayer"/> as the only layer.
+        /// The same as <c>Replace([outputLayer])</c>.
         /// </summary>
         public void Clear(Layer outputLayer)
         {
             ArgumentNullException.ThrowIfNull(outputLayer);
-            ChangeStructure(list => { list.Clear(); list.Add(outputLayer); }, outputLayer);
+            Replace([outputLayer]);
         }
     }
 }

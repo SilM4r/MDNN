@@ -95,7 +95,7 @@ NeuralNetwork model = new NeuralNetwork(outputLayer, optimizer, loss);
 
 Parametry konstruktoru:
 
-- `outputLayer` (povinný) – objekt `Layer` představující výstupní vrstvu.
+- `outputLayer` (povinný) – objekt `Layer` představující výstupní vrstvu; nebo ve druhém konstruktoru `layers` – všechny vrstvy v pořadí, poslední je výstupní (viz [Přidávání vrstev](#přidávání-vrstev)).
 - `optimizer` (volitelný) – objekt `Optimizer`. Výchozí hodnota je `SGD(0.0001)`.
 - `loss` (volitelný) – ztrátová funkce. Výchozí hodnota je `MSE()`.
 
@@ -121,12 +121,29 @@ model.Layers.Add(new Dense(64, new ReLU()));    // skrytá vrstva, 64 neuronů, 
 model.Layers.Add(new Dense(32, new Sigmoid())); // skrytá vrstva, 32 neuronů, sigmoid
 ```
 
+Nebo modelu předejte všechny vrstvy najednou, v pořadí od vstupu k výstupu — poslední je
+výstupní vrstva:
+
+```csharp
+NeuralNetwork model = new NeuralNetwork(
+    [
+        new Dense(64, new ReLU()),
+        new Dense(32, new Sigmoid()),
+        new Dense(10, new Softmax()),
+    ],
+    new Adam(0.001), new CrossEntropy(), seed: 42);
+```
+
+Obojí dá stejný model — se stejným seedem bit po bitu stejné váhy — a i do modelu ze seznamu jde
+další vrstvy přidávat.
+
 Kromě `Add()` nabízí `Layers` také:
 
 - `Insert()` – vloží vrstvu na danou pozici
 - `RemoveAt()` – odebere vrstvu na dané pozici (poslední zbývající vrstvu odebrat nejde)
 - `SetOutputActivation()` – nastaví novou výstupní aktivační funkci
-- `Clear(outputLayer)` – odebere všechny vrstvy a nastaví novou výstupní vrstvu
+- `Replace([...])` – vymění celou architekturu za dané vrstvy (poslední je výstupní); optimizér, loss, seed i datasety zůstanou
+- `Clear(outputLayer)` – odebere všechny vrstvy a nastaví novou výstupní vrstvu (totéž co `Replace([outputLayer])`)
 - `SetInputShape(shape)` – postaví model hned pro daný tvar vstupu, ne až při prvním průchodu
 - `Rebuild()` – zahodí váhy všech vrstev; model se postaví znovu pro další data, ať mají jakýkoli tvar
 - `RebuildIncompatible()` – další data smějí mít jiný tvar: nové váhy dostanou jen vrstvy, na které už nesedí, ostatní si své nechají
@@ -134,6 +151,12 @@ Kromě `Add()` nabízí `Layers` také:
 `model.Layers.Layers` je seznam vrstev v pořadí, jen ke čtení; měnit ho jde jen metodami výš,
 protože ty zároveň rozhodnou, které postavené vrstvy už nesedí (viz
 [Stavba modelu](#stavba-modelu)).
+
+Každá instance vrstvy může být v jednom modelu na jednom místě. Vrstva drží stav jednoho
+průchodu (své výstupy, vstupy neuronů, masku dropoutu, nasčítané gradienty), takže tatáž instance
+na dvou pozicích — nebo ve dvou modelech — by ho sdílela a gradienty by tiše vycházely špatně.
+Přidat ji znovu je proto chyba; vytvořte novou vrstvu. Vrstva odebraná z modelu (`RemoveAt`,
+`Replace`) se od něj odpojí a jde použít jinde.
 
 Postavený model bere jen data tvaru, pro který byl postaven. Data jiného tvaru — třeba širší
 vstup — jsou chyba, ne tichá nová inicializace první vrstvy; pokud ji opravdu chcete, zavolejte
