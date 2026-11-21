@@ -110,6 +110,10 @@ namespace MDNN
         /// <summary>
         /// Whether training runs over sequences (recurrent layers keep state across samples).
         /// </summary>
+        /// <remarks>
+        /// <c>TrainLoop</c> sets it from its <c>isSequence</c> argument for every run. Set it yourself only
+        /// for <c>Evaluate</c> or a manual training loop.
+        /// </remarks>
         public bool SequenceTrain { get; set; } = false;
         /// <summary>
         /// Shape of the input sample the model is built for; <c>null</c> = not built yet.

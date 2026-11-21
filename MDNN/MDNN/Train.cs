@@ -378,6 +378,9 @@ namespace MDNN
         /// <returns>The number of correct predictions and the total number evaluated.</returns>
         public (int Correct, int Total) Evaluate(Tensor inputs, Tensor targets, bool showInConsole = true)
         {
+            // the same shaping as the training data — e.g. sequences [n, steps] → [n, steps, 1]
+            (inputs, targets) = ShapeForTraining(inputs, targets, "evaluated");
+
             // Built (and checked) BEFORE predicting: with Workers > 1 the replicas are copies of the
             // built layers.
             _model.Layers.EnsureBuilt(SampleShape(inputs));
@@ -438,7 +441,8 @@ namespace MDNN
         /// </summary>
         /// <param name="epochs">Number of epochs of this run (added to the epochs already completed).</param>
         /// <param name="miniBatchSize">Number of samples per optimizer step.</param>
-        /// <param name="isSequence">Train on sequences (inputs shaped [sequence, step, …]).</param>
+        /// <param name="isSequence">Train on sequences (inputs shaped [sequence, step, …]). Applies to this run:
+        /// <c>false</c> trains a model previously trained on sequences on ordinary samples again.</param>
         /// <exception cref="TrainingDivergedException">The loss became NaN or infinite.</exception>
         public void TrainLoop(uint epochs, uint miniBatchSize = 1, bool isSequence = false)
         {
@@ -457,7 +461,8 @@ namespace MDNN
         /// <param name="targets">All expected outputs.</param>
         /// <param name="epochs">Number of epochs of this run.</param>
         /// <param name="miniBatchSize">Number of samples per optimizer step.</param>
-        /// <param name="isSequence">Train on sequences (inputs shaped [sequence, step, …]).</param>
+        /// <param name="isSequence">Train on sequences (inputs shaped [sequence, step, …]). Applies to this run:
+        /// <c>false</c> trains a model previously trained on sequences on ordinary samples again.</param>
         public void TrainLoop(Array inputs, Array targets, uint epochs, uint miniBatchSize = 1, bool isSequence = false)
         {
             SetDatasets(new LabeledData(inputs, targets));
@@ -630,55 +635,13 @@ namespace MDNN
                 ShuffleTensor(inputs, targets, out inputs, out targets);
             }
 
-            if (isSequence)
-            {
-                _model.Context.SequenceTrain = true;
-            }
+            // The mode belongs to THIS run. Previously only `true` was written here, so once a model
+            // had been trained on sequences it stayed in sequence mode for good: a following
+            // TrainLoop(..., isSequence: false) treated ordinary samples as sequences and failed on
+            // a reshape.
+            _model.Context.SequenceTrain = isSequence;
 
-            if (_model.Context.SequenceTrain)
-            {
-                if (inputs.Shape.Length == 1)
-                {
-                    throw new ArgumentException("For sequential training the inputs must be at least a two-dimensional array.");
-                }
-
-                if (inputs.Shape.Length == 2)
-                {
-                    inputs.Reshape([inputs.Shape[0], inputs.Shape[1], 1]);
-                    targets.Reshape([inputs.Shape[0], inputs.Shape[1], 1]);
-                }
-
-                // [sequence, step, sample…], where a sample has at most 3 dimensions ([h, w, c] for Conv)
-                // → at most 5D. The condition always did this; only the message used to say "four-dimensional".
-                else if (inputs.Shape.Length >= 6)
-                {
-                    throw new ArgumentException(
-                        "For sequential training the input can have at most five dimensions " +
-                        "[sequence, step, height, width, channels].");
-                }
-
-            }
-
-            else
-            {
-
-                if (inputs.Shape.Length == 1)
-                {
-                    inputs.Reshape([inputs.Shape[0], 1]);
-                    targets.Reshape([inputs.Shape[0], 1]);
-                }
-
-                // [sample, …], where a sample has at most 3 dimensions → at most 4D. Previously this
-                // was >= 4, so TrainLoop rejected an image dataset with channels [n, h, w, c] —
-                // exactly what Conv takes — and the only workaround was flattening to [n, h·w·c].
-                else if (inputs.Shape.Length >= 5)
-                {
-                    throw new ArgumentException(
-                        "For non-sequential training the input can have at most four dimensions " +
-                        "[sample, height, width, channels].");
-                }
-
-            }
+            (inputs, targets) = ShapeForTraining(inputs, targets, "training");
 
             // An unbuilt model is built here, a built one only checked against the data (see
             // LayerManager.PrepareFor for why the difference).
@@ -854,7 +817,7 @@ namespace MDNN
             // When neither was supplied, fall through to splitting the whole bundle by the ratios.
             if (_explicitTrain != null && (_explicitValid != null || _explicitTest != null))
             {
-                ApplyExplicitDatasets();
+                ApplyExplicitDatasets(new LabeledData(inputs, targets));
                 return;
             }
 
@@ -945,6 +908,66 @@ namespace MDNN
             }
         }
 
+        // Brings a dataset to the form training works with:
+        //   sequences  [sequence, step]  → [sequence, step, 1]   (one feature per step)
+        //   samples    [sample]          → [sample, 1]           (one value per sample)
+        // and checks the number of dimensions. Inputs and targets independently.
+        //
+        // Previously this was done only for the TRAINING data, in place via Reshape. Validation and
+        // test sets given with SetDatasets(...) stayed as they were, so sequences [n, steps] with an
+        // explicit validation set crashed at the first validation ("The number of indices must be
+        // less than the number of tensor dimensions"). The in-place Reshape also changed the shape
+        // of tensors the user owns. Now every dataset goes through here, and the result is a new
+        // Tensor over the same data — nothing is copied and the user's tensor stays as it was.
+        private (Tensor inputs, Tensor targets) ShapeForTraining(Tensor inputs, Tensor targets, string dataset)
+        {
+            if (_model.Context.SequenceTrain)
+            {
+                if (inputs.Shape.Length == 1)
+                {
+                    throw new ArgumentException(
+                        $"For sequential training the {dataset} inputs must be at least a two-dimensional array.");
+                }
+
+                // [sequence, step, sample…], where a sample has at most 3 dimensions ([h, w, c] for Conv) → at most 5D
+                if (inputs.Shape.Length >= 6)
+                {
+                    throw new ArgumentException(
+                        $"For sequential training the {dataset} input can have at most five dimensions " +
+                        "[sequence, step, height, width, channels].");
+                }
+
+                return (WithTrailingOne(inputs, 2), WithTrailingOne(targets, 2));
+            }
+
+            // [sample, …], where a sample has at most 3 dimensions → at most 4D
+            if (inputs.Shape.Length >= 5)
+            {
+                throw new ArgumentException(
+                    $"For non-sequential training the {dataset} input can have at most four dimensions " +
+                    "[sample, height, width, channels].");
+            }
+
+            return (WithTrailingOne(inputs, 1), WithTrailingOne(targets, 1));
+        }
+
+        // A tensor of exactly `rank` dimensions gets a trailing dimension of 1; any other is returned as is.
+        private static Tensor WithTrailingOne(Tensor tensor, int rank)
+        {
+            if (tensor.Shape.Length != rank)
+            {
+                return tensor;
+            }
+
+            return new Tensor(tensor.Data, [.. tensor.Shape, 1]);
+        }
+
+        private LabeledData ShapeForTraining(LabeledData data, string dataset)
+        {
+            var (inputs, targets) = ShapeForTraining(data.Inputs, data.Targets, dataset);
+            return new LabeledData(inputs, targets);
+        }
+
         // Shape of one sample of `data`: without the sample dimension, in sequence mode also
         // without the step dimension.
         private int[] SampleShape(Tensor data)
@@ -1014,21 +1037,27 @@ namespace MDNN
         // working field. There used to be a bug here: test was cut from an already shrunk valid
         // set, so the offset fell out of range ("Invalid slice range!"). With a source that is
         // never overwritten this cannot happen.
-        private void ApplyExplicitDatasets()
+        //
+        // `train` is the user's training set already shaped for training (ShapeForTraining); the
+        // validation and test sets are shaped here, the same way.
+        private void ApplyExplicitDatasets(LabeledData train)
         {
-            _trainDataInputs = _explicitTrain!.Inputs;
-            _trainDataCurrentOutput = _explicitTrain.Targets;
+            LabeledData? valid = _explicitValid == null ? null : ShapeForTraining(_explicitValid, "validation");
+            LabeledData? test = _explicitTest == null ? null : ShapeForTraining(_explicitTest, "test");
 
-            if (_explicitValid != null && _explicitTest != null)
+            _trainDataInputs = train.Inputs;
+            _trainDataCurrentOutput = train.Targets;
+
+            if (valid != null && test != null)
             {
-                SetValid(_explicitValid);
-                SetTest(_explicitTest);
+                SetValid(valid);
+                SetTest(test);
                 return;
             }
 
             var (trainRatio, validRatio, testRatio) = ResolveSplitRatios();
 
-            if (_explicitValid != null)
+            if (valid != null)
             {
                 // TEST is missing. Carving it from valid only makes sense when the model is
                 // actually tested after training — otherwise the user would lose part of the
@@ -1039,13 +1068,13 @@ namespace MDNN
                 // shrinking it behind their back would be surprising.
                 if (!TestAfterTraining)
                 {
-                    SetValid(_explicitValid);
+                    SetValid(valid);
                     ClearTest();
                     return;
                 }
 
                 var (keptValid, carvedTest) = CarveInTwo(
-                    _explicitValid, validRatio / (validRatio + testRatio), "validation");
+                    valid, validRatio / (validRatio + testRatio), "validation");
 
                 SetValid(keptValid);
                 SetTest(carvedTest);
@@ -1057,13 +1086,13 @@ namespace MDNN
                 // during training) would spoil that estimate. In practice the validation set is
                 // taken from train. Typical case: MNIST = train + test.
                 var (keptTrain, carvedValid) = CarveInTwo(
-                    _explicitTrain!, trainRatio / (trainRatio + validRatio), "training");
+                    train, trainRatio / (trainRatio + validRatio), "training");
 
                 _trainDataInputs = keptTrain.Inputs;
                 _trainDataCurrentOutput = keptTrain.Targets;
 
                 SetValid(carvedValid);
-                SetTest(_explicitTest!);
+                SetTest(test!);
             }
         }
 

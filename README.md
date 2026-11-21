@@ -263,7 +263,7 @@ Parameters:
 - `Array targets` (required) — corresponding targets.
 - `uint epochs` (required) — number of training epochs.
 - `uint miniBatchSize` (optional, default `1`) — minibatch size.
-- `bool isSequence` (optional, default `false`) — set to `true` for sequential input data (for example time series).
+- `bool isSequence` (optional, default `false`) — set to `true` for sequential input data (for example time series). The mode applies to that run only: a model trained on sequences can be trained on ordinary samples again with `false`. Sequences `[sequence, step]` (one feature per step) and samples `[sample]` get a trailing dimension of 1 — the training, validation and test sets alike; your own tensors are not modified.
 
 This overload is a shortcut: it splits the given data by ratio and trains. When you already
 have your own split, hand the sets over explicitly and call the data-less overload instead:
@@ -495,7 +495,7 @@ Each model owns a `NetworkContext` (`model.Context`) that holds its runtime conf
 | `InputShape` | shape of the input the model is built for, `null` until it is built; read-only (see [Building the model](#building-the-model)) |
 | `SequenceTrain` | sequential (time-series) training mode |
 
-`GeneralNeuralNetworkSettings` holds only process-wide fallbacks, used where no model is involved: the default activation of a layer constructed without one (`DefaultHiddenActivation`), the optimizer of a standalone layer (`DefaultOptimizer`) and the shared random generator of models without a seed (`Random`).
+`GeneralNeuralNetworkSettings` holds only process-wide fallbacks, used where no model is involved: the default activation of a layer constructed without one (`DefaultHiddenActivation`), the optimizer of a standalone layer (`DefaultOptimizer`) and the shared random generator of models without a seed (`Random`, by default the thread-safe `Random.Shared`; if you replace it and use models without a seed from several threads, the replacement must be thread-safe too).
 
 ### Plotting
 

@@ -260,7 +260,7 @@ Parametry:
 - `Array targets` (povinný) – odpovídající cíle.
 - `uint epochs` (povinný) – počet trénovacích epoch.
 - `uint miniBatchSize` (volitelný, výchozí `1`) – velikost minibatche.
-- `bool isSequence` (volitelný, výchozí `false`) – nastavte na `true` pro sekvenční vstupní data (například časové řady).
+- `bool isSequence` (volitelný, výchozí `false`) – nastavte na `true` pro sekvenční vstupní data (například časové řady). Režim platí jen pro daný běh: model natrénovaný na sekvencích jde s `false` znovu trénovat na obyčejných vzorcích. Sekvence `[sekvence, krok]` (jeden příznak na krok) a vzorky `[vzorek]` dostanou poslední rozměr 1 — trénovací, validační i testovací sada stejně; vaše vlastní tenzory se nemění.
 
 Tohle přetížení je zkratka: zadaná data rozdělí podle poměrů a trénuje. Pokud už máte vlastní
 rozdělení, předejte sady explicitně a zavolejte přetížení bez dat:
@@ -488,7 +488,7 @@ Každý model vlastní `NetworkContext` (`model.Context`), který drží jeho b�
 | `InputShape` | tvar vstupu, pro který je model postavený, do postavení `null`; jen ke čtení (viz [Stavba modelu](#stavba-modelu)) |
 | `SequenceTrain` | režim sekvenčního tréninku (časové řady) |
 
-`GeneralNeuralNetworkSettings` drží jen záložní hodnoty pro celý proces, použité tam, kde žádný model není: výchozí aktivaci vrstvy vytvořené bez ní (`DefaultHiddenActivation`), optimizér samostatné vrstvy (`DefaultOptimizer`) a sdílený generátor náhody pro modely bez seedu (`Random`).
+`GeneralNeuralNetworkSettings` drží jen záložní hodnoty pro celý proces, použité tam, kde žádný model není: výchozí aktivaci vrstvy vytvořené bez ní (`DefaultHiddenActivation`), optimizér samostatné vrstvy (`DefaultOptimizer`) a sdílený generátor náhody pro modely bez seedu (`Random`, výchozí je vláknově bezpečný `Random.Shared`; pokud ho nahradíte a modely bez seedu používáte z více vláken, musí být vláknově bezpečná i náhrada).
 
 ### Tvorba grafů
 

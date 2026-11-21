@@ -67,7 +67,8 @@ namespace MDNN
                 // The replica's seed is drawn from the original's generator: it remains the model's
                 // single source of randomness, so a seeded run is reproducible. Without dropout the
                 // replica gets a fixed seed — still its own instance, because a context without a
-                // generator would fall back to the SHARED global one, which is not thread-safe.
+                // generator would fall back to the SHARED global one, which the user may have replaced
+                // with an instance that is not thread-safe (see GeneralNeuralNetworkSettings.Random).
                 int seed = needsRandom ? original.Context.Random.Next() : 0;
                 NetworkContext context = original.Context.CreateReplica(seed);
                 _replicas[w] = new NeuralNetwork(context, layers);
