@@ -536,6 +536,15 @@ namespace MDNN
             ChangeStructure(list => list.Insert(position, layer), [layer]);
         }
 
+        // Hidden[position] = layer. The layer being replaced is left out of the duplicate check, so
+        // putting the same instance back is a no-op; any OTHER layer of the model (hidden or output) is a duplicate.
+        internal void SetHidden(int position, Layer layer)
+        {
+            List<Layer> others = layersList.Where((_, i) => i != position).ToList();
+            RequireUsableLayer(layer, others, "value");
+            ChangeStructure(list => list[position] = layer, [layer]);
+        }
+
         internal void RemoveHidden(int position)
         {
             ChangeStructure(list => list.RemoveAt(position), []);

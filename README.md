@@ -147,6 +147,7 @@ model.Layers.Hidden                         // the hidden layers (Count, [i], fo
 model.Layers.Hidden.Add(layer)              // after the hidden layers, just before the output layer
 model.Layers.Hidden.Insert(position, layer) // 0 … Hidden.Count
 model.Layers.Hidden.RemoveAt(position)      // a hidden layer only
+model.Layers.Hidden[i] = layer              // replace one hidden layer
 model.Layers.Hidden.Clear()                 // all hidden layers; the output layer stays
 model.Layers.Hidden.Replace([...])          // new hidden layers; the output layer stays
 

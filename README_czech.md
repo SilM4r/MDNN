@@ -147,6 +147,7 @@ model.Layers.Hidden                         // skryté vrstvy (Count, [i], forea
 model.Layers.Hidden.Add(vrstva)             // za skryté vrstvy, těsně před výstupní
 model.Layers.Hidden.Insert(pozice, vrstva)  // 0 … Hidden.Count
 model.Layers.Hidden.RemoveAt(pozice)        // jen skrytá vrstva
+model.Layers.Hidden[i] = vrstva             // vymění jednu skrytou vrstvu
 model.Layers.Hidden.Clear()                 // všechny skryté; výstupní zůstane
 model.Layers.Hidden.Replace([...])          // nové skryté vrstvy; výstupní zůstane
 

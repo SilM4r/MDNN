@@ -299,6 +299,62 @@ public class LayerListTests : GradientCheckTestBase
     }
 
     [Fact]
+    public void Setting_a_hidden_layer_by_index_replaces_just_that_layer()
+    {
+        var model = ThreeLayers(out var first, out var second, out var output);
+        TrainFewSteps(model);
+        double[] firstBefore = first.Neurons.SelectMany(n => n.Weights).ToArray();
+        double[] outputBefore = output.Neurons.SelectMany(n => n.Weights).ToArray();
+
+        var replacement = new Dense(4, new ReLU());   // same width as `second` → the output layer's input stays
+        model.Layers.Hidden[1] = replacement;
+
+        Assert.Equal(new Layer[] { first, replacement, output }, model.Layers.Layers);
+        Assert.Null(second.Context);   // the old one is detached
+        Assert.False(replacement.IsBuilt);
+
+        model.GetResults(new Tensor(new double[] { 1, 2, 3 }));
+        Assert.Equal(5, replacement.Neurons[0].Weights.Length);
+        Assert.Equal(firstBefore, first.Neurons.SelectMany(n => n.Weights).ToArray());     // kept
+        Assert.Equal(outputBefore, output.Neurons.SelectMany(n => n.Weights).ToArray());   // kept
+    }
+
+    [Fact]
+    public void Setting_a_wider_hidden_layer_rebuilds_the_next_layer()
+    {
+        var model = ThreeLayers(out _, out _, out var output);
+        TrainFewSteps(model);
+
+        model.Layers.Hidden[1] = new Dense(9, new ReLU());
+
+        Assert.False(output.IsBuilt);   // its input changed from 4 to 9
+        model.GetResults(new Tensor(new double[] { 1, 2, 3 }));
+        Assert.Equal(9, output.Neurons[0].Weights.Length);
+    }
+
+    [Fact]
+    public void The_index_cannot_reach_the_output_layer()
+    {
+        var model = ThreeLayers(out _, out _, out var output);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => model.Layers.Hidden[2] = new Dense(1, new Linear()));
+        Assert.Same(output, model.Layers.Output);
+    }
+
+    [Fact]
+    public void Setting_by_index_checks_for_duplicates_but_allows_the_same_layer_back()
+    {
+        var model = ThreeLayers(out var first, out var second, out var output);
+
+        Assert.Throws<ArgumentException>(() => model.Layers.Hidden[0] = second);   // already at position 1
+        Assert.Throws<ArgumentException>(() => model.Layers.Hidden[0] = output);   // the output layer
+
+        model.Layers.Hidden[0] = first;   // no-op
+        Assert.Equal(3, model.Layers.Layers.Count);
+        Assert.Same(model.Context, first.Context);
+    }
+
+    [Fact]
     public void Layers_Add_is_a_shortcut_for_Hidden_Add()
     {
         var model = ThreeLayers(out _, out _, out var output);

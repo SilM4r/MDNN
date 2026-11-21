@@ -27,18 +27,41 @@ namespace MDNN
         /// <summary>Number of hidden layers.</summary>
         public int Count => manager.Layers.Count - 1;
 
-        /// <summary>The hidden layer at <paramref name="index"/> (0 = first layer of the model).</summary>
+        /// <summary>
+        /// The hidden layer at <paramref name="index"/> (0 = first layer of the model). Setting it replaces
+        /// that one hidden layer; the output layer cannot be reached through it.
+        /// </summary>
+        /// <remarks>
+        /// <c>Hidden[1] = new Dense(32, new Tanh())</c> is the same as <c>RemoveAt(1)</c> followed by
+        /// <c>Insert(1, …)</c>, in one step: the old layer is detached from the model, the new one is built
+        /// on the next pass, and the other layers keep their weights as long as their input does not change.
+        /// </remarks>
+        /// <exception cref="ArgumentOutOfRangeException">The index is outside 0 … <see cref="Count"/> − 1.</exception>
+        /// <exception cref="ArgumentException">(set) The layer is already elsewhere in this model, or in another model.</exception>
         public Layer this[int index]
         {
             get
             {
-                if (index < 0 || index >= Count)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(index), index,
-                        $"The model has {Count} hidden layer(s); the index must be in the range 0 ≤ index < {Count}.");
-                }
-
+                RequireIndex(index);
                 return manager.Layers[index];
+            }
+            set
+            {
+                ArgumentNullException.ThrowIfNull(value);
+                RequireIndex(index);
+                manager.SetHidden(index, value);
+            }
+        }
+
+        private void RequireIndex(int index)
+        {
+            if (index < 0 || index >= Count)
+            {
+                throw new ArgumentOutOfRangeException(nameof(index), index,
+                    Count == 0
+                        ? "The model has no hidden layers (the output layer is not one of them; replace it with ReplaceOutput)."
+                        : $"The model has {Count} hidden layer(s); the index must be in the range 0 ≤ index < {Count} " +
+                          "(the output layer is not one of them; replace it with ReplaceOutput).");
             }
         }
 
