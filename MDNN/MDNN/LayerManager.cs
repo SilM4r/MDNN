@@ -601,14 +601,5 @@ namespace MDNN
             List<Layer> incoming = RequireUsableLayers(layers, nameof(layers));
             ChangeStructure(list => { list.Clear(); list.AddRange(incoming); }, incoming);
         }
-
-        /// <summary>
-        /// Sets the activation function of the output layer.
-        /// </summary>
-        [Obsolete("Set it on the output layer: model.Layers.Output.Activation = …")]
-        public void SetOutputActivation(ActivationFunction activation)
-        {
-            Output.Activation = activation;
-        }
     }
 }
