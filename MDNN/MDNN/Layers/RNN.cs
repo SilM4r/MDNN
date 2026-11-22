@@ -53,7 +53,7 @@ namespace MDNN.Layers
             activation_func = ActivationFunction.FromName(layer.Name_of_activation_function);
             CheckIsActivationFuncIsNotApplyToLayer();
             List<ExportNeuron> saved = BaseExportLayer.Required(layer.Neurons, Name, nameof(layer.Neurons));
-            BaseExportLayer.RequireNotEmpty(saved, Name, nameof(layer.Neurons));
+            BaseExportLayer.RequireNeurons(saved, Name, inputCount: null);
 
             NeuronCount = saved.Count;
             output = new double[saved.Count];
@@ -185,7 +185,7 @@ namespace MDNN.Layers
                    && rnn.Name_of_activation_function == activation_func.Name
                    && rnn.Neurons != null
                    && rnn.Neurons.Count == NeuronCount
-                   && rnn.Neurons.All(n => n.Weights.Length == inputCount + 1);
+                   && rnn.Neurons.All(n => n?.Weights != null && n.Weights.Length == inputCount + 1);
         }
 
         internal override Action PrepareImport(BaseExportLayer saved, Optimizer optimizerPrototype)

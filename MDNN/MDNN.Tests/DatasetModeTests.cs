@@ -139,6 +139,27 @@ public class DatasetModeTests : GradientCheckTestBase
         Assert.Equal(6, total);   // 2 sequences × 3 steps
     }
 
+    [Fact]
+    public void One_target_per_sequence_is_reported_clearly()
+    {
+        var model = Recurrent();
+
+        // previously: a bare ArgumentOutOfRangeException from a slice
+        var ex = Assert.Throws<ArgumentException>(() =>
+            Silent(() => model.Train.TrainLoop(Sequences(6, 4, 1), new double[6], 1, 1, isSequence: true)));
+        Assert.Contains("one target per step", ex.Message);
+    }
+
+    [Fact]
+    public void A_different_number_of_steps_in_inputs_and_targets_is_reported()
+    {
+        var model = Recurrent();
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            Silent(() => model.Train.TrainLoop(Sequences(6, 4, 1), Sequences(6, 3, 2), 1, 1, isSequence: true)));
+        Assert.Contains("steps", ex.Message);
+    }
+
     // ------------------------------------------------------------ the sequence mode belongs to the run
 
     [Fact]

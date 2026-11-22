@@ -193,6 +193,19 @@ namespace MDNN.Layers
             if (ActivationFromLoss) activation_func = null;
         }
 
+        // The model's loss changed and the activation follows it (ActivationFromLoss): switch to the one
+        // the new loss needs. The neurons get it too; the weights stay.
+        internal void ChooseActivationFromLoss(MDNN.Losses.Loss loss)
+        {
+            ActivationFunction activation = ActivationForLoss(loss);   // throws for a custom loss
+
+            activation_func = activation;
+            foreach (Neuron neuron in neurons)
+            {
+                neuron.Activation = activation;
+            }
+        }
+
         // Which activation the output needs for this loss. A custom loss does not say, and a silent
         // guess (e.g. Linear) would be exactly the kind of substitution the library avoids elsewhere.
         private static ActivationFunction ActivationForLoss(MDNN.Losses.Loss loss)
@@ -218,7 +231,7 @@ namespace MDNN.Layers
             dropout = layer.DropoutRate;
 
             List<ExportNeuron> saved = BaseExportLayer.Required(layer.Neurons, Name, nameof(layer.Neurons));
-            BaseExportLayer.RequireNotEmpty(saved, Name, nameof(layer.Neurons));
+            BaseExportLayer.RequireNeurons(saved, Name, inputCount: null);
 
             NeuronCount = saved.Count;
             output = new double[saved.Count];
@@ -310,7 +323,7 @@ namespace MDNN.Layers
                    && dense.Name_of_activation_function == activation_func?.Name
                    && dense.Neurons != null
                    && dense.Neurons.Count == NeuronCount
-                   && dense.Neurons.All(n => n.Weights.Length == inputCount);
+                   && dense.Neurons.All(n => n?.Weights != null && n.Weights.Length == inputCount);
         }
 
         internal override Action PrepareImport(BaseExportLayer saved, Optimizer optimizerPrototype)

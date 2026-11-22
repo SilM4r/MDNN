@@ -34,6 +34,25 @@ namespace MDNN.Serialization
                     $"expected {rank} positive sizes.");
         }
 
+        // Neurons from the file: at least one, none null, each with weights, all with the same number of
+        // them. Previously a null neuron or "Weights": null crashed with NullReferenceException.
+        internal static void RequireNeurons(List<ExportNeuron> neurons, string layerType, int? inputCount)
+        {
+            RequireNotEmpty(neurons, layerType, "Neurons");
+
+            int expected = inputCount ?? neurons[0]?.Weights?.Length ?? -1;
+            for (int i = 0; i < neurons.Count; i++)
+            {
+                double[]? weights = neurons[i]?.Weights;
+                if (weights == null || weights.Length != expected || expected <= 0)
+                {
+                    throw new ModelFileCorruptedException(
+                        $"Layer {layerType} in the model file has a damaged neuron {i + 1} " +
+                        (weights == null ? "(no weights)." : $"({weights.Length} weights, expected {expected})."));
+                }
+            }
+        }
+
         // An empty list of neurons/kernels: previously it crashed with IndexOutOfRange on neurons[0].
         internal static void RequireNotEmpty(System.Collections.ICollection value, string layerType, string field)
         {

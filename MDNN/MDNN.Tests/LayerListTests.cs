@@ -204,6 +204,47 @@ public class LayerListTests : GradientCheckTestBase
         Assert.Same(second.Context, moved.Context);
     }
 
+    // ------------------------------------------------------------ the optimizer of a layer from elsewhere
+
+    [Fact]
+    public void A_layer_built_on_its_own_trains_with_the_models_optimizer()
+    {
+        var layer = new Dense(3, new ReLU());
+        layer.Build(new[] { 4 });   // its neurons get the global default optimizer (SGD)
+
+        var model = new NeuralNetwork([layer], new Adam(0.01), new MSE(), seed: 1, outputLayer: new Dense(1, new Linear()));
+
+        // previously: the model reported Adam, the layer trained with the global SGD
+        Assert.All(layer.Neurons, n => Assert.IsType<Adam>(n.Optimizer));
+    }
+
+    [Fact]
+    public void A_layer_moved_to_another_model_trains_with_that_models_optimizer()
+    {
+        var moved = new Dense(3, new ReLU());
+        var first = new NeuralNetwork([moved], new Adam(0.01), new MSE(), seed: 1, outputLayer: new Dense(1, new Linear()));
+        first.GetResults(new Tensor(new double[] { 1, 2, 3, 4 }));
+        first.Layers.Hidden.RemoveAt(0);
+
+        var second = new NeuralNetwork(new Momentum(0.1, 0.9), new MSE(), seed: 2);
+        second.Layers.Add(moved);
+
+        Assert.All(moved.Neurons, n => Assert.IsType<Momentum>(n.Optimizer));
+    }
+
+    [Fact]
+    public void A_layer_reused_within_its_own_model_keeps_its_optimizer_state()
+    {
+        var kept = new Dense(5, new ReLU());
+        var model = new NeuralNetwork([kept], new Adam(0.01), new MSE(), seed: 3, outputLayer: new Dense(1, new Linear()));
+        TrainFewSteps(model);
+        Optimizer before = kept.Neurons[0].Optimizer;
+
+        model.Layers.ReplaceAll([kept, new Dense(1, new Linear())]);
+
+        Assert.Same(before, kept.Neurons[0].Optimizer);
+    }
+
     // ------------------------------------------------------------ Replace
 
     [Fact]

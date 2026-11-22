@@ -336,6 +336,7 @@ namespace MDNN
             // The layers get their parameters from the file (together with a fresh clone of the
             // optimizer) — the optimizer change must not be propagated into them on top of that.
             context.OptimizerChanged = null;
+            context.LossChanged = null;
 
             try
             {
@@ -374,7 +375,7 @@ namespace MDNN
             {
                 // Whatever happened, a later change of Context.Optimizer must reach the layers again.
                 // Previously a file that failed to load left the hook disconnected for good.
-                layerManager.ReconnectOptimizerChanges();
+                layerManager.ConnectContextChanges();
             }
         }
         /// <summary>

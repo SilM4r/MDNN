@@ -264,7 +264,7 @@ namespace MDNN
             // An unbuilt model is built here, on this first sample — with the TARGET too, so an output
             // layer sized by the targets gets its size (GetResults alone has no targets). The same single
             // place as everywhere, LayerManager.EnsureBuilt; a built model skips it.
-            if (_model.Layers.NeedsBuild)
+            if (_model.Layers.NeedsBuild || _model.Layers.AcceptsNewTargetSize)
             {
                 _model.Layers.EnsureBuilt(inputs.Shape, targets.Shape);
             }
@@ -313,6 +313,11 @@ namespace MDNN
         /// Training forward pass (dropout active). The first half of <see cref="Fit"/>; follow it with
         /// <see cref="BackPropagation"/>. For prediction use <c>model.GetResults()</c>, which keeps dropout off.
         /// </summary>
+        /// <remarks>
+        /// It has no targets, so an output layer that takes its size from the targets (the default) does
+        /// not learn it here: a manual FeedForward + BackPropagation loop on such a model has to start with
+        /// <see cref="Fit"/>, which does.
+        /// </remarks>
         /// <param name="inputs">Input of one sample.</param>
         /// <returns>The model output.</returns>
         public Tensor FeedForward(Tensor inputs)
@@ -942,7 +947,26 @@ namespace MDNN
                         "[sequence, step, height, width, channels].");
                 }
 
-                return (WithTrailingOne(inputs, 2), WithTrailingOne(targets, 2));
+                Tensor shapedInputs = WithTrailingOne(inputs, 2);
+                Tensor shapedTargets = WithTrailingOne(targets, 2);
+
+                // One target per STEP. Previously a target per sequence ([n]) failed later with a bare
+                // ArgumentOutOfRangeException, and a different number of steps deep in the training loop.
+                if (shapedTargets.Shape.Length < 3)
+                {
+                    throw new ArgumentException(
+                        $"For sequential training the {dataset} targets must be [sequence, step, …] — one target per " +
+                        $"step — but they are [{string.Join(", ", targets.Shape)}].");
+                }
+
+                if (shapedTargets.Shape[1] != shapedInputs.Shape[1])
+                {
+                    throw new ArgumentException(
+                        $"The {dataset} inputs have {shapedInputs.Shape[1]} steps per sequence, but the targets " +
+                        $"{shapedTargets.Shape[1]} — sequential training needs one target per step.");
+                }
+
+                return (shapedInputs, shapedTargets);
             }
 
             // [sample, …], where a sample has at most 3 dimensions → at most 4D

@@ -281,6 +281,140 @@ public class AutoOutputTests : GradientCheckTestBase
         Assert.Equal(5, AutoOutput(model).NeuronCount);
     }
 
+    [Fact]
+    public void A_call_that_fails_on_the_input_does_not_fix_the_output_size()
+    {
+        var model = new NeuralNetwork([new Dense(3)], new SGD(0.1), new MSE(), seed: 1);
+        model.Layers.SetInputShape(new[] { 4 });
+
+        Assert.Throws<ArgumentException>(() =>
+            model.Train.Fit(new Tensor(new double[] { 1, 2, 3, 4, 5 }), new Tensor(new double[] { 1, 2, 3 })));
+
+        // previously: the output had taken 3 from the failed call and rejected 2 as "built for 3 values"
+        model.Train.Fit(new Tensor(new double[] { 1, 2, 3, 4 }), new Tensor(new double[] { 1, 2 }));
+        Assert.Equal(2, AutoOutput(model).NeuronCount);
+    }
+
+    [Fact]
+    public void A_build_that_fails_does_not_fix_the_output_size()
+    {
+        var model = new NeuralNetwork([new Conv(2, 5, new ReLU())], new SGD(0.1), new MSE(), seed: 1);
+
+        // a 5×5 kernel does not fit a 3×3 image — the plan fails
+        Assert.Throws<ArgumentException>(() => model.Train.Fit(new Tensor(new double[3, 3, 1]), new Tensor(new double[] { 1, 2, 3 })));
+
+        Assert.Equal(0, AutoOutput(model).NeuronCount);
+    }
+
+    [Fact]
+    public void RebuildIncompatible_with_an_input_shape_still_allows_targets_of_another_size()
+    {
+        var model = Quiet(new NeuralNetwork([new Dense(8, new ReLU())], new Adam(0.01), new CrossEntropy(), seed: 1));
+        var (x, y3) = Classes(3);
+        Silent(() => model.Train.TrainLoop(x, y3, 1, 4));
+
+        // previously: the shape built the input right away and used up the permission
+        model.Layers.RebuildIncompatible(new[] { 3 });
+        var (_, y5) = Classes(5);
+        Silent(() => model.Train.TrainLoop(x, y5, 1, 4));
+
+        Assert.Equal(5, AutoOutput(model).NeuronCount);
+    }
+
+    [Fact]
+    public void Predictions_before_RebuildIncompatible_meets_targets_keep_the_permission()
+    {
+        var model = Quiet(new NeuralNetwork([new Dense(8, new ReLU())], new Adam(0.01), new CrossEntropy(), seed: 1));
+        var (x, y3) = Classes(3);
+        Silent(() => model.Train.TrainLoop(x, y3, 1, 4));
+
+        model.Layers.RebuildIncompatible();
+        model.GetResults(new Tensor(x[0]));   // no targets here
+        model.Train.Fit(new Tensor(x[0]), new Tensor(new double[] { 0, 1, 0, 0 }));
+
+        Assert.Equal(4, AutoOutput(model).NeuronCount);
+    }
+
+    [Fact]
+    public void The_message_for_targets_of_another_size_talks_about_targets()
+    {
+        var model = Quiet(new NeuralNetwork([new Dense(8, new ReLU())], new Adam(0.01), new CrossEntropy(), seed: 1));
+        var (x, y3) = Classes(3);
+        Silent(() => model.Train.TrainLoop(x, y3, 1, 4));
+
+        var ex = Assert.Throws<ArgumentException>(() => model.Train.Fit(new Tensor(x[0]), new Tensor(new double[] { 0, 1, 0, 0 })));
+
+        Assert.Contains("size of the targets must not change", ex.Message);
+        Assert.DoesNotContain("input shape", ex.Message);
+    }
+
+    [Fact]
+    public void A_manual_loop_tells_to_start_with_Fit()
+    {
+        var model = new NeuralNetwork(new SGD(0.1), new MSE());
+        model.Layers.Add(new Dense(3));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => model.Train.FeedForward(new Tensor(new double[] { 1, 2 })));
+        Assert.Contains("start with Fit", ex.Message);
+
+        model.Train.Fit(new Tensor(new double[] { 1, 2 }), new Tensor(new double[] { 1 }));
+        model.Train.FeedForward(new Tensor(new double[] { 1, 2 }));   // from now on the manual loop works
+        model.Train.BackPropagation(new Tensor(new double[] { 1 }));
+    }
+
+    [Fact]
+    public void Changing_the_loss_changes_the_activation_that_follows_it()
+    {
+        var model = new NeuralNetwork([new Dense(3)], new SGD(0.1), new CrossEntropy(), seed: 1);
+        model.Train.Fit(new Tensor(new double[] { 1, 2 }), new Tensor(new double[] { 1, 0 }));
+        Assert.IsType<Softmax>(model.Layers.Output.Activation);
+        double[] before = Parameters(model);
+
+        model.Context.Loss = new MSE();
+
+        // previously: Softmax stayed and the model trained Softmax + MSE without a word
+        Assert.IsType<Linear>(model.Layers.Output.Activation);
+        Assert.All(AutoOutput(model).Neurons, n => Assert.IsType<Linear>(n.Activation));
+        Assert.Equal(before, Parameters(model));   // the weights stay
+    }
+
+    [Fact]
+    public void A_loss_the_activation_cannot_follow_is_rejected_and_the_model_keeps_its_loss()
+    {
+        var model = new NeuralNetwork([new Dense(3)], new SGD(0.1), new CrossEntropy(), seed: 1);
+        model.Train.Fit(new Tensor(new double[] { 1, 2 }), new Tensor(new double[] { 1, 0 }));
+
+        Assert.Throws<InvalidOperationException>(() => model.Context.Loss = new HalfMse());
+
+        Assert.IsType<CrossEntropy>(model.Context.Loss);
+        Assert.IsType<Softmax>(model.Layers.Output.Activation);
+    }
+
+    [Fact]
+    public void A_set_activation_does_not_follow_the_loss()
+    {
+        var model = new NeuralNetwork([new Dense(3)], new SGD(0.1), new MSE(), seed: 1);
+        model.Train.Fit(new Tensor(new double[] { 1, 2 }), new Tensor(new double[] { 0.5 }));
+        model.Layers.Output.Activation = new Sigmoid();
+
+        model.Context.Loss = new HalfMse();   // fine — the activation is the user's
+
+        Assert.IsType<Sigmoid>(model.Layers.Output.Activation);
+    }
+
+    [Fact]
+    public void Saving_before_the_targets_are_known_says_what_to_do()
+    {
+        var model = new NeuralNetwork();
+        model.Layers.Add(new Dense(8));
+        model.Layers.SetInputShape(new[] { 4 });
+
+        // previously: "build it with SetInputShape" — which had just been done
+        var ex = Assert.Throws<InvalidOperationException>(() => model.SaveAsJsonString());
+        Assert.Contains("targets", ex.Message);
+        Assert.DoesNotContain("SetInputShape", ex.Message);
+    }
+
     // ------------------------------------------------------------ going back to the automatic output
 
     [Fact]

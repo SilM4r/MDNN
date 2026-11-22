@@ -323,18 +323,19 @@ namespace MDNN.Layers
                    && conv.Biases.Length == filters;
         }
 
+        // A null anywhere (a damaged file) also means "not the same shape".
         private bool SameKernelShape(double[][][][] other)
         {
             if (other.Length != kernels.Length) return false;
             for (int f = 0; f < kernels.Length; f++)
             {
-                if (other[f].Length != kernelRows) return false;
+                if (other[f]?.Length != kernelRows) return false;
                 for (int i = 0; i < kernelRows; i++)
                 {
-                    if (other[f][i].Length != kernelCols) return false;
+                    if (other[f][i]?.Length != kernelCols) return false;
                     for (int j = 0; j < kernelCols; j++)
                     {
-                        if (other[f][i][j].Length != kernels[f][i][j].Length) return false;
+                        if (other[f][i][j]?.Length != kernels[f][i][j].Length) return false;
                     }
                 }
             }

@@ -63,6 +63,15 @@ namespace MDNN.Serialization
             for (int i = 0; i < model.Layers.Layers.Count; i++)
             {
                 Layer layer = model.Layers.Layers[i];
+                if (layer is Dense { SizeFromTargets: true, NeuronCount: 0 })
+                {
+                    // SetInputShape does not help here — the size of this layer comes from the targets
+                    throw new InvalidOperationException(
+                        "The output layer takes its size from the targets and the model has not seen any yet, so it " +
+                        "has no weights to save. Train the model first (Fit, TrainLoop), or give it an output layer " +
+                        "of a fixed size: model.Layers.ReplaceOutput(new Dense(n, …)).");
+                }
+
                 if (!layer.IsBuilt)
                 {
                     throw new InvalidOperationException(

@@ -45,9 +45,15 @@ namespace MDNN
 
             if (targets.Data.Length != outputTensor.Data.Length)
             {
+                // An output layer sized by the targets: the same advice as when TrainLoop finds it
+                // (a manual Fit on a built model gets here instead, without going through EnsureBuilt).
+                string hint = lastLayer is Dense { SizeFromTargets: true }
+                    ? " " + Layer.TargetSizeChangeHint
+                    : " The number of targets must match the number of output neurons.";
+
                 throw new ArgumentException(
                     $"The output layer has {outputTensor.Data.Length} values but the target has " +
-                    $"{targets.Data.Length}. The number of targets must match the number of output neurons.");
+                    $"{targets.Data.Length}.{hint}");
             }
 
             // Fused softmax + CrossEntropy: the loss returns ∂L/∂z = s − t directly. Here softmax

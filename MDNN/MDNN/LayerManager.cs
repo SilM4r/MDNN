@@ -46,6 +46,14 @@ namespace MDNN
         // layers it no longer fits are rebuilt.
         private bool rebuildIncompatibleOnNextPass;
 
+        // RebuildIncompatible() also allows targets of a new size — kept SEPARATELY, because the input
+        // and the targets need not arrive together: RebuildIncompatible(shape) builds for the input
+        // right away, and the targets come only with the next Fit/TrainLoop. Cleared once targets are seen.
+        private bool acceptNewTargetSize;
+
+        // For Train.Fit: does the next sample have to go through EnsureBuilt WITH its targets?
+        internal bool AcceptsNewTargetSize => acceptNewTargetSize;
+
         // Does anything have to be built before the next forward pass? A plain loop rather than
         // LINQ — it is asked on every GetResults and must not allocate.
         internal bool NeedsBuild
@@ -70,15 +78,15 @@ namespace MDNN
             List<Layer> incoming = RequireUsableLayers(layers, nameof(layers));
 
             RequireSizedByTargetsOnlyAsOutput(incoming);
-            foreach (Layer layer in incoming) layer.Context = context;
-            context.OptimizerChanged = ReplaceOptimizer;
+            foreach (Layer layer in incoming) Attach(layer);
+            ConnectContextChanges();
             layersList = incoming;
             MarkLayerRoles();
         }
         internal LayerManager(List<BaseExportLayer> exportLayers, NetworkContext context)
         {
             this.context = context;
-            context.OptimizerChanged = ReplaceOptimizer;
+            ConnectContextChanges();
             layersList = new List<Layer>();
 
             // The model's optimizer is passed to the layers directly. Previously the global
@@ -124,6 +132,7 @@ namespace MDNN
                 ? (int[])layersList[0].InputShape!.Clone()
                 : null;
             rebuildIncompatibleOnNextPass = false;
+            acceptNewTargetSize = false;
         }
         // Manager of ready-made layers (replicas) — no building, the layers inherit that from the
         // original. Only sets their context and roles.
@@ -184,14 +193,49 @@ namespace MDNN
             // otherwise throw them away on the next differently shaped sample — loading through new
             // layers (the other branch in ApplyLoaded) clears it too.
             rebuildIncompatibleOnNextPass = false;
+            acceptNewTargetSize = false;
             return true;
         }
 
-        // Re-attaches this manager to the context's optimizer change notification (after it was
+        // Re-attaches this manager to the context's change notifications (after they were
         // temporarily detached while a snapshot was being loaded into the layers).
-        internal void ReconnectOptimizerChanges()
+        internal void ConnectContextChanges()
         {
             context.OptimizerChanged = ReplaceOptimizer;
+            context.LossChanged = OnLossChanged;
+        }
+
+        // The model got a different loss. An output layer whose activation follows the loss follows it
+        // now too — previously it kept the activation chosen for the OLD loss (Softmax stayed after a
+        // switch from CrossEntropy to MSE) while still reporting that it followed the loss. The weights
+        // stay: an activation has no parameters. Called BEFORE the loss is stored, so a loss the
+        // activation cannot be chosen for throws and leaves the model unchanged.
+        private void OnLossChanged(MDNN.Losses.Loss loss)
+        {
+            if (AutomaticOutput is { ActivationFromLoss: true, NeuronCount: > 0 } output)
+            {
+                output.ChooseActivationFromLoss(loss);
+            }
+        }
+
+        // A layer joining the model. A BUILT layer that comes from elsewhere — built on its own with
+        // Build(), or moved from another model — has its neurons' optimizer from there (the global
+        // default, or the other model's). It gets a fresh clone of THIS model's optimizer; previously it
+        // kept training with the old one while the model reported its own. A layer already in this
+        // model (ReplaceAll may reuse it) keeps its optimizer and its state.
+        private void Attach(Layer layer)
+        {
+            if (ReferenceEquals(layer.Context, context))
+            {
+                return;
+            }
+
+            layer.Context = context;
+
+            if (layer.IsBuilt)
+            {
+                layer.ReplaceOptimizer(context.Optimizer);
+            }
         }
 
         // ---------------------------------------------------------------- building
@@ -231,6 +275,7 @@ namespace MDNN
 
             context.InputShape = null;
             rebuildIncompatibleOnNextPass = false;
+            acceptNewTargetSize = false;   // the size is forgotten anyway — the next targets set it
 
             if (inputShape != null)
             {
@@ -247,10 +292,13 @@ namespace MDNN
         /// the trained network stays. Which layers are rebuilt is decided by the shapes alone: a
         /// layer whose input shape stays the same keeps its weights.
         /// </remarks>
-        /// <param name="inputShape">Rebuild right away for this shape; <c>null</c> = on the first pass of data.</param>
+        /// <param name="inputShape">Rebuild right away for this input shape; <c>null</c> = on the first pass of data.
+        /// Either way, the next targets may also have a different size (an output layer sized by the targets is
+        /// then rebuilt for them).</param>
         public void RebuildIncompatible(int[]? inputShape = null)
         {
             rebuildIncompatibleOnNextPass = true;
+            acceptNewTargetSize = true;
 
             if (inputShape != null)
             {
@@ -271,27 +319,42 @@ namespace MDNN
         {
             RequirePositive(sampleShape);
 
-            if (targetShape != null)
+            bool rebuildIncompatible = rebuildIncompatibleOnNextPass;
+
+            // The data are checked BEFORE the output layer takes its size from the targets: a call that
+            // fails must not leave anything behind. Previously Fit(wrong input, targets[3]) first fixed
+            // the output at 3 and only then failed on the input; the corrected Fit with targets[2] was
+            // then rejected as "built for 3 values", although that layer had never been built.
+            if (!rebuildIncompatible)
             {
-                PrepareOutputFor(targetShape);
+                CheckInput(sampleShape);
             }
 
-            if (rebuildIncompatibleOnNextPass)
+            Action? undoOutput = targetShape != null ? PrepareOutputFor(targetShape) : null;
+
+            try
             {
-                BuildChain(sampleShape, invalidateIncompatible: true, requireOutput);
-                rebuildIncompatibleOnNextPass = false;
-                return;
+                if (rebuildIncompatible)
+                {
+                    BuildChain(sampleShape, invalidateIncompatible: true, requireOutput);
+                    rebuildIncompatibleOnNextPass = false;
+                }
+
+                // Also when every layer is built but the model has never recorded its input — the
+                // layers were built on their own (Build) before going into the model. BuildChain then
+                // only checks them against the plan and records the shape; previously the model stayed
+                // "without input" and training refused to start.
+                else if (NeedsBuild)
+                {
+                    BuildChain(sampleShape, invalidateIncompatible: false, requireOutput);
+                }
             }
-
-            CheckInput(sampleShape);
-
-            // Also when every layer is built but the model has never recorded its input — the
-            // layers were built on their own (Build) before going into the model. BuildChain then
-            // only checks them against the plan and records the shape; previously the model stayed
-            // "without input" and training refused to start.
-            if (NeedsBuild)
+            catch
             {
-                BuildChain(sampleShape, invalidateIncompatible: false, requireOutput);
+                // e.g. a kernel that does not fit — the plan fails, and the size the output layer just
+                // took from these targets is forgotten again
+                undoOutput?.Invoke();
+                throw;
             }
         }
 
@@ -308,8 +371,8 @@ namespace MDNN
             else
             {
                 RequirePositive(sampleShape);
+                CheckInput(sampleShape);            // the data first — see EnsureBuilt
                 PrepareOutputFor(targetShape);
-                CheckInput(sampleShape);
             }
         }
 
@@ -326,42 +389,54 @@ namespace MDNN
         // (a model trained on 10 classes does not silently become one for 12). RebuildIncompatible()
         // allows it: the output layer is rebuilt for the new size, the hidden layers keep their weights.
         // A fixed output layer is not checked here — the backward pass reports a target of the wrong size.
-        private void PrepareOutputFor(int[] targetShape)
+        //
+        // Returns how to undo the change if the build that follows fails (null = nothing changed):
+        // the output layer goes back to waiting for targets and the permission is restored.
+        private Action? PrepareOutputFor(int[] targetShape)
         {
+            bool hadPermission = acceptNewTargetSize;
+            acceptNewTargetSize = false;   // targets have come — the permission is used up
+
             Dense? output = AutomaticOutput;
             if (output == null)
             {
-                return;
+                return null;
             }
 
             int count = Dense.Flatten(targetShape);
             if (count == output.NeuronCount)
             {
-                return;
+                return null;
             }
 
-            if (output.NeuronCount == 0)
+            if (output.NeuronCount > 0)
             {
-                output.ResolveFromTargets(count, context.Loss);
-                return;
+                if (!hadPermission)
+                {
+                    acceptNewTargetSize = hadPermission;
+                    throw new ArgumentException(
+                        $"The output layer is built for {output.NeuronCount} values per sample (the size of the targets " +
+                        $"it was trained on), but the targets have {count}. {Layer.TargetSizeChangeHint}");
+                }
+
+                output.Invalidate();
+                output.ForgetTargetSize();
             }
 
-            if (!rebuildIncompatibleOnNextPass)
-            {
-                throw new ArgumentException(
-                    $"The output layer is built for {output.NeuronCount} values per sample (the size of the targets " +
-                    $"it was trained on), but the targets have {count}. {Layer.ShapeChangeHint}");
-            }
-
-            output.Invalidate();
-            output.ForgetTargetSize();
             output.ResolveFromTargets(count, context.Loss);
+
+            return () =>
+            {
+                output.ForgetTargetSize();
+                acceptNewTargetSize = hadPermission;
+            };
         }
 
         private const string OutputWaitsForTargetsMessage =
             "The output layer takes its size from the targets, and the model has not seen any yet — so it cannot " +
-            "predict before it is trained. Train it first (Fit, TrainLoop), or give it an output layer of a fixed " +
-            "size: model.Layers.ReplaceOutput(new Dense(n, …)).";
+            "predict before it is trained. Train it first (Fit, TrainLoop; a manual FeedForward + BackPropagation " +
+            "loop has to start with Fit, which knows the targets), or give it an output layer of a fixed size: " +
+            "model.Layers.ReplaceOutput(new Dense(n, …)).";
 
         // A model that is (or was) built for some input takes only data that fit it.
         private void CheckInput(int[] sampleShape)
@@ -511,7 +586,7 @@ namespace MDNN
 
             foreach (Layer layer in added)
             {
-                layer.Context = context;
+                Attach(layer);
             }
 
             // Layers that left the model are detached from it, so they can be put into another
@@ -539,6 +614,7 @@ namespace MDNN
             {
                 context.InputShape = null;
                 rebuildIncompatibleOnNextPass = false;
+                acceptNewTargetSize = false;
             }
 
             MarkLayerRoles();

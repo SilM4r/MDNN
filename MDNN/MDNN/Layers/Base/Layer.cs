@@ -192,6 +192,12 @@ namespace MDNN.Layers
             "shaped data, call model.Layers.Rebuild() (new weights for all layers) or " +
             "model.Layers.RebuildIncompatible() (new weights only for the layers that no longer fit).";
 
+        // For the error message when the TARGETS change size under an output layer sized by them.
+        internal const string TargetSizeChangeHint =
+            "The size of the targets must not change once the output layer is built. To train the model on targets " +
+            "of another size, call model.Layers.RebuildIncompatible() (a new output layer, the hidden layers keep " +
+            "their weights) or model.Layers.Rebuild() (new weights for all layers).";
+
         // ---------------------------------------------------------------- loading into an existing layer
         //
         // Restoring a snapshot (the best model at the end of TrainLoop) or LoadWeightsInPlace used to
