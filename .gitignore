@@ -17,3 +17,6 @@ AutoSave.json
 # venv pro generátor PyTorch fixtures (tools/torch_fixtures) — NEcommitovat
 .venv/
 tools/**/.venv/
+
+# benchmarky — jen lokálně, do repa nepatří (spouští se: dotnet run --project MDNN/MDNN.Benchmarks -c Release)
+MDNN/MDNN.Benchmarks/
