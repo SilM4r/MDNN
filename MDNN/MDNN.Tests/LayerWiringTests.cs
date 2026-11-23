@@ -18,7 +18,7 @@
       {
           var model = new NeuralNetwork(new Dense(2, new Linear()), new SGD(0.01), new MSE());
 
-          var ex = Record.Exception(() => model.Layers.Insert(0, new Conv(2, 2, new ReLU(), "valid")));
+          var ex = Record.Exception(() => model.Layers.Hidden.Insert(0, new Conv(2, 2, new ReLU(), "valid")));
 
           // Either it succeeds, or it must be a CLEAR exception, not a DivideByZeroException
           // from deep inside ConvertTo2D.
@@ -45,7 +45,7 @@
       {
           // input 2×2×1 = [[1,2],[3,4]], 2×2 kernel of all ones, bias 0, Linear
           var conv = new Conv(1, 2, new Linear(), "same");
-          conv.Build(null, new int[] { 2, 2, 1 });
+          conv.Build(new int[] { 2, 2, 1 });
 
           for (int i = 0; i < 2; i++)
           for (int j = 0; j < 2; j++)
@@ -79,7 +79,7 @@
           foreach (int k in new[] { 2, 3, 4, 5 })
           {
               var conv = new Conv(2, k, new Linear(), "same");
-              conv.Build(null, new int[] { 6, 6, 1 });
+              conv.Build(new int[] { 6, 6, 1 });
 
               Assert.Equal(new int[] { 6, 6, 2 }, conv.OutputShape);
 
@@ -178,26 +178,43 @@
       public void Conv_kernels_survive_adjustment_with_same_shape()
       {
           var conv = new Conv(2, 3, new ReLU(), "valid");
-          conv.Build(null, new int[] { 8, 8, 1 });
+          conv.Build(new int[] { 8, 8, 1 });
 
           conv.Kernels[0][0][0][0] = 42.0;                       // recognizable value
           double[][][][] before = conv.Kernels;
           double firstBefore = before[0][0][0][0];
 
-          conv.Build(null, new int[] { 8, 8, 1 });     // same shape
+          conv.Build(new int[] { 8, 8, 1 });     // same shape
 
           Assert.Equal(firstBefore, conv.Kernels[0][0][0][0]);
       }
 
+      // Previously Build with a different channel count silently drew new kernels — trained weights
+      // gone without a word. Now it is an error, and rebuilding is an explicit choice of the user.
       [Fact]
-      public void Conv_kernels_rebuild_when_channel_count_changes()
+      public void Building_a_built_conv_for_a_different_channel_count_is_an_error()
       {
           var conv = new Conv(2, 3, new ReLU(), "valid");
-          conv.Build(null, new int[] { 8, 8, 1 });
-          Assert.Single(conv.Kernels[0][0][0]);                   // 1 input channel so far
+          conv.Build(new int[] { 8, 8, 1 });
+          conv.Kernels[0][0][0][0] = 42.0;
 
-          conv.Build(null, new int[] { 8, 8, 3 });     // 1 → 3 channels
+          Assert.Throws<InvalidOperationException>(() => conv.Build(new int[] { 8, 8, 3 }));
 
+          Assert.Single(conv.Kernels[0][0][0]);                   // still 1 input channel
+          Assert.Equal(42.0, conv.Kernels[0][0][0][0]);           // and the same kernels
+      }
+
+      [Fact]
+      public void Conv_in_a_model_is_rebuilt_for_more_channels_on_request()
+      {
+          var model = new NeuralNetwork(new Dense(2, new Linear()), seed: 1);
+          model.Layers.Add(new Conv(2, 3, new ReLU(), "valid"));
+          model.GetResults(new Tensor(new double[8, 8, 1]));
+
+          model.Layers.RebuildIncompatible();
+          model.GetResults(new Tensor(new double[8, 8, 3]));
+
+          var conv = (Conv)model.Layers.Layers[0];
           Assert.Equal(3, conv.Kernels[0][0][0].Length);
       }
   }

@@ -23,6 +23,43 @@ namespace MDNN.Serialization
         internal static T Required<T>(T? value, string layerType, string field) where T : struct
             => value ?? throw new ModelFileCorruptedException(
                 $"Layer {layerType} in the model file is missing the field '{field}'.");
+
+        // A shape from the file must have the expected rank and positive sizes — otherwise the layer
+        // would crash with IndexOutOfRange while computing its output shape.
+        internal static void RequireShape(int[] shape, int rank, string layerType, string field)
+        {
+            if (shape.Length != rank || shape.Any(size => size <= 0))
+                throw new ModelFileCorruptedException(
+                    $"Layer {layerType} in the model file has an invalid '{field}' [{string.Join(", ", shape)}] — " +
+                    $"expected {rank} positive sizes.");
+        }
+
+        // Neurons from the file: at least one, none null, each with weights, all with the same number of
+        // them. Previously a null neuron or "Weights": null crashed with NullReferenceException.
+        internal static void RequireNeurons(List<ExportNeuron> neurons, string layerType, int? inputCount)
+        {
+            RequireNotEmpty(neurons, layerType, "Neurons");
+
+            int expected = inputCount ?? neurons[0]?.Weights?.Length ?? -1;
+            for (int i = 0; i < neurons.Count; i++)
+            {
+                double[]? weights = neurons[i]?.Weights;
+                if (weights == null || weights.Length != expected || expected <= 0)
+                {
+                    throw new ModelFileCorruptedException(
+                        $"Layer {layerType} in the model file has a damaged neuron {i + 1} " +
+                        (weights == null ? "(no weights)." : $"({weights.Length} weights, expected {expected})."));
+                }
+            }
+        }
+
+        // An empty list of neurons/kernels: previously it crashed with IndexOutOfRange on neurons[0].
+        internal static void RequireNotEmpty(System.Collections.ICollection value, string layerType, string field)
+        {
+            if (value.Count == 0)
+                throw new ModelFileCorruptedException(
+                    $"Layer {layerType} in the model file has an empty '{field}'.");
+        }
     }
 
     internal class ExportDenseLayer : BaseExportLayer
@@ -37,6 +74,14 @@ namespace MDNN.Serialization
 
         public List<ExportNeuron>? Neurons { get; set; }
 
+        // An output layer whose size comes from the targets (Dense.FromTargets). Written only when true,
+        // so files of ordinary layers stay as they were; a missing key reads as false.
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public bool SizeFromTargets { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public bool ActivationFromLoss { get; set; }
+
         [JsonConstructor]
         public ExportDenseLayer()
         {
@@ -49,6 +94,8 @@ namespace MDNN.Serialization
 
             Name_of_activation_function = layer.Activation.Name;
             DropoutRate = layer.DropoutRate;
+            SizeFromTargets = layer.SizeFromTargets;
+            ActivationFromLoss = layer.ActivationFromLoss;
 
             Neurons = new List<ExportNeuron>();
 
@@ -90,7 +137,7 @@ namespace MDNN.Serialization
             // recognized by the factory (it shortens the type name).
             Name_of_activation_function = layer.Activation.Name;
             Padding = layer.Padding;
-            InputShape = layer.InputShape;
+            InputShape = layer.InputShape!;   // only a built layer is saved
             OptimizerState = includeOptimizerState ? layer.OptimizerForSave.ExportState() : null;
         }
     }
@@ -109,7 +156,7 @@ namespace MDNN.Serialization
         public ExportMaxPoolLayer(MaxPool layer)
         {
             LayerType = "MaxPool";
-            InputsShape = layer.InputShape;
+            InputsShape = layer.InputShape!;   // only a built layer is saved
             PoolSize = layer.PoolSize;
         }
     }

@@ -14,7 +14,26 @@ namespace MDNN
         /// <summary>
         /// Loss function used for training. Defaults to <see cref="MSE"/>.
         /// </summary>
-        public Loss Loss { get; set; } = new MSE();
+        public Loss Loss
+        {
+            get => _loss;
+            set
+            {
+                ArgumentNullException.ThrowIfNull(value);
+                if (ReferenceEquals(value, _loss)) return;
+
+                // BEFORE storing: if the change cannot be carried out (an output layer that takes its
+                // activation from the loss, and a custom loss it cannot choose one for), it throws and
+                // the model keeps its loss.
+                LossChanged?.Invoke(value);
+                _loss = value;
+            }
+        }
+        private Loss _loss = new MSE();
+
+        // Who needs to know about a loss change — the model's LayerManager (an output layer whose
+        // activation follows the loss). A single slot like OptimizerChanged.
+        internal Action<Loss>? LossChanged { get; set; }
         private Optimizer _optimizer = new SGD(0.0001);
 
         // Each neuron (and each Conv layer) holds its own clone — the state is per parameter.
@@ -110,11 +129,23 @@ namespace MDNN
         /// <summary>
         /// Whether training runs over sequences (recurrent layers keep state across samples).
         /// </summary>
+        /// <remarks>
+        /// <c>TrainLoop</c> sets it from its <c>isSequence</c> argument for every run. Set it yourself only
+        /// for <c>Evaluate</c> or a manual training loop.
+        /// </remarks>
         public bool SequenceTrain { get; set; } = false;
         /// <summary>
-        /// Shape of a single input sample. <c>{ 0 }</c> means not known yet (inferred from the first input).
+        /// Shape of the input sample the model is built for; <c>null</c> = not built yet.
+        /// For information only — the library sets it when it builds the model (on the first pass
+        /// of data, or via <c>model.Layers.SetInputShape(...)</c>).
         /// </summary>
-        public int[] InputShape { get; set; } = new int[] { 0 };
+        /// <remarks>
+        /// Previously it could be set from outside, which changed nothing in the already built layers —
+        /// the model then reported one shape and worked with another. Use
+        /// <c>model.Layers.SetInputShape(...)</c> to build the model in advance, and
+        /// <c>model.Layers.Rebuild()</c> / <c>RebuildIncompatible()</c> to change the shape of a built one.
+        /// </remarks>
+        public int[]? InputShape { get; internal set; }
 
         // ---------------------------------------------------------------- regularization
 

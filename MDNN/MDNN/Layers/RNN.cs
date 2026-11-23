@@ -20,10 +20,6 @@ namespace MDNN.Layers
         /// <inheritdoc/>
         public override Tensor Output => Tensor.FromVector(output);
         /// <inheritdoc/>
-        public override int[] InputShape => input_size;
-        /// <inheritdoc/>
-        public override int[] OutputShape => new int[] { output.Length };
-        /// <inheritdoc/>
         public override Tensor RawOutput => Tensor.FromVector(raw_output);
         /// <inheritdoc/>
         public override ActivationFunction Activation
@@ -36,7 +32,9 @@ namespace MDNN.Layers
             }
         }
 
-        private int[] input_size;
+        // Number of inputs WITHOUT the recurrent one (each neuron has inputCount + 1 weights);
+        // 0 until the layer is built.
+        private int inputCount;
 
         private double[] output;
         private double[] raw_output;
@@ -55,7 +53,9 @@ namespace MDNN.Layers
             activation_func = ActivationFunction.FromName(layer.Name_of_activation_function);
             CheckIsActivationFuncIsNotApplyToLayer();
             List<ExportNeuron> saved = BaseExportLayer.Required(layer.Neurons, Name, nameof(layer.Neurons));
+            BaseExportLayer.RequireNeurons(saved, Name, inputCount: null);
 
+            NeuronCount = saved.Count;
             output = new double[saved.Count];
             raw_output = new double[saved.Count];
 
@@ -66,13 +66,13 @@ namespace MDNN.Layers
                 neurons.Add(new Neuron(neuron, activation_func, optimizerPrototype));
             }
 
-            input_size = new int[] { neurons[0].Weights.Length - 1 };
-
+            inputCount = neurons[0].Weights.Length - 1;
+            MarkBuiltFromFile(new int[] { inputCount });
         }
 
         /// <summary>
-        /// Creates a recurrent layer. The input size and the weights are set up later by
-        /// <c>Build</c>, when the layer is attached to a model.
+        /// Creates a recurrent layer. This is only a description — the weights are created when
+        /// the layer is built for its input (inside a model: on the first pass).
         /// </summary>
         /// <param name="neuronCount">Number of neurons (= size of the hidden state and of the output).</param>
         /// <param name="activation">Activation function; <c>null</c> = the default hidden activation.
@@ -84,21 +84,15 @@ namespace MDNN.Layers
                 throw new ArgumentException("The number of neurons in a layer must be greater than 0");
             }
 
-            // activation: default when not given; input size + neurons are set by Build (when attached to a model)
             this.activation_func = activation ?? GeneralNeuralNetworkSettings.DefaultHiddenActivation;
             CheckIsActivationFuncIsNotApplyToLayer();
-            input_size = new int[] { 0 };
+
+            // no placeholder neurons — see the Dense constructor
+            NeuronCount = neuronCount;
+            neurons = new List<Neuron>();
 
             output = new double[neuronCount];
             raw_output = new double[neuronCount];
-
-            neurons = new List<Neuron>();
-
-            for (int i = 0; i < neuronCount; i++)
-            {
-                neurons.Add(new Neuron(input_size[0] + 1, this.activation_func));   // placeholder, replaced by Build
-            }
-
         }
 
         // A layer-wide activation (softmax) on RNN used to be broken: ApplyToLayer was applied to
@@ -122,7 +116,7 @@ namespace MDNN.Layers
         public void ResetSequence()
         {
             // new sequence → zero the hidden state and the RTRL sensitivities (reallocation = zeroing)
-            output = new double[OutputShape[0]];
+            output = new double[NeuronCount];
             AllocateSensitivities();
         }
 
@@ -136,7 +130,7 @@ namespace MDNN.Layers
         }
 
         // safeguard: the sensitivities must match both the neuron count AND the weight count
-        // (neurons are rebuilt only in Fit → SetInputShape, after ResetSequence)
+        // (neurons are rebuilt only when the layer is built, after ResetSequence)
         private void EnsureSensitivities()
         {
             if (sW.Length != neurons.Count
@@ -144,68 +138,83 @@ namespace MDNN.Layers
                 AllocateSensitivities();
         }
 
+        // ---------------------------------------------------------------- building
+
+        /// <summary>RNN flattens any input to a vector, like Dense.</summary>
+        protected override int[] NormalizeInputShape(int[] inputShape) => new int[] { Dense.Flatten(inputShape) };
+
         /// <inheritdoc/>
-        public override void WireShapes(int? outputSize = null, int[]? inputShape = null)
-        {
-            if (inputShape != null)
-            {
-                if (inputShape.Length == 1)
-                {
-                    input_size = inputShape;
-                }
-
-                else
-                {
-                    input_size = new int[] { 1 };
-                    foreach (int input in inputShape)
-                    {
-                        input_size[0] *= input;
-                    }
-                }
-            }
-
-            if (outputSize != null)
-            {
-                output = new double[(int)outputSize];
-                raw_output = new double[(int)outputSize];
-            }
-
-        }
+        protected override int[] ComputeOutputShape(int[] inputShape) => new int[] { NeuronCount };
 
         // Note: an RNN neuron has one extra weight (the recurrent input h(t-1)).
         /// <inheritdoc/>
-        public override bool IsMaterialized =>
-            input_size[0] > 0 && NeuronsMatchShape(output.Length, input_size[0] + 1);
+        protected override void BuildCore(int[] inputShape, Random random, Optimizer optimizerPrototype)
+        {
+            // assigned to `neurons` only when complete, same draw order — see Dense.BuildCore
+            var built = new List<Neuron>(NeuronCount);
+
+            for (int i = 0; i < NeuronCount; i++)
+            {
+                built.Add(new Neuron(inputShape[0] + 1, activation_func, random));
+            }
+
+            foreach (Neuron n in built)
+            {
+                n.Optimizer = optimizerPrototype.CreateFresh();
+            }
+
+            neurons = built;
+            inputCount = inputShape[0];
+        }
 
         /// <inheritdoc/>
-        public override void MaterializeParameters()
+        protected override void OnInvalidated()
         {
-            if (input_size[0] <= 0)
-            {
-                return;
-            }
+            neurons = new List<Neuron>();
+            inputCount = 0;
 
-            if (!NeuronsMatchShape(output.Length, input_size[0] + 1))
-            {
-                // assigned to `neurons` only when complete — see Dense.MaterializeParameters
-                var rebuilt = new List<Neuron>();
+            // Including the hidden state: `output` is h(t-1) of the next step, and after a rebuild
+            // it would still hold the last output of the DISCARDED weights.
+            ClearSequenceState();
+        }
 
-                for (int i = 0; i < output.Length; i++)
+        internal override bool CanImport(BaseExportLayer saved)
+        {
+            return IsBuilt
+                   && saved is ExportRnnLayer rnn
+                   && rnn.Name_of_activation_function == activation_func.Name
+                   && rnn.Neurons != null
+                   && rnn.Neurons.Count == NeuronCount
+                   && rnn.Neurons.All(n => n?.Weights != null && n.Weights.Length == inputCount + 1);
+        }
+
+        internal override Action PrepareImport(BaseExportLayer saved, Optimizer optimizerPrototype)
+        {
+            var rnn = (ExportRnnLayer)saved;
+            List<ExportNeuron> savedNeurons = rnn.Neurons!;
+
+            // what can fail — nothing is written yet (see Layer.PrepareImport)
+            Optimizer[] optimizers = savedNeurons.Select(n => Neuron.PrepareOptimizer(n, optimizerPrototype)).ToArray();
+
+            return () =>
+            {
+                for (int i = 0; i < neurons.Count; i++)
                 {
-                    rebuilt.Add(new Neuron(input_size[0] + 1, activation_func, Context?.Random));
+                    neurons[i].ImportFrom(savedNeurons[i], optimizers[i]);
                 }
 
-                // per-model optimizer, only for fresh neurons — see Dense.MaterializeParameters
-                if (Context != null)
-                {
-                    foreach (Neuron n in rebuilt)
-                    {
-                        n.Optimizer = Context.Optimizer.CreateFresh();
-                    }
-                }
+                ClearSequenceState();
+            };
+        }
 
-                neurons = rebuilt;
-            }
+        // The same state as a layer freshly loaded from the file or freshly built: no hidden state
+        // h(t-1), no RTRL sensitivities.
+        private void ClearSequenceState()
+        {
+            output = new double[NeuronCount];
+            Array.Clear(raw_output);
+            sW = Array.Empty<double[]>();
+            sB = Array.Empty<double>();
         }
 
         // Replica for parallel training — see Layer.CreateReplica. Besides outputs it also owns
@@ -213,6 +222,8 @@ namespace MDNN.Layers
         // state between steps stays in one replica and never mixes with another sequence.
         internal override Layer CreateReplica()
         {
+            ThrowIfNotBuiltForReplica();
+
             RNN replica = (RNN)MemberwiseClone();
             replica.output = new double[output.Length];
             replica.raw_output = new double[raw_output.Length];
@@ -221,18 +232,24 @@ namespace MDNN.Layers
             return replica;
         }
 
-        private bool NeuronsMatchShape(int neuronCount, int weightsPerNeuron)
-        {
-            return neurons.Count == neuronCount
-                   && neurons.Count > 0
-                   && neurons[0].Weights.Length == weightsPerNeuron;
-        }
-
         /// <inheritdoc/>
         public override Tensor FeedForward(Tensor input)
         {
+            if (!IsBuilt)
+            {
+                throw new InvalidOperationException(
+                    $"{Name} is not built yet — add it to a model and run a sample through it, or call Build(inputShape).");
+            }
 
             double[] values = input.Data;
+
+            // same check as in Dense.FeedForward
+            if (values.Length != inputCount)
+            {
+                throw new ArgumentException(
+                    $"{Name} is built for {inputCount} inputs, but got {values.Length} " +
+                    $"(shape {SpatialShape.Describe(input.Shape)}). {ShapeChangeHint}");
+            }
 
             double[] newValues = new double[values.Length + 1];
 
@@ -287,7 +304,6 @@ namespace MDNN.Layers
             //
             // Note: the recurrent weight does not feed into the input gradient — RTRL does not
             // capture the contribution back in time. A known limitation, not an oversight (see README).
-            int inputCount = neurons[0].Weights.Length - 1;   // the last weight is recurrent
 
             // When the caller does not want the input gradient, it is not even allocated — and,
             // more importantly, an EMPTY tensor is returned, not an array of zeros. The contract in
@@ -311,7 +327,7 @@ namespace MDNN.Layers
                 if (delta == 0.0) continue;
 
                 double[] w = neurons[j].Weights;
-                for (int k = 0; k < inputCount; k++) gradInput[k] += delta * w[k];
+                for (int k = 0; k < inputCount; k++) gradInput[k] += delta * w[k];   // the last weight is recurrent
             }
 
             return computeInputGradient ? new Tensor(gradInput) : Tensor.Empty;

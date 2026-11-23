@@ -6,7 +6,7 @@ namespace MDNN.Layers
     /// </summary>
     /// <remarks>
     /// Why it has its own place: this logic used to be written TWICE in each of those layers —
-    /// once in <c>WireShapes</c> (chain wiring) and once in <c>FeedForward</c> (every pass) —
+    /// once when wiring the chain and once in <c>FeedForward</c> (every pass) —
     /// and the two copies disagreed. Wiring handled rank 1 and 3, forward also rank 2.
     /// A model with Conv or MaxPool as the first layer and a <c>double[h,w]</c> input therefore
     /// could not be built at all: it hit <c>throw new Exception()</c> with no message.
@@ -71,37 +71,36 @@ namespace MDNN.Layers
             return (rows, count / rows);
         }
 
-        /// <summary>Checks that the incoming input matches the shape the layer is WIRED to,
+        /// <summary>Checks that the incoming input matches the shape the layer is BUILT for,
         /// and returns it normalized.</summary>
         /// <remarks>
-        /// Shapes are wired once — on the first pass, left to right through the whole chain — and
-        /// are fixed from then on. The layer preallocates its input buffer from them, but the copy
+        /// A layer is built once — on the first pass, left to right through the whole chain — and
+        /// its shapes are fixed from then on. The layer preallocates its input buffer from them, but the copy
         /// loop in <c>FeedForward</c> used to follow the shape of the INCOMING tensor. A smaller input
         /// overwrote only its corner and the rest of the buffer kept the previous sample, silently
         /// returning stale numbers; a larger input crashed with <c>IndexOutOfRange</c> deep in the
         /// loop, without mentioning shapes.
         /// </remarks>
-        public static int[] RequireWiredShape(int[] incoming, int[] wired, string layerName)
+        public static int[] RequireBuiltShape(int[] incoming, int[] built, string layerName)
         {
-            if (wired.Length != 3 || wired[0] <= 0)
+            if (built.Length != 3 || built[0] <= 0)
             {
                 throw new InvalidOperationException(
-                    $"{layerName} is not wired to any input shape yet. Add the layer to a model " +
-                    "and let the first pass wire it, or call Build(...) yourself.");
+                    $"{layerName} is not built yet. Add the layer to a model " +
+                    "and let the first pass build it, or call Build(inputShape) yourself.");
             }
 
             int[] normalized = Normalize(incoming, layerName);
 
-            if (!SameAs(normalized, wired))
+            if (!SameAs(normalized, built))
             {
                 string from = SameAs(normalized, incoming)
                     ? ""
                     : $" (from shape [{Describe(incoming)}])";
 
                 throw new ArgumentException(
-                    $"{layerName} is wired to input {Describe(wired)}, but got " +
-                    $"{Describe(normalized)}{from}. The input shape must not change once the model is built — " +
-                    "layers are wired once, on the first pass.");
+                    $"{layerName} is built for input {Describe(built)}, but got " +
+                    $"{Describe(normalized)}{from}. {MDNN.Layers.Layer.ShapeChangeHint}");
             }
 
             return normalized;

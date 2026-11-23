@@ -90,14 +90,47 @@ Kompletní spustitelné příklady pro každý typ úlohy — klasifikace, regre
 Model se vytváří přes třídu `NeuralNetwork`, která je centrálním objektem pro práci se sítí:
 
 ```csharp
+// výstupní vrstva se vytvoří z dat; skryté vrstvy se přidají potom
+NeuralNetwork model = new NeuralNetwork(optimizer, loss, seed: 42);
+
+// skryté vrstvy v konstruktoru; výstupní z dat, nebo zadaná
+NeuralNetwork model = new NeuralNetwork([new Dense(64, new ReLU())], optimizer, loss, seed: 42);
+NeuralNetwork model = new NeuralNetwork([new Dense(64, new ReLU())], optimizer, loss, seed: 42,
+                                        outputLayer: new Dense(10, new Softmax()));
+
+// zadaná výstupní vrstva, skryté se přidají potom
 NeuralNetwork model = new NeuralNetwork(outputLayer, optimizer, loss);
+
+// všechny vrstvy v jednom seznamu — poslední je výstupní
+NeuralNetwork model = NeuralNetwork.WithAllLayers(
+    [new Dense(64, new ReLU()), new Dense(10, new Softmax())], optimizer, loss, seed: 42);
 ```
 
-Parametry konstruktoru:
+Seznam v konstruktoru obsahuje jen skryté vrstvy; pro všechny vrstvy včetně výstupní v jednom
+seznamu je `NeuralNetwork.WithAllLayers` (stejný model jako konstruktor s `outputLayer:`). Pro
+existující model je obdobou `model.Layers.ReplaceAll([...])`.
 
-- `outputLayer` (povinný) – objekt `Layer` představující výstupní vrstvu.
-- `optimizer` (volitelný) – objekt `Optimizer`. Výchozí hodnota je `SGD(0.0001)`.
-- `loss` (volitelný) – ztrátová funkce. Výchozí hodnota je `MSE()`.
+Parametry konstruktoru (všechny volitelné):
+
+- `hiddenLayers` – skryté vrstvy v pořadí od vstupu k výstupu. Seznam obsahuje jen skryté vrstvy, ať je výstupní zadaná, nebo ne.
+- `outputLayer` – výstupní vrstva. Když není zadaná, model ji vytvoří z dat (viz [Výstupní vrstva z dat](#výstupní-vrstva-z-dat)).
+- `optimizer` – objekt `Optimizer`. Výchozí hodnota je `SGD(0.0001)`.
+- `loss` – ztrátová funkce. Výchozí hodnota je `MSE()`.
+- `seed` – reprodukovatelnost modelu (viz [Reprodukovatelnost](#reprodukovatelnost)).
+
+### Výstupní vrstva z dat
+
+Vstup vlastní vrstvu nepotřebuje — první vrstva se přizpůsobí tvaru dat — a výstup se může datům
+přizpůsobit stejně. Model vytvořený bez výstupní vrstvy dostane `Dense.FromTargets()`: obyčejný
+`Dense`, jehož **počet neuronů je velikost jednoho cíle** (cíle `[n, 10]` → 10 neuronů) a jehož
+**aktivace vyplývá z loss** — `CrossEntropy` → `Softmax`, `MSE` → `Linear`. U vlastní loss aktivaci
+odvodit nejde, je potřeba ji zadat: `Dense.FromTargets(new Sigmoid())`, nebo později přes
+`model.Layers.Output.Activation`.
+
+- Velikost je známá, jakmile model uvidí cíle (`Fit`, `TrainLoop`, `Evaluate`); do té doby model neumí predikovat.
+- Cíle jiné velikosti na natrénovaném modelu jsou chyba, stejně jako jiný vstup; po `RebuildIncompatible()` se výstupní vrstva postaví pro novou velikost a skryté si nechají váhy.
+- Návrat k automatickému výstupu po zadání pevného: `model.Layers.ReplaceOutput(Dense.FromTargets())`.
+- Pro výstupní `Conv` nebo `RNN` zadejte výstupní vrstvu sami.
 
 Podporované optimizéry: `SGD(learningRate)`, `Adam(learningRate, beta1, beta2)`, `Momentum(learningRate, momentum)`.
 Podporované ztrátové funkce: `MSE`, `CrossEntropy`.
@@ -121,15 +154,64 @@ model.Layers.Add(new Dense(64, new ReLU()));    // skrytá vrstva, 64 neuronů, 
 model.Layers.Add(new Dense(32, new Sigmoid())); // skrytá vrstva, 32 neuronů, sigmoid
 ```
 
-Kromě `Add()` nabízí `Layers` také:
+Nebo modelu předejte skryté vrstvy najednou, v pořadí od vstupu k výstupu:
 
-- `Insert()` – vloží vrstvu na danou pozici
-- `RemoveAt()` – odebere vrstvu na dané pozici (poslední zbývající vrstvu odebrat nejde)
-- `SetOutputActivation()` – nastaví novou výstupní aktivační funkci
-- `Clear(outputLayer)` – odebere všechny vrstvy a nastaví novou výstupní vrstvu
+```csharp
+NeuralNetwork model = new NeuralNetwork(
+    [
+        new Dense(64, new ReLU()),
+        new Dense(32, new Sigmoid()),
+    ],
+    new Adam(0.001), new CrossEntropy(), seed: 42);   // + outputLayer: … pro pevnou výstupní vrstvu
+```
 
-`model.Layers.Layers` je seznam vrstev v pořadí, jen ke čtení; měnit ho jde jen metodami výš,
-protože ty zároveň přepojí tvary celého řetězu.
+Obojí dá stejný model — se stejným seedem bit po bitu stejné váhy — a i do modelu ze seznamu jde
+další vrstvy přidávat.
+
+API `Layers` je rozdělené na **skryté vrstvy** a **výstupní vrstvu**, takže z každého volání je
+jasné, kterou z nich mění (vstup vlastní vrstvu nepotřebuje — první vrstva se přizpůsobí tvaru
+dat):
+
+```csharp
+// skryté vrstvy — pozice počítají jen skryté vrstvy, výstupní se nikdy nedotknou
+model.Layers.Hidden                         // skryté vrstvy (Count, [i], foreach)
+model.Layers.Hidden.Add(vrstva)             // za skryté vrstvy, těsně před výstupní
+model.Layers.Hidden.Insert(pozice, vrstva)  // 0 … Hidden.Count
+model.Layers.Hidden.RemoveAt(pozice)        // jen skrytá vrstva
+model.Layers.Hidden[i] = vrstva             // vymění jednu skrytou vrstvu
+model.Layers.Hidden.Clear()                 // všechny skryté; výstupní zůstane
+model.Layers.Hidden.Replace([...])          // nové skryté vrstvy; výstupní zůstane
+
+// výstupní vrstva
+model.Layers.Output                         // výstupní vrstva
+model.Layers.ReplaceOutput(vrstva)          // jediný způsob, jak ji vyměnit
+
+// celá architektura
+model.Layers.Layers                         // všechny vrstvy v pořadí (jen ke čtení)
+model.Layers.ReplaceAll([...])              // vše najednou, poslední je výstupní
+
+model.Layers.Add(vrstva)                    // zkratka pro Hidden.Add
+```
+
+Optimizér, loss, seed i datasety zůstanou, ať vyměníte cokoli. Vrstvy, kterým se nezmění vstup,
+si nechají váhy (viz [Stavba modelu](#stavba-modelu)). Aktivace výstupní vrstvy se nastavuje
+přímo na ní: `model.Layers.Output.Activation = new Softmax();`.
+
+Stavba modelu předem a přestavba:
+
+- `SetInputShape(shape)` – postaví model hned pro daný tvar vstupu, ne až při prvním průchodu
+- `Rebuild()` – zahodí váhy všech vrstev; model se postaví znovu pro další data, ať mají jakýkoli tvar
+- `RebuildIncompatible()` – další data smějí mít jiný tvar: nové váhy dostanou jen vrstvy, na které už nesedí, ostatní si své nechají
+
+Každá instance vrstvy může být v jednom modelu na jednom místě. Vrstva drží stav jednoho
+průchodu (své výstupy, vstupy neuronů, masku dropoutu, nasčítané gradienty), takže tatáž instance
+na dvou pozicích — nebo ve dvou modelech — by ho sdílela a gradienty by tiše vycházely špatně.
+Přidat ji znovu je proto chyba; vytvořte novou vrstvu. Vrstva odebraná z modelu (`Hidden.RemoveAt`,
+`Hidden.Clear`, `ReplaceOutput`, …) se od něj odpojí a jde použít jinde.
+
+Postavený model bere jen data tvaru, pro který byl postaven. Data jiného tvaru — třeba širší
+vstup — jsou chyba, ne tichá nová inicializace první vrstvy; pokud ji opravdu chcete, zavolejte
+nejdřív `Rebuild()` nebo `RebuildIncompatible()`.
 
 Podporované vrstvy:
 
@@ -140,7 +222,7 @@ Podporované vrstvy:
 
 Pokud se konstruktoru vrstvy nezadá aktivační funkce, použije se ReLU (`GeneralNeuralNetworkSettings.DefaultHiddenActivation`) — i u výstupní vrstvy, takže tam aktivaci zadejte explicitně (například `Linear` pro regresi nebo `Softmax` pro klasifikaci).
 
-Vlastní vrstvu lze vytvořit zděděním jedné z abstraktních tříd `Layer`, `NeuronLayer` nebo `ParameterlessLayer` a implementací jejích abstraktních členů.
+Vlastní vrstvu lze vytvořit zděděním jedné z abstraktních tříd `Layer`, `NeuronLayer` nebo `ParameterlessLayer` a implementací jejích abstraktních členů. Stavba je rozdělená na `ComputeOutputShape(inputShape)` — čistou funkci, která řekne, co vrstva pro daný vstup vrací (a vyhodí výjimku, když ho vzít nemůže) — a `BuildCore(inputShape, random, optimizer)`, která vytvoří parametry; `ParameterlessLayer` potřebuje jen tu první.
 
 Dostupné aktivační funkce: `Linear`, `ReLU`, `LeakyReLU`, `Sigmoid`, `Tanh`, `Softmax`.
 
@@ -252,7 +334,7 @@ Parametry:
 - `Array targets` (povinný) – odpovídající cíle.
 - `uint epochs` (povinný) – počet trénovacích epoch.
 - `uint miniBatchSize` (volitelný, výchozí `1`) – velikost minibatche.
-- `bool isSequence` (volitelný, výchozí `false`) – nastavte na `true` pro sekvenční vstupní data (například časové řady).
+- `bool isSequence` (volitelný, výchozí `false`) – nastavte na `true` pro sekvenční vstupní data (například časové řady). Režim platí jen pro daný běh: model natrénovaný na sekvencích jde s `false` znovu trénovat na obyčejných vzorcích. Sekvence `[sekvence, krok]` (jeden příznak na krok) a vzorky `[vzorek]` dostanou poslední rozměr 1 — trénovací, validační i testovací sada stejně; vaše vlastní tenzory se nemění.
 
 Tohle přetížení je zkratka: zadaná data rozdělí podle poměrů a trénuje. Pokud už máte vlastní
 rozdělení, předejte sady explicitně a zavolejte přetížení bez dat:
@@ -477,10 +559,10 @@ Každý model vlastní `NetworkContext` (`model.Context`), který drží jeho b�
 | `L2` | koeficient L2 weight decay, `0` = vypnuto |
 | `Dropout` | výchozí dropout pro skryté vrstvy, `0` = vypnuto |
 | `IsTraining` | běží trénovací průchod? Zapíná ho `Fit()` na dobu svého dopředného průchodu; právě tím se zapíná a vypíná dropout |
-| `InputShape` | tvar vstupu modelu, odvozený při prvním průchodu |
+| `InputShape` | tvar vstupu, pro který je model postavený, do postavení `null`; jen ke čtení (viz [Stavba modelu](#stavba-modelu)) |
 | `SequenceTrain` | režim sekvenčního tréninku (časové řady) |
 
-`GeneralNeuralNetworkSettings` drží jen záložní hodnoty pro celý proces, použité tam, kde žádný model není: výchozí aktivaci vrstvy vytvořené bez ní (`DefaultHiddenActivation`), optimizér samostatné vrstvy (`DefaultOptimizer`) a sdílený generátor náhody pro modely bez seedu (`Random`).
+`GeneralNeuralNetworkSettings` drží jen záložní hodnoty pro celý proces, použité tam, kde žádný model není: výchozí aktivaci vrstvy vytvořené bez ní (`DefaultHiddenActivation`), optimizér samostatné vrstvy (`DefaultOptimizer`) a sdílený generátor náhody pro modely bez seedu (`Random`, výchozí je vláknově bezpečný `Random.Shared`; pokud ho nahradíte a modely bez seedu používáte z více vláken, musí být vláknově bezpečná i náhrada).
 
 ### Tvorba grafů
 
@@ -542,11 +624,30 @@ Stav jde zvenku jen číst (`Output`, `RawOutput`, `Inputs`, `Activation`, `Opti
 zapisuje do něj jen knihovna, takže ho nejde omylem změnit mimo pořadí, ve kterém trénink
 počítá. `Weights` vrací přímo pole vah.
 
-### Odvození tvaru vstupu (lazy)
+### Stavba modelu
 
-Vrstvy se vytvářejí bez znalosti velikosti vstupu — zadává se jen počet neuronů (nebo kernelů). Při prvním dopředném průchodu model zaznamená tvar vstupu do `Context.InputShape` a zapojí řetěz ve dvou krocích: `WireShapes()` na každé vrstvě zleva doprava odvodí tvar jejího vstupu z výstupu předchozí vrstvy; pak `MaterializeParameters()` jedním průchodem zleva doprava alokuje a inicializuje parametry (neurony, kernely). Proto váhy vrstvy neexistují, dokud model poprvé neuvidí data. Model jde zapojit i předem přes `model.Layers.SetInputShape(new[] { … })`.
+Vrstva, kterou vytvoříte, je jen **popis** — `new Dense(64, new ReLU())` ví, že bude mít
+64 neuronů (`NeuronCount`), ale váhy ještě nemá (`IsBuilt` je false, `Neurons` je prázdné,
+`InputShape` je `null`), protože nezná svůj vstup. Model vrstvy **postaví**, jakmile zná tvar
+dat: při prvním průchodu, nebo dřív přes `model.Layers.SetInputShape(new[] { … })`. Stavba má
+dva kroky:
 
-Protože se parametry losují v pořadí architektury, dva modely se stejným seedem a stejnou architekturou dostanou stejné váhy bez ohledu na to, jestli vznikly přes `Add()` nebo `Insert()`.
+1. Celý řetěz se **naplánuje**: pro každou vrstvu zleva doprava `ComputeOutputShape()` odvodí
+   tvar výstupu z tvaru vstupu, aniž by cokoli změnila. Vrstva, která svůj vstup vzít nemůže
+   (kernel se nevejde, nepodporovaný počet rozměrů), vyhodí výjimku už tady — dřív, než se
+   cokoli vylosuje, takže model nikdy nezůstane postavený napůl.
+2. Vrstvy se **postaví** jedním průchodem zleva doprava: alokují se buffery a náhodně se
+   inicializují parametry. `Context.InputShape` pak drží tvar, pro který je model postavený.
+
+Protože se parametry losují v pořadí architektury, dva modely se stejným seedem a stejnou
+architekturou dostanou stejné váhy bez ohledu na to, jestli vznikly ze seznamu, přes `Add()` nebo
+přes `Hidden.Insert()`.
+
+Změna struktury postaveného modelu (přidání, odebrání nebo výměna vrstev) vrátí na popis ty vrstvy,
+kterým se tím posune vstup — typicky vrstvu hned za vloženou nebo odebranou; postaví se znovu
+při dalším průchodu, ostatní si váhy nechají. Načtený model je postavený hned; obnova nejlepšího
+modelu na konci `TrainLoop` (i `LoadWeightsInPlace` se souborem stejné architektury) nahraje
+parametry do existujících vrstev, takže odkazy, které na ně držíte, dál platí.
 
 ### Dopředný průchod
 

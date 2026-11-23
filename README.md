@@ -90,14 +90,47 @@ Full, runnable examples for each task type — classification, regression, seque
 The model is created through the `NeuralNetwork` class, which is the central object for working with the network:
 
 ```csharp
+// the output layer is created from the data; hidden layers added afterwards
+NeuralNetwork model = new NeuralNetwork(optimizer, loss, seed: 42);
+
+// hidden layers in the constructor; the output layer from the data, or given
+NeuralNetwork model = new NeuralNetwork([new Dense(64, new ReLU())], optimizer, loss, seed: 42);
+NeuralNetwork model = new NeuralNetwork([new Dense(64, new ReLU())], optimizer, loss, seed: 42,
+                                        outputLayer: new Dense(10, new Softmax()));
+
+// the output layer given, hidden layers added afterwards
 NeuralNetwork model = new NeuralNetwork(outputLayer, optimizer, loss);
+
+// all layers in one list — the last one is the output layer
+NeuralNetwork model = NeuralNetwork.WithAllLayers(
+    [new Dense(64, new ReLU()), new Dense(10, new Softmax())], optimizer, loss, seed: 42);
 ```
 
-Constructor parameters:
+The list in the constructor holds only hidden layers; to give all layers including the output
+layer in one list, use `NeuralNetwork.WithAllLayers` (the same model as the constructor with
+`outputLayer:`). For an existing model the counterpart is `model.Layers.ReplaceAll([...])`.
 
-- `outputLayer` (required) — a `Layer` representing the output layer.
-- `optimizer` (optional) — an `Optimizer`. Defaults to `SGD(0.0001)`.
-- `loss` (optional) — a loss function. Defaults to `MSE()`.
+Constructor parameters (all optional):
+
+- `hiddenLayers` — the hidden layers, in order from input to output. The list holds only hidden layers, whether or not an output layer is given.
+- `outputLayer` — the output layer. When not given, the model creates it from the data (see [The output layer from the data](#the-output-layer-from-the-data)).
+- `optimizer` — an `Optimizer`. Defaults to `SGD(0.0001)`.
+- `loss` — a loss function. Defaults to `MSE()`.
+- `seed` — makes the model reproducible (see [Reproducibility](#reproducibility)).
+
+### The output layer from the data
+
+The input needs no layer of its own — the first layer adapts to the shape of the data — and the
+output can follow the data the same way. A model created without an output layer gets
+`Dense.FromTargets()`: an ordinary `Dense` whose **number of neurons is the size of one target**
+(targets `[n, 10]` → 10 neurons) and whose **activation follows from the loss** — `CrossEntropy`
+→ `Softmax`, `MSE` → `Linear`. With a custom loss the activation cannot be inferred, so it has
+to be given: `Dense.FromTargets(new Sigmoid())`, or set later with `model.Layers.Output.Activation`.
+
+- The size is known once the model sees targets (`Fit`, `TrainLoop`, `Evaluate`); until then the model cannot predict.
+- Targets of another size on a trained model are an error, like a different input; after `RebuildIncompatible()` the output layer is rebuilt for the new size and the hidden layers keep their weights.
+- Back to the automatic output after giving a fixed one: `model.Layers.ReplaceOutput(Dense.FromTargets())`.
+- For an output `Conv` or `RNN` give the output layer yourself.
 
 Supported optimizers: `SGD(learningRate)`, `Adam(learningRate, beta1, beta2)`, `Momentum(learningRate, momentum)`.
 Supported loss functions: `MSE`, `CrossEntropy`.
@@ -121,15 +154,64 @@ model.Layers.Add(new Dense(64, new ReLU()));    // hidden layer, 64 neurons, ReL
 model.Layers.Add(new Dense(32, new Sigmoid())); // hidden layer, 32 neurons, sigmoid
 ```
 
-Besides `Add()`, the `Layers` API includes:
+Or give the model its hidden layers at once, in order from input to output:
 
-- `Insert()` — insert a layer at a given position
-- `RemoveAt()` — remove a layer at a given position (the last remaining layer cannot be removed)
-- `SetOutputActivation()` — set a new output activation function
-- `Clear(outputLayer)` — remove all layers and set a new output layer
+```csharp
+NeuralNetwork model = new NeuralNetwork(
+    [
+        new Dense(64, new ReLU()),
+        new Dense(32, new Sigmoid()),
+    ],
+    new Adam(0.001), new CrossEntropy(), seed: 42);   // + outputLayer: … for a fixed output layer
+```
 
-`model.Layers.Layers` is a read-only list of the layers in order; the methods above are the
-only way to change it, because they also rewire the shapes of the chain.
+Both give the same model — with the same seed bit-for-bit the same weights — and more layers can
+still be added to a model created from a list.
+
+The `Layers` API is split into the **hidden layers** and the **output layer**, so it is clear
+from every call which of the two it changes (the input needs no layer of its own — the first
+layer adapts to the shape of the data):
+
+```csharp
+// hidden layers — positions count only the hidden layers, the output layer is never touched
+model.Layers.Hidden                         // the hidden layers (Count, [i], foreach)
+model.Layers.Hidden.Add(layer)              // after the hidden layers, just before the output layer
+model.Layers.Hidden.Insert(position, layer) // 0 … Hidden.Count
+model.Layers.Hidden.RemoveAt(position)      // a hidden layer only
+model.Layers.Hidden[i] = layer              // replace one hidden layer
+model.Layers.Hidden.Clear()                 // all hidden layers; the output layer stays
+model.Layers.Hidden.Replace([...])          // new hidden layers; the output layer stays
+
+// the output layer
+model.Layers.Output                         // the output layer
+model.Layers.ReplaceOutput(layer)           // the only way to change it
+
+// the whole architecture
+model.Layers.Layers                         // all layers in order (read-only)
+model.Layers.ReplaceAll([...])              // everything at once, the last one is the output layer
+
+model.Layers.Add(layer)                     // shortcut for Hidden.Add
+```
+
+Optimizer, loss, seed and datasets stay whatever you replace. Layers whose input does not change
+keep their weights (see [Building the model](#building-the-model)). The activation of the output
+layer is set on the layer itself: `model.Layers.Output.Activation = new Softmax();`.
+
+Building the model in advance and rebuilding it:
+
+- `SetInputShape(shape)` — build the model now for the given input shape, instead of on the first pass
+- `Rebuild()` — throw away the weights of all layers; the model is built again for the next data, whatever their shape
+- `RebuildIncompatible()` — let the next data have a different shape: only the layers that no longer fit get new weights, the others keep theirs
+
+Each layer instance can be in one model, at one position. A layer keeps the state of one pass
+(its outputs, the inputs of its neurons, the dropout mask, the accumulated gradients), so the same
+instance at two positions — or in two models — would share it and the gradients would silently come
+out wrong. Adding it again is therefore an error; create a new layer instead. A layer removed from a
+model (`Hidden.RemoveAt`, `Hidden.Clear`, `ReplaceOutput`, …) is detached from it and can go into another one.
+
+A built model only takes data of the shape it was built for. Data of a different shape — say
+the input got wider — is an error, not a silent re-initialization of the first layer; call
+`Rebuild()` or `RebuildIncompatible()` first if that is what you want.
 
 Supported layers:
 
@@ -140,7 +222,7 @@ Supported layers:
 
 If a layer constructor is called without an activation function, ReLU is used (`GeneralNeuralNetworkSettings.DefaultHiddenActivation`) — for the output layer too, so pass the activation explicitly there (for example `Linear` for regression or `Softmax` for classification).
 
-You can also define a custom layer by inheriting one of the abstract classes `Layer`, `NeuronLayer`, or `ParameterlessLayer` and implementing their abstract members.
+You can also define a custom layer by inheriting one of the abstract classes `Layer`, `NeuronLayer`, or `ParameterlessLayer` and implementing their abstract members. Building is split into `ComputeOutputShape(inputShape)` — a pure function that says what the layer outputs for a given input (and throws if it cannot take it) — and `BuildCore(inputShape, random, optimizer)`, which creates the parameters; a `ParameterlessLayer` only needs the first one.
 
 Available activation functions: `Linear`, `ReLU`, `LeakyReLU`, `Sigmoid`, `Tanh`, `Softmax`.
 
@@ -255,7 +337,7 @@ Parameters:
 - `Array targets` (required) — corresponding targets.
 - `uint epochs` (required) — number of training epochs.
 - `uint miniBatchSize` (optional, default `1`) — minibatch size.
-- `bool isSequence` (optional, default `false`) — set to `true` for sequential input data (for example time series).
+- `bool isSequence` (optional, default `false`) — set to `true` for sequential input data (for example time series). The mode applies to that run only: a model trained on sequences can be trained on ordinary samples again with `false`. Sequences `[sequence, step]` (one feature per step) and samples `[sample]` get a trailing dimension of 1 — the training, validation and test sets alike; your own tensors are not modified.
 
 This overload is a shortcut: it splits the given data by ratio and trains. When you already
 have your own split, hand the sets over explicitly and call the data-less overload instead:
@@ -484,10 +566,10 @@ Each model owns a `NetworkContext` (`model.Context`) that holds its runtime conf
 | `L2` | L2 weight decay coefficient, `0` = off |
 | `Dropout` | default dropout rate for hidden layers, `0` = off |
 | `IsTraining` | is a training pass running? Switched on by `Fit()` for the duration of its forward pass; this is what turns dropout on and off |
-| `InputShape` | shape of the model's input, inferred on the first pass |
+| `InputShape` | shape of the input the model is built for, `null` until it is built; read-only (see [Building the model](#building-the-model)) |
 | `SequenceTrain` | sequential (time-series) training mode |
 
-`GeneralNeuralNetworkSettings` holds only process-wide fallbacks, used where no model is involved: the default activation of a layer constructed without one (`DefaultHiddenActivation`), the optimizer of a standalone layer (`DefaultOptimizer`) and the shared random generator of models without a seed (`Random`).
+`GeneralNeuralNetworkSettings` holds only process-wide fallbacks, used where no model is involved: the default activation of a layer constructed without one (`DefaultHiddenActivation`), the optimizer of a standalone layer (`DefaultOptimizer`) and the shared random generator of models without a seed (`Random`, by default the thread-safe `Random.Shared`; if you replace it and use models without a seed from several threads, the replacement must be thread-safe too).
 
 ### Plotting
 
@@ -550,11 +632,31 @@ The state is read-only from outside (`Output`, `RawOutput`, `Inputs`, `Activatio
 `Optimizer`); only the library writes to it, so it cannot be changed out of step with training
 by accident. `Weights` returns the weight array itself.
 
-### Lazy shape inference
+### Building the model
 
-Layers are constructed without knowing their input size — you only specify the number of neurons (or kernels). On the first forward pass the model records the input shape into `Context.InputShape` and wires the chain in two steps: `WireShapes()` on every layer, left to right, derives each layer's input shape from the previous layer's output shape; then `MaterializeParameters()` allocates and initializes the parameters (neurons, kernels) in one left-to-right pass. This is why a layer's weights do not exist until the model first sees data. You can wire the model in advance with `model.Layers.SetInputShape(new[] { … })`.
+A layer you construct is only a **description** — `new Dense(64, new ReLU())` knows it will have
+64 neurons (`NeuronCount`), but it has no weights yet (`IsBuilt` is false, `Neurons` is empty,
+`InputShape` is `null`), because it does not know its input. The model **builds** the layers
+once the shape of the data is known: on the first pass, or earlier via
+`model.Layers.SetInputShape(new[] { … })`. Building has two steps:
 
-Because parameters are drawn in architecture order, two models with the same seed and the same architecture get the same weights no matter whether they were assembled with `Add()` or `Insert()`.
+1. The whole chain is **planned**: for every layer, left to right, `ComputeOutputShape()` derives
+   its output shape from its input shape, without changing anything. A layer that cannot take its
+   input (a kernel that does not fit, an unsupported rank) throws here — before anything is drawn,
+   so the model never ends up half built.
+2. The layers are **built** in one left-to-right pass: buffers are allocated and the parameters
+   randomly initialized. `Context.InputShape` then holds the shape the model is built for.
+
+Because parameters are drawn in architecture order, two models with the same seed and the same
+architecture get the same weights no matter whether they were assembled from a list, with `Add()`
+or with `Hidden.Insert()`.
+
+Changing the structure of a built model (adding, removing or replacing layers) turns the layers
+whose input the change shifts back into descriptions — typically the layer right after the inserted
+or removed one; they are built again on the next pass, the others keep their weights. A loaded model is built
+straight away; restoring the best model at the end of `TrainLoop` (and `LoadWeightsInPlace` with a
+file of the same architecture) copies the parameters into the existing layers, so references you
+hold to them stay valid.
 
 ### Forward pass
 

@@ -48,7 +48,7 @@ public class ShapeWiringTests
     {
         var model = ModelWith(new Conv(2, 3, new Tanh(), "valid"), new MaxPool(2), new Dense(6, new Tanh()));
 
-        Assert.All(model.Layers.Layers, l => Assert.True(l.InputShape[0] <= 0));
+        Assert.All(model.Layers.Layers, l => { Assert.False(l.IsBuilt); Assert.Null(l.InputShape); });
 
         model.GetResults(new Tensor(Filled(8, 8, 1, 0.5)));
 
@@ -59,7 +59,7 @@ public class ShapeWiringTests
         Assert.Equal(new[] { 3, 3, 2 }, layers[1].OutputShape);
         Assert.Equal(new[] { 18 }, layers[2].InputShape);   // 3*3*2 flattened for Dense
         Assert.Equal(new[] { 6 }, layers[3].InputShape);
-        Assert.All(layers, l => Assert.True(l.IsMaterialized));
+        Assert.All(layers, l => Assert.True(l.IsBuilt));
     }
 
     // ------------------------------------------------------------ 2) wiring handles what forward handles

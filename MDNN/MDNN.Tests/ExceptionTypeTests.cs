@@ -28,8 +28,8 @@ public class ExceptionTypeTests
     public void Layer_position_out_of_range()
     {
         var model = Model();
-        Assert.Throws<ArgumentOutOfRangeException>(() => model.Layers.Insert(5, new Dense(2)));
-        Assert.Throws<ArgumentOutOfRangeException>(() => model.Layers.RemoveAt(3));
+        Assert.Throws<ArgumentOutOfRangeException>(() => model.Layers.Hidden.Insert(5, new Dense(2)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => model.Layers.Hidden.RemoveAt(3));
     }
 
     [Fact]
@@ -56,16 +56,11 @@ public class ExceptionTypeTests
 
     private sealed class Identity : ParameterlessLayer
     {
-        private int[] shape = { 0 };
         public override string Name => "Identity";
-        public override int[] InputShape => shape;
-        public override int[] OutputShape => shape;
         public override Tensor? Output => null;
         public override Tensor? RawOutput => null;
         public override Tensor FeedForward(Tensor input_values) => input_values;
-        public override void WireShapes(int? n = null, int[]? input = null) { if (input != null) shape = input; }
-        public override void MaterializeParameters() { }
-        public override bool IsMaterialized => true;
+        protected override int[] ComputeOutputShape(int[] inputShape) => inputShape;
         public override Tensor Backward(Tensor g, bool p = false, bool c = true) => g;
     }
 
@@ -73,7 +68,7 @@ public class ExceptionTypeTests
     public void Saving_a_custom_layer_is_not_supported()
     {
         var model = Model();
-        model.Layers.Insert(0, new Identity());
+        model.Layers.Hidden.Insert(0, new Identity());
         model.GetResults(new Tensor(new double[] { 1.0 }));
 
         var ex = Assert.Throws<NotSupportedException>(() => model.SaveAsJsonString());

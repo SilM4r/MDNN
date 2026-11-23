@@ -87,9 +87,16 @@ namespace MDNN
             Note = loadModel.Note;
         }
         /// <summary>
-        /// Creates a model ending with <paramref name="outputLayer"/>; more layers are added via <see cref="Layers"/>.
+        /// Creates a model without layers yet: hidden layers are added via <see cref="Layers"/>, and the
+        /// output layer is created from the data — its size from the targets, its activation from the loss
+        /// (see <see cref="Dense.FromTargets"/>).
         /// </summary>
-        /// <param name="outputLayer">The output layer.</param>
+        /// <example>
+        /// <code>
+        /// var model = new NeuralNetwork(new Adam(0.001), new CrossEntropy(), seed: 42);
+        /// model.Layers.Add(new Dense(64, new ReLU()));
+        /// </code>
+        /// </example>
         /// <param name="optimizer">Optimizer; defaults to SGD.</param>
         /// <param name="loss">Loss function; defaults to MSE.</param>
         /// <param name="seed">
@@ -97,8 +104,56 @@ namespace MDNN
         /// everything random the model does. Two models with the same seed, architecture and data give
         /// bit-identical results. Without a seed the shared global generator is used.
         /// </param>
-        public NeuralNetwork(Layer outputLayer, Optimizer? optimizer = null, Loss? loss = null, int? seed = null)
+        public NeuralNetwork(Optimizer? optimizer = null, Loss? loss = null, int? seed = null)
+            : this(Array.Empty<Layer>(), optimizer, loss, seed)
         {
+        }
+
+        /// <summary>
+        /// Creates a model with the given output layer; hidden layers are added via <see cref="Layers"/>.
+        /// </summary>
+        /// <param name="outputLayer">The output layer.</param>
+        /// <param name="optimizer">Optimizer; defaults to SGD.</param>
+        /// <param name="loss">Loss function; defaults to MSE.</param>
+        /// <param name="seed">Seed for reproducibility — see <see cref="NeuralNetwork(Optimizer?, Loss?, int?)"/>.</param>
+        public NeuralNetwork(Layer outputLayer, Optimizer? optimizer = null, Loss? loss = null, int? seed = null)
+            : this(Array.Empty<Layer>(), optimizer, loss, seed,
+                   outputLayer ?? throw new ArgumentNullException(nameof(outputLayer)))
+        {
+        }
+
+        /// <summary>
+        /// Creates a model with the given HIDDEN layers, in order from input to output. The output layer is
+        /// <paramref name="outputLayer"/>, or — when not given — created from the data (its size from the
+        /// targets, its activation from the loss; see <see cref="Dense.FromTargets"/>).
+        /// </summary>
+        /// <example>
+        /// <code>
+        /// // the output layer from the data
+        /// var model = new NeuralNetwork([new Dense(64, new ReLU())], new Adam(0.001), new CrossEntropy(), seed: 42);
+        ///
+        /// // the output layer given
+        /// var model = new NeuralNetwork([new Dense(64, new ReLU())], new Adam(0.001), new CrossEntropy(), seed: 42,
+        ///                               outputLayer: new Dense(10, new Softmax()));
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// The list holds ONLY hidden layers, whether or not <paramref name="outputLayer"/> is given — one meaning
+        /// for one parameter. (Were the last layer of the list the output layer whenever no output layer is given,
+        /// adding <c>outputLayer:</c> to an existing call would silently turn the old output layer into a hidden one.)
+        /// To give the whole architecture in one list, with the output layer last, use <c>model.Layers.ReplaceAll</c>.
+        /// </remarks>
+        /// <param name="hiddenLayers">The hidden layers; may be empty. Each instance may appear only once.</param>
+        /// <param name="optimizer">Optimizer; defaults to SGD.</param>
+        /// <param name="loss">Loss function; defaults to MSE.</param>
+        /// <param name="seed">Seed for reproducibility — see <see cref="NeuralNetwork(Optimizer?, Loss?, int?)"/>.</param>
+        /// <param name="outputLayer">The output layer; <c>null</c> = created from the data.</param>
+        /// <exception cref="ArgumentException">The list contains null, or a layer instance twice or from another model.</exception>
+        public NeuralNetwork(IEnumerable<Layer> hiddenLayers, Optimizer? optimizer = null, Loss? loss = null,
+                             int? seed = null, Layer? outputLayer = null)
+        {
+            ArgumentNullException.ThrowIfNull(hiddenLayers);
+
             if (optimizer != null)
             {
                 context.Optimizer = optimizer;
@@ -114,17 +169,61 @@ namespace MDNN
                 context.Seed = seed;
             }
 
-            layerManager = new LayerManager(outputLayer, context);
+            layerManager = new LayerManager(hiddenLayers.Append(outputLayer ?? Dense.FromTargets()), context);
 
             train = new Train(this);
             Note = "";
         }
         /// <summary>
+        /// Creates a model from ALL its layers in one list, in order from input to output; the last one is
+        /// the output layer.
+        /// </summary>
+        /// <example>
+        /// <code>
+        /// var model = NeuralNetwork.WithAllLayers(
+        ///     [new Dense(64, new ReLU()), new Dense(10, new Softmax())],
+        ///     new Adam(0.001), new CrossEntropy(), seed: 42);
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// A shortcut for the constructor with <c>hiddenLayers</c> and <c>outputLayer</c> — the same model, with
+        /// the same seed bit-for-bit the same weights. Not a constructor because its list would be
+        /// indistinguishable from the constructor's list of hidden layers. The counterpart for an existing
+        /// model is <c>model.Layers.ReplaceAll([...])</c>. The last layer may be <see cref="Dense.FromTargets"/>.
+        /// </remarks>
+        /// <param name="layers">All layers, the last one is the output layer. Each instance may appear only once.</param>
+        /// <param name="optimizer">Optimizer; defaults to SGD.</param>
+        /// <param name="loss">Loss function; defaults to MSE.</param>
+        /// <param name="seed">Seed for reproducibility — see <see cref="NeuralNetwork(Optimizer?, Loss?, int?)"/>.</param>
+        /// <exception cref="ArgumentException">The list is empty, contains null, or a layer instance twice or from another model.</exception>
+        public static NeuralNetwork WithAllLayers(IEnumerable<Layer> layers, Optimizer? optimizer = null, Loss? loss = null, int? seed = null)
+        {
+            ArgumentNullException.ThrowIfNull(layers);
+
+            List<Layer> all = layers.ToList();
+            if (all.Count == 0)
+            {
+                throw new ArgumentException("The list of layers is empty — a model needs at least its output layer.", nameof(layers));
+            }
+
+            // checked here: a null passed on as `outputLayer` would silently mean "the output layer from the data"
+            Layer output = all[^1] ?? throw new ArgumentException($"Layer {all.Count} in the list (the output layer) is null.", nameof(layers));
+
+            return new NeuralNetwork(all.Take(all.Count - 1), optimizer, loss, seed, output);
+        }
+
+        /// <summary>
         /// Runs a forward pass and returns the network's output for <paramref name="inputs"/>.
         /// </summary>
         public Tensor GetResults(Tensor inputs)
         {
-            EnsureReadyForInput(inputs);
+            // Building (and the check that the data fit the built model) lives in ONE place,
+            // LayerManager.EnsureBuilt. Asked only when something is missing — a built model goes
+            // straight to the forward pass, where every layer checks its own input.
+            if (layerManager.NeedsBuild)
+            {
+                layerManager.EnsureBuilt(inputs.Shape);
+            }
 
             Tensor values = inputs;
 
@@ -134,26 +233,6 @@ namespace MDNN
             }
 
             return values;
-        }
-        // The model is ready when every layer has its shape wired AND its parameters drawn.
-        //
-        // Previously only `Layers[0].InputShape[0] <= 0` ("input unknown") was checked. That is
-        // fragile: in a LOADED model the first layer has its input from the file, so the check failed
-        // and a layer added via Add() stayed unwired until an IndexOutOfRange in the forward pass.
-        // The second branch covers that case.
-        private void EnsureReadyForInput(Tensor inputs)
-        {
-            if (Layers.Layers[0].InputShape[0] <= 0)
-            {
-                // the input shape is learned only now, from the first sample
-                context.InputShape = inputs.Shape;
-                Layers.SetInputShape();
-            }
-            else if (Layers.HasUnmaterializedLayers)
-            {
-                // shapes are wired (Add/Insert recomputed them), only parameters are missing
-                Layers.MaterializeAll();
-            }
         }
 
         /// <summary>
@@ -243,18 +322,61 @@ namespace MDNN
 
         private void ApplyLoaded(NetworkSaveLoadManager loaded)
         {
-            // The layers are rebuilt from the file right away — no point propagating the optimizer
-            // change into the current ones.
-            context.OptimizerChanged = null;
-
             // A custom optimizer/loss that cannot be constructed by name is taken from the model's
             // context. Without this, TrainLoop with a custom optimizer or loss crashed at the end when
             // restoring the best model from the snapshot.
-            context.Optimizer = Optimizer.ResolveForLoad(loaded.Optimizer, context.Optimizer, ownWins: false);
-            context.Loss = Loss.ResolveForLoad(loaded.Loss_functions, context.Loss, ownWins: false);
+            //
+            // Resolved into locals and written to the context only once the layers are loaded:
+            // previously the context got the file's optimizer first, so a file that then failed to
+            // load left the model reporting an optimizer its layers did not have.
+            Optimizer optimizer = Optimizer.ResolveForLoad(loaded.Optimizer, context.Optimizer, ownWins: false);
+            Loss loss = Loss.ResolveForLoad(loaded.Loss_functions, context.Loss, ownWins: false);
+            Optimizer previousOptimizer = context.Optimizer;
 
-            layerManager = new LayerManager(loaded.Layers, context);
-            Note = loaded.Note;
+            // The layers get their parameters from the file (together with a fresh clone of the
+            // optimizer) — the optimizer change must not be propagated into them on top of that.
+            context.OptimizerChanged = null;
+            context.LossChanged = null;
+
+            try
+            {
+                // The file describes the same architecture (always so for the best-model snapshot of
+                // TrainLoop) → the parameters are copied INTO the existing layers. Previously new layer
+                // objects were built from the file: a reference the user held to a layer then pointed
+                // outside the model (with the weights of the last epoch, not the best one), and a model
+                // with a custom activation crashed at the very end of training — the file only has its
+                // name, which cannot be turned back into an instance.
+                //
+                // A different architecture (LoadWeightsInPlace with another model's file) still gets new
+                // layers, as before. Either way a damaged file throws before the model changes.
+                if (!layerManager.TryImportParameters(loaded.Layers, optimizer))
+                {
+                    context.Optimizer = optimizer;   // the loading constructor clones it into the new layers
+                    try
+                    {
+                        LayerManager replaced = layerManager;
+                        layerManager = new LayerManager(loaded.Layers, context);
+
+                        // the old layers no longer belong to this model — they can go into another one
+                        foreach (Layer old in replaced.Layers) old.Context = null;
+                    }
+                    catch
+                    {
+                        context.Optimizer = previousOptimizer;
+                        throw;
+                    }
+                }
+
+                context.Optimizer = optimizer;
+                context.Loss = loss;
+                Note = loaded.Note;
+            }
+            finally
+            {
+                // Whatever happened, a later change of Context.Optimizer must reach the layers again.
+                // Previously a file that failed to load left the hook disconnected for good.
+                layerManager.ConnectContextChanges();
+            }
         }
         /// <summary>
         /// Prints a summary of the model (layers, shapes, parameters) to the console.

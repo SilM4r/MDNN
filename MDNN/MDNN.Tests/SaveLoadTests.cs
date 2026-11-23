@@ -461,7 +461,7 @@
               var loaded = NeuralNetwork.LoadModel(path);
               Assert.Equal(2, loaded.Layers.Layers.Count);
 
-              loaded.Layers.RemoveAt(0);                       // remove the hidden layer
+              loaded.Layers.Hidden.RemoveAt(0);                       // remove the hidden layer
 
               double[] output = loaded.GetResults(new Tensor(new double[] { 1, 1 })).Data;
               Assert.Equal(2, output.Length);
@@ -508,6 +508,7 @@
           try { model.Info(); } finally { Console.SetOut(so); }
 
           model.Layers.Add(new Dense(4, new ReLU()));
+          model.Layers.SetInputShape(new int[] { 2 });   // only a built model can be saved (it has weights)
 
           Assert.Equal("[Dense,Dense]", model.Schema);
           Assert.Contains("[Dense,Dense]", model.SaveAsJsonString());
